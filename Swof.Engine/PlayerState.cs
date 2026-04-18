@@ -15,6 +15,7 @@ public sealed class PlayerState
     public TeamSide Team { get; }
     public Vector2 Position { get; set; }
     public Vector2 Velocity { get; set; }
+    public Azimuth Facing { get; set; }
     public bool HasPossession { get; set; }
     public float Radius { get; init; } = PhysicsTuning.Default.PlayerRadius;
     public float MaxSpeedPerTick { get; init; } = PhysicsTuning.Default.PlayerMaxSpeedPerTick;

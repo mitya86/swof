@@ -35,17 +35,22 @@ We should model facing explicitly:
 ```text
 Player position
 Player velocity
-Player facing direction
+Player facing azimuth
 Player action state
 Player animation frame
 Ball carry/contact point
 ```
 
-Facing should be quantized to eight directions for now:
+Facing should be stored as an azimuth in degrees, then quantized to eight sectors for now:
 
 ```text
-N, NE, E, SE, S, SW, W, NW
+0 = north/up screen
+90 = east/right screen
+180 = south/down screen
+270 = west/left screen
 ```
+
+The initial engine can snap input to 45 degree increments. Later, we can smooth rotation or add finer directional sectors without changing the shape of player state.
 
 Movement input should normally update facing, but facing should not be treated as a free-floating visual. It should drive:
 
@@ -66,9 +71,9 @@ Movement input should normally update facing, but facing should not be treated a
 
 ## Recommended Next Engine Step
 
-Add explicit `FacingDirection` to `PlayerState`, with:
+Add explicit `Facing` azimuth to `PlayerState`, with:
 
-- eight-direction quantization from input
+- eight-sector quantization from input
 - facing retained when input is neutral
 - ball dribble offset based on facing
 - kick/pass/tackle based on facing, not raw current input

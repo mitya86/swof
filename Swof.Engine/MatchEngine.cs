@@ -24,19 +24,19 @@ public sealed class MatchEngine
         var field = FieldDimensions.Default;
         var players = new List<PlayerState>
         {
-            CreatePlayer(1, TeamSide.Home, new Vector2(-24f, 0f), tuning),
-            CreatePlayer(2, TeamSide.Home, new Vector2(-35f, -15f), tuning),
-            CreatePlayer(3, TeamSide.Home, new Vector2(-35f, 15f), tuning),
-            CreatePlayer(4, TeamSide.Away, new Vector2(24f, 0f), tuning),
-            CreatePlayer(5, TeamSide.Away, new Vector2(35f, -15f), tuning),
-            CreatePlayer(6, TeamSide.Away, new Vector2(35f, 15f), tuning)
+            CreatePlayer(1, TeamSide.Home, new Vector2(-24f, 0f), tuning, Azimuth.East),
+            CreatePlayer(2, TeamSide.Home, new Vector2(-35f, -15f), tuning, Azimuth.East),
+            CreatePlayer(3, TeamSide.Home, new Vector2(-35f, 15f), tuning, Azimuth.East),
+            CreatePlayer(4, TeamSide.Away, new Vector2(24f, 0f), tuning, Azimuth.West),
+            CreatePlayer(5, TeamSide.Away, new Vector2(35f, -15f), tuning, Azimuth.West),
+            CreatePlayer(6, TeamSide.Away, new Vector2(35f, 15f), tuning, Azimuth.West)
         };
         players[0].HasPossession = true;
 
         var ball = new BallState
         {
             Radius = tuning.BallRadius,
-            Position = players[0].Position + new Vector2(tuning.DribbleLeadDistance, 0f),
+            Position = players[0].Position + players[0].Facing.ToUnitVector() * tuning.DribbleLeadDistance,
             PossessorId = players[0].Id
         };
 
@@ -86,7 +86,7 @@ public sealed class MatchEngine
 
         if (actionReleased)
         {
-            UseAction(activePlayer, input.NormalizedMove, _actionHeldTicks);
+            UseAction(activePlayer, _actionHeldTicks);
             _actionHeldTicks = 0;
         }
 
@@ -94,7 +94,7 @@ public sealed class MatchEngine
 
         if (activePlayer.HasPossession)
         {
-            CarryBall(activePlayer, input.NormalizedMove);
+            CarryBall(activePlayer);
         }
         else
         {
@@ -125,6 +125,7 @@ public sealed class MatchEngine
         }
         else
         {
+            player.Facing = Azimuth.FromVector(move).Quantized(8);
             player.Velocity += move * player.AccelerationPerTick;
             player.Velocity = ClampLength(player.Velocity, player.MaxSpeedPerTick);
         }
@@ -132,34 +133,27 @@ public sealed class MatchEngine
         player.Position += player.Velocity;
     }
 
-    private void CarryBall(PlayerState player, Vector2 inputDirection)
+    private void CarryBall(PlayerState player)
     {
-        var facing = inputDirection == Vector2.Zero
-            ? DirectionForTeam(player.Team)
-            : inputDirection;
-
-        State.Ball.Position = player.Position + facing * Tuning.DribbleLeadDistance;
+        State.Ball.Position = player.Position + player.Facing.ToUnitVector() * Tuning.DribbleLeadDistance;
         State.Ball.Velocity = player.Velocity;
         State.Ball.PossessorId = player.Id;
     }
 
-    private void UseAction(PlayerState activePlayer, Vector2 inputDirection, int heldTicks)
+    private void UseAction(PlayerState activePlayer, int heldTicks)
     {
         if (activePlayer.HasPossession)
         {
-            KickBall(activePlayer, inputDirection, heldTicks);
+            KickBall(activePlayer, heldTicks);
             return;
         }
 
         TryTackle(activePlayer);
     }
 
-    private void KickBall(PlayerState player, Vector2 inputDirection, int heldTicks)
+    private void KickBall(PlayerState player, int heldTicks)
     {
-        var direction = inputDirection == Vector2.Zero
-            ? DirectionForTeam(player.Team)
-            : inputDirection;
-
+        var direction = player.Facing.ToUnitVector();
         var power01 = Math.Clamp((float)heldTicks / Tuning.MaxKickHoldTicks, 0.18f, 1f);
         var speed = Lerp(Tuning.MinKickSpeedPerTick, Tuning.MaxKickSpeedPerTick, power01);
 
@@ -308,6 +302,7 @@ public sealed class MatchEngine
         State.ActivePlayerId = player.Id;
         player.Position = kickoffTeam == TeamSide.Home ? new Vector2(-4f, 0f) : new Vector2(4f, 0f);
         player.Velocity = Vector2.Zero;
+        player.Facing = FacingForTeam(kickoffTeam);
         player.HasPossession = true;
 
         State.Ball.Position = Vector2.Zero;
@@ -323,15 +318,16 @@ public sealed class MatchEngine
             Math.Clamp(position.Y, field.Top, field.Bottom));
     }
 
-    private static Vector2 DirectionForTeam(TeamSide team)
+    private static Azimuth FacingForTeam(TeamSide team)
     {
-        return team == TeamSide.Home ? Vector2.UnitX : -Vector2.UnitX;
+        return team == TeamSide.Home ? Azimuth.East : Azimuth.West;
     }
 
-    private static PlayerState CreatePlayer(int id, TeamSide team, Vector2 position, PhysicsTuning tuning)
+    private static PlayerState CreatePlayer(int id, TeamSide team, Vector2 position, PhysicsTuning tuning, Azimuth facing)
     {
         return new PlayerState(id, team, position)
         {
+            Facing = facing,
             Radius = tuning.PlayerRadius,
             MaxSpeedPerTick = tuning.PlayerMaxSpeedPerTick,
             AccelerationPerTick = tuning.PlayerAccelerationPerTick,

@@ -101,6 +101,8 @@ namespace Swof.Windows
         private static readonly Brush HomeBrush = new SolidColorBrush(Color.FromRgb(235, 58, 58));
         private static readonly Brush AwayBrush = new SolidColorBrush(Color.FromRgb(64, 119, 230));
         private static readonly Brush ActiveOutlineBrush = new SolidColorBrush(Color.FromRgb(255, 230, 80));
+        private static readonly Brush SkinBrush = new SolidColorBrush(Color.FromRgb(239, 190, 135));
+        private static readonly Brush ShortsBrush = new SolidColorBrush(Color.FromRgb(30, 30, 34));
         private static readonly Brush BallBrush = new SolidColorBrush(Color.FromRgb(245, 245, 245));
         private static readonly Pen LinePen = new(LineBrush, 2);
         private static readonly Pen ActivePen = new(ActiveOutlineBrush, 3);
@@ -185,13 +187,46 @@ namespace Swof.Windows
                 var center = ToScreen(player.Position, field, rect);
                 var radius = ScaleDistance(player.Radius, field, rect);
                 var brush = player.Team == TeamSide.Home ? HomeBrush : AwayBrush;
-                context.DrawEllipse(brush, player.Id == State.ActivePlayerId ? ActivePen : null, center, radius, radius);
+                DrawPlayerBody(context, player, center, radius, brush);
+
+                if (player.Id == State.ActivePlayerId)
+                {
+                    context.DrawEllipse(null, ActivePen, center, radius + 5, radius + 5);
+                }
 
                 if (player.HasPossession)
                 {
                     context.DrawEllipse(null, new Pen(LineBrush, 2), center, radius + 5, radius + 5);
                 }
             }
+        }
+
+        private static void DrawPlayerBody(DrawingContext context, PlayerState player, Point center, double radius, Brush shirtBrush)
+        {
+            var forward = player.Facing.ToUnitVector();
+            var right = new NumericsVector2(forward.Y, -forward.X);
+
+            var head = Offset(center, forward, radius * 0.8);
+            var torsoFront = Offset(center, forward, radius * 0.35);
+            var torsoBack = Offset(center, forward, -radius * 0.6);
+            var leftShoulder = Offset(torsoFront, right, -radius * 0.65);
+            var rightShoulder = Offset(torsoFront, right, radius * 0.65);
+            var leftHip = Offset(torsoBack, right, -radius * 0.42);
+            var rightHip = Offset(torsoBack, right, radius * 0.42);
+
+            var body = new StreamGeometry();
+            using (var geometry = body.Open())
+            {
+                geometry.BeginFigure(leftShoulder, isFilled: true, isClosed: true);
+                geometry.LineTo(rightShoulder, isStroked: true, isSmoothJoin: true);
+                geometry.LineTo(rightHip, isStroked: true, isSmoothJoin: true);
+                geometry.LineTo(leftHip, isStroked: true, isSmoothJoin: true);
+            }
+
+            body.Freeze();
+            context.DrawGeometry(shirtBrush, new Pen(Brushes.Black, 1), body);
+            context.DrawEllipse(ShortsBrush, null, Offset(center, forward, -radius * 0.62), radius * 0.44, radius * 0.28);
+            context.DrawEllipse(SkinBrush, new Pen(Brushes.Black, 1), head, radius * 0.42, radius * 0.42);
         }
 
         private void DrawBall(DrawingContext context, FieldDimensions field, Rect rect)
@@ -211,6 +246,11 @@ namespace Swof.Windows
         private static double ScaleDistance(float worldDistance, FieldDimensions field, Rect rect)
         {
             return worldDistance / field.Length * rect.Width;
+        }
+
+        private static Point Offset(Point point, NumericsVector2 direction, double distance)
+        {
+            return new Point(point.X + direction.X * distance, point.Y + direction.Y * distance);
         }
     }
 }

@@ -8,7 +8,10 @@ var tests = new (string Name, Action Test)[]
     ("action release kicks a possessed ball", ActionReleaseKicksBall),
     ("goal is detected and scored", GoalIsDetectedAndScored),
     ("touchline out is detected", TouchlineOutIsDetected),
-    ("accumulator matches direct fixed ticks", AccumulatorMatchesDirectTicks)
+    ("accumulator matches direct fixed ticks", AccumulatorMatchesDirectTicks),
+    ("movement updates facing azimuth", MovementUpdatesFacingAzimuth),
+    ("neutral input keeps facing for dribble", NeutralInputKeepsFacingForDribble),
+    ("kick uses stored facing azimuth", KickUsesStoredFacingAzimuth)
 };
 
 var failed = 0;
@@ -114,6 +117,40 @@ static void AccumulatorMatchesDirectTicks()
         "Ball position should match direct ticks.");
 }
 
+static void MovementUpdatesFacingAzimuth()
+{
+    var engine = MatchEngine.CreateDefault();
+
+    engine.StepTick(new PlayerInput(Vector2.UnitY, ActionDown: false));
+
+    Assert(Near(engine.State.ActivePlayer.Facing.NormalizedDegrees, 180f), "Moving down should face south.");
+}
+
+static void NeutralInputKeepsFacingForDribble()
+{
+    var engine = MatchEngine.CreateDefault();
+
+    engine.StepTick(new PlayerInput(Vector2.UnitY, ActionDown: false));
+    engine.StepTick(PlayerInput.Empty);
+
+    Assert(Near(engine.State.ActivePlayer.Facing.NormalizedDegrees, 180f), "Neutral input should retain facing.");
+    Assert(
+        engine.State.Ball.Position.Y > engine.State.ActivePlayer.Position.Y,
+        "Possessed ball should stay in front of the player's facing.");
+}
+
+static void KickUsesStoredFacingAzimuth()
+{
+    var engine = MatchEngine.CreateDefault();
+
+    engine.StepTick(new PlayerInput(Vector2.UnitY, ActionDown: false));
+    StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), 10);
+    engine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: false));
+
+    Assert(engine.State.Ball.Velocity.Y > 0f, "Kick should travel south from stored facing.");
+    Assert(MathF.Abs(engine.State.Ball.Velocity.X) < 0.0001f, "Stored south-facing kick should not drift sideways.");
+}
+
 static void StepMany(MatchEngine engine, PlayerInput input, int count)
 {
     for (var i = 0; i < count; i++)
@@ -139,4 +176,9 @@ static void Assert(bool condition, string message)
     {
         throw new InvalidOperationException(message);
     }
+}
+
+static bool Near(float actual, float expected)
+{
+    return MathF.Abs(actual - expected) < 0.0001f;
 }
