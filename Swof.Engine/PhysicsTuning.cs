@@ -12,15 +12,23 @@ public sealed record PhysicsTuning
     public float BallRadius { get; init; } = 0.42f;
     public float BallFrictionPerTick { get; init; } = 5.2f / (60f * 60f);
     public float MinBallSpeedPerTick { get; init; } = 0.03f / 60f;
+    public float BallGravityPerTick { get; init; } = 46f / (60f * 60f);
+    public float BallBounceEnergyRetention { get; init; } = 0.42f;
+    public float BallMinBounceVelocityPerTick { get; init; } = 0.035f;
     public float PossessionDistance { get; init; } = 1.5f;
     public float DribbleLeadDistance { get; init; } = 1.15f;
     public float TackleDistance { get; init; } = 2.2f;
     public int TapPassMaxTicks { get; init; } = 7;
     public float PassSpeedPerTick { get; init; } = 24f / 60f;
+    public float PassLiftPerTick { get; init; } = 0.12f;
+    public float LongPassDistance { get; init; } = 16f;
     public float PassTargetConeCosine { get; init; } = 0.35f;
     public int MaxKickHoldTicks { get; init; } = 45;
     public float MinKickSpeedPerTick { get; init; } = 18f / 60f;
     public float MaxKickSpeedPerTick { get; init; } = 42f / 60f;
+    public float MinKickLiftPerTick { get; init; } = 0.03f;
+    public float MaxKickLiftPerTick { get; init; } = 0.32f;
+    public float KickLiftStartsAtPower { get; init; } = 0.35f;
     public int KickCollectionCooldownTicks { get; init; } = 11;
     public float RunnerVelocityCarryToKick { get; init; } = 0.25f;
 

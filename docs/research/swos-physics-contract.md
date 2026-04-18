@@ -71,7 +71,9 @@ Questions:
 Rules we need:
 
 - ground-ball initial speed by action hold time
+- vertical lift/height for long passes and hard kicks
 - ball deceleration/friction curve
+- gravity and bounce decay
 - minimum speed snap-to-rest threshold
 - shot/pass direction quantization
 - collision radius
@@ -229,10 +231,14 @@ Player max speed: 0.300 field units / tick
 Player acceleration: 0.0194 field units / tick^2
 Player friction: 0.0025 field units / tick^2
 Ball friction: 0.00144 field units / tick^2
+Ball gravity: 0.0128 field units / tick^2
+Ball bounce energy retention: 0.42
+Long-pass lift: 0.120 field units / tick
 Kick hold max time: 45 ticks
 Tap pass max time: 7 ticks
 Pass speed: 0.400 field units / tick
 Kick speed range: 0.300 to 0.700 field units / tick
+Kick lift range: 0.030 to 0.320 field units / tick
 Collection cooldown after kick: 11 ticks
 ```
 

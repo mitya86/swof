@@ -104,6 +104,7 @@ namespace Swof.Windows
         private static readonly Brush SkinBrush = new SolidColorBrush(Color.FromRgb(239, 190, 135));
         private static readonly Brush ShortsBrush = new SolidColorBrush(Color.FromRgb(30, 30, 34));
         private static readonly Brush BallBrush = new SolidColorBrush(Color.FromRgb(245, 245, 245));
+        private static readonly Brush BallShadowBrush = new SolidColorBrush(Color.FromArgb(95, 0, 0, 0));
         private static readonly Pen LinePen = new(LineBrush, 2);
         private static readonly Pen ActivePen = new(ActiveOutlineBrush, 3);
 
@@ -231,9 +232,16 @@ namespace Swof.Windows
 
         private void DrawBall(DrawingContext context, FieldDimensions field, Rect rect)
         {
-            var center = ToScreen(State!.Ball.Position, field, rect);
-            var radius = Math.Max(4d, ScaleDistance(State.Ball.Radius, field, rect));
-            context.DrawEllipse(BallBrush, new Pen(Brushes.Black, 1), center, radius, radius);
+            var shadowCenter = ToScreen(State!.Ball.Position, field, rect);
+            var baseRadius = Math.Max(4d, ScaleDistance(State.Ball.Radius, field, rect));
+            var heightPixels = State.Ball.Height / field.Length * rect.Width;
+            var ballCenter = new Point(shadowCenter.X, shadowCenter.Y - heightPixels);
+            var ballRadius = baseRadius * (1d + Math.Min(0.5d, State.Ball.Height * 0.045d));
+            var shadowRadiusX = baseRadius * Math.Max(0.45d, 1d - State.Ball.Height * 0.035d);
+            var shadowRadiusY = baseRadius * Math.Max(0.25d, 0.55d - State.Ball.Height * 0.025d);
+
+            context.DrawEllipse(BallShadowBrush, null, shadowCenter, shadowRadiusX, shadowRadiusY);
+            context.DrawEllipse(BallBrush, new Pen(Brushes.Black, 1), ballCenter, ballRadius, ballRadius);
         }
 
         private static Point ToScreen(NumericsVector2 world, FieldDimensions field, Rect rect)

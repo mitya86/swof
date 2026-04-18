@@ -138,6 +138,8 @@ public sealed class MatchEngine
     {
         State.Ball.Position = player.Position + player.Facing.ToUnitVector() * Tuning.DribbleLeadDistance;
         State.Ball.Velocity = player.Velocity;
+        State.Ball.Height = 0f;
+        State.Ball.VerticalVelocity = 0f;
         State.Ball.PossessorId = player.Id;
     }
 
@@ -168,8 +170,10 @@ public sealed class MatchEngine
         var direction = target is null
             ? facing
             : Vector2.Normalize(target.Position - player.Position);
+        var targetDistance = target is null ? 0f : Vector2.Distance(player.Position, target.Position);
+        var lift = targetDistance >= Tuning.LongPassDistance ? Tuning.PassLiftPerTick : 0f;
 
-        ReleaseBall(player, direction, Tuning.PassSpeedPerTick);
+        ReleaseBall(player, direction, Tuning.PassSpeedPerTick, lift);
     }
 
     private void KickBall(PlayerState player, int heldTicks)
@@ -177,16 +181,20 @@ public sealed class MatchEngine
         var direction = player.Facing.ToUnitVector();
         var power01 = Math.Clamp((float)heldTicks / Tuning.MaxKickHoldTicks, 0.18f, 1f);
         var speed = Lerp(Tuning.MinKickSpeedPerTick, Tuning.MaxKickSpeedPerTick, power01);
+        var lift01 = Math.Clamp((power01 - Tuning.KickLiftStartsAtPower) / (1f - Tuning.KickLiftStartsAtPower), 0f, 1f);
+        var lift = Lerp(Tuning.MinKickLiftPerTick, Tuning.MaxKickLiftPerTick, lift01);
 
-        ReleaseBall(player, direction, speed);
+        ReleaseBall(player, direction, speed, lift);
     }
 
-    private void ReleaseBall(PlayerState player, Vector2 direction, float speed)
+    private void ReleaseBall(PlayerState player, Vector2 direction, float speed, float lift)
     {
         player.HasPossession = false;
         State.Ball.PossessorId = null;
         State.Ball.Position = player.Position + direction * (player.Radius + State.Ball.Radius + 0.2f);
         State.Ball.Velocity = direction * speed + player.Velocity * Tuning.RunnerVelocityCarryToKick;
+        State.Ball.Height = 0f;
+        State.Ball.VerticalVelocity = lift;
         _ballCollectionCooldownTicks = Tuning.KickCollectionCooldownTicks;
     }
 
@@ -238,6 +246,21 @@ public sealed class MatchEngine
     {
         State.Ball.Position += State.Ball.Velocity;
         State.Ball.Velocity = Approach(State.Ball.Velocity, Vector2.Zero, Tuning.BallFrictionPerTick);
+        State.Ball.Height += State.Ball.VerticalVelocity;
+        State.Ball.VerticalVelocity -= Tuning.BallGravityPerTick;
+
+        if (State.Ball.Height <= 0f)
+        {
+            State.Ball.Height = 0f;
+            if (State.Ball.VerticalVelocity < -Tuning.BallMinBounceVelocityPerTick)
+            {
+                State.Ball.VerticalVelocity = -State.Ball.VerticalVelocity * Tuning.BallBounceEnergyRetention;
+            }
+            else
+            {
+                State.Ball.VerticalVelocity = 0f;
+            }
+        }
 
         if (State.Ball.Velocity.LengthSquared() < Tuning.MinBallSpeedPerTick * Tuning.MinBallSpeedPerTick)
         {
@@ -266,6 +289,8 @@ public sealed class MatchEngine
         activePlayer.HasPossession = true;
         State.Ball.PossessorId = activePlayer.Id;
         State.Ball.Velocity = Vector2.Zero;
+        State.Ball.Height = 0f;
+        State.Ball.VerticalVelocity = 0f;
     }
 
     private void ResolvePlayerBounds(PlayerState player)
@@ -334,6 +359,8 @@ public sealed class MatchEngine
     {
         State.Ball.Position = matchEvent.Position;
         State.Ball.Velocity = Vector2.Zero;
+        State.Ball.Height = 0f;
+        State.Ball.VerticalVelocity = 0f;
         State.Ball.PossessorId = null;
         foreach (var player in State.Players)
         {
@@ -355,6 +382,8 @@ public sealed class MatchEngine
 
         State.Ball.Position = Vector2.Zero;
         State.Ball.Velocity = Vector2.Zero;
+        State.Ball.Height = 0f;
+        State.Ball.VerticalVelocity = 0f;
         State.Ball.PossessorId = player.Id;
     }
 

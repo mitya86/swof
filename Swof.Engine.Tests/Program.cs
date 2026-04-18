@@ -13,7 +13,10 @@ var tests = new (string Name, Action Test)[]
     ("neutral input keeps facing for dribble", NeutralInputKeepsFacingForDribble),
     ("kick uses stored facing azimuth", KickUsesStoredFacingAzimuth),
     ("quick tap performs pass", QuickTapPerformsPass),
-    ("longer hold kicks harder", LongerHoldKicksHarder)
+    ("longer hold kicks harder", LongerHoldKicksHarder),
+    ("hard kick lifts ball", HardKickLiftsBall),
+    ("long pass lifts ball", LongPassLiftsBall),
+    ("gravity returns loose ball to ground", GravityReturnsLooseBallToGround)
 };
 
 var failed = 0;
@@ -182,6 +185,43 @@ static void LongerHoldKicksHarder()
     Assert(
         longKick.State.Ball.Velocity.Length() > shortKick.State.Ball.Velocity.Length(),
         "Longer held kick should be faster.");
+}
+
+static void HardKickLiftsBall()
+{
+    var engine = MatchEngine.CreateDefault();
+
+    StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), engine.Tuning.MaxKickHoldTicks);
+    engine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: false));
+    engine.StepTick(PlayerInput.Empty);
+
+    Assert(engine.State.Ball.Height > 0f, "Hard kick should lift the ball.");
+    Assert(engine.State.Ball.VerticalVelocity > 0f, "Hard kick should start with upward velocity.");
+}
+
+static void LongPassLiftsBall()
+{
+    var engine = MatchEngine.CreateDefault();
+    var teammate = engine.State.Players.Single(player => player.Id == 2);
+    teammate.Position = engine.State.ActivePlayer.Position + new Vector2(engine.Tuning.LongPassDistance + 2f, 0f);
+
+    StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), engine.Tuning.TapPassMaxTicks);
+    engine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: false));
+    engine.StepTick(PlayerInput.Empty);
+
+    Assert(engine.State.Ball.Height > 0f, "Long pass should lift the ball.");
+}
+
+static void GravityReturnsLooseBallToGround()
+{
+    var engine = MatchEngine.CreateDefault();
+
+    StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), engine.Tuning.MaxKickHoldTicks);
+    engine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: false));
+    StepMany(engine, PlayerInput.Empty, 240);
+
+    Assert(engine.State.Ball.Height >= 0f, "Ball height should never go below ground.");
+    Assert(engine.State.Ball.Height < 0.05f, "Gravity and bounce decay should return the ball near ground.");
 }
 
 static void StepMany(MatchEngine engine, PlayerInput input, int count)
