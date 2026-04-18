@@ -27,6 +27,7 @@ This repository starts a clean .NET football engine inspired by one-button arcad
 
 - [SWOS-inspired physics contract](docs/research/swos-physics-contract.md)
 - [SWOS local file inventory](docs/research/swos-file-inventory.md)
+- [SWOS player facing notes](docs/research/swos-player-facing.md)
 
 ## Useful Commands
 
