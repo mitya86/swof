@@ -120,6 +120,47 @@ Questions:
 - Does power continue charging after max?
 - Does context choose teammate pass, goal shot, or pure directional kick?
 
+Manual-supported behavior:
+
+- quick fire-button tap while in possession attempts a pass
+- longer hold kicks in the player's facing direction
+- longer hold means harder kick
+- joystick input after the kick controls bend/lift/drive
+- keeping fire held after the kick changes shot behavior through teammates
+
+Current clean-room placeholder:
+
+```text
+0-7 held ticks: pass
+8+ held ticks: kick
+45 held ticks: maximum kick power
+```
+
+Binary probe note:
+
+`SWS.EXE` contains many little-endian occurrences of common small values, so raw constant scanning does not identify exact gameplay thresholds on its own.
+
+```text
+3: 110167 occurrences
+4: 3134
+5: 6920
+6: 864
+7: 5221
+8: 2253
+9: 1380
+10: 3726
+11: 9593
+12: 5282
+15: 532
+18: 342
+20: 289
+30: 170
+45: 112
+60: 161
+```
+
+Candidate constants must be found by correlating runtime behavior or disassembly context, not by byte frequency.
+
 ### Pitch Rules
 
 Rules we need:
@@ -189,6 +230,8 @@ Player acceleration: 0.0194 field units / tick^2
 Player friction: 0.0025 field units / tick^2
 Ball friction: 0.00144 field units / tick^2
 Kick hold max time: 45 ticks
+Tap pass max time: 7 ticks
+Pass speed: 0.400 field units / tick
 Kick speed range: 0.300 to 0.700 field units / tick
 Collection cooldown after kick: 11 ticks
 ```
@@ -200,3 +243,4 @@ Collection cooldown after kick: 11 ticks
 - player switching
 - collision/contested possession rules
 - measured ball friction curves
+- measured tap/pass and kick-power thresholds

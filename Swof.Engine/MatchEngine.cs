@@ -84,9 +84,10 @@ public sealed class MatchEngine
             _actionHeldTicks++;
         }
 
+        var releasedBallThisTick = false;
         if (actionReleased)
         {
-            UseAction(activePlayer, _actionHeldTicks);
+            releasedBallThisTick = UseAction(activePlayer, _actionHeldTicks);
             _actionHeldTicks = 0;
         }
 
@@ -96,7 +97,7 @@ public sealed class MatchEngine
         {
             CarryBall(activePlayer);
         }
-        else
+        else if (!releasedBallThisTick)
         {
             MoveLooseBall();
             TryCollectBall(activePlayer);
@@ -140,15 +141,35 @@ public sealed class MatchEngine
         State.Ball.PossessorId = player.Id;
     }
 
-    private void UseAction(PlayerState activePlayer, int heldTicks)
+    private bool UseAction(PlayerState activePlayer, int heldTicks)
     {
         if (activePlayer.HasPossession)
         {
-            KickBall(activePlayer, heldTicks);
-            return;
+            if (heldTicks <= Tuning.TapPassMaxTicks)
+            {
+                PassBall(activePlayer);
+            }
+            else
+            {
+                KickBall(activePlayer, heldTicks);
+            }
+
+            return true;
         }
 
         TryTackle(activePlayer);
+        return false;
+    }
+
+    private void PassBall(PlayerState player)
+    {
+        var facing = player.Facing.ToUnitVector();
+        var target = FindPassTarget(player, facing);
+        var direction = target is null
+            ? facing
+            : Vector2.Normalize(target.Position - player.Position);
+
+        ReleaseBall(player, direction, Tuning.PassSpeedPerTick);
     }
 
     private void KickBall(PlayerState player, int heldTicks)
@@ -157,11 +178,38 @@ public sealed class MatchEngine
         var power01 = Math.Clamp((float)heldTicks / Tuning.MaxKickHoldTicks, 0.18f, 1f);
         var speed = Lerp(Tuning.MinKickSpeedPerTick, Tuning.MaxKickSpeedPerTick, power01);
 
+        ReleaseBall(player, direction, speed);
+    }
+
+    private void ReleaseBall(PlayerState player, Vector2 direction, float speed)
+    {
         player.HasPossession = false;
         State.Ball.PossessorId = null;
         State.Ball.Position = player.Position + direction * (player.Radius + State.Ball.Radius + 0.2f);
         State.Ball.Velocity = direction * speed + player.Velocity * Tuning.RunnerVelocityCarryToKick;
         _ballCollectionCooldownTicks = Tuning.KickCollectionCooldownTicks;
+    }
+
+    private PlayerState? FindPassTarget(PlayerState passer, Vector2 facing)
+    {
+        return State.Players
+            .Where(player => player.Id != passer.Id && player.Team == passer.Team)
+            .Select(player =>
+            {
+                var offset = player.Position - passer.Position;
+                var distanceSquared = offset.LengthSquared();
+                if (distanceSquared <= 0.0001f)
+                {
+                    return new { Player = player, DistanceSquared = distanceSquared, Alignment = -1f };
+                }
+
+                var alignment = Vector2.Dot(Vector2.Normalize(offset), facing);
+                return new { Player = player, DistanceSquared = distanceSquared, Alignment = alignment };
+            })
+            .Where(candidate => candidate.Alignment >= Tuning.PassTargetConeCosine)
+            .OrderBy(candidate => candidate.DistanceSquared)
+            .FirstOrDefault()
+            ?.Player;
     }
 
     private void TryTackle(PlayerState activePlayer)

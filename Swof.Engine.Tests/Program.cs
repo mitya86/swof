@@ -11,7 +11,9 @@ var tests = new (string Name, Action Test)[]
     ("accumulator matches direct fixed ticks", AccumulatorMatchesDirectTicks),
     ("movement updates facing azimuth", MovementUpdatesFacingAzimuth),
     ("neutral input keeps facing for dribble", NeutralInputKeepsFacingForDribble),
-    ("kick uses stored facing azimuth", KickUsesStoredFacingAzimuth)
+    ("kick uses stored facing azimuth", KickUsesStoredFacingAzimuth),
+    ("quick tap performs pass", QuickTapPerformsPass),
+    ("longer hold kicks harder", LongerHoldKicksHarder)
 };
 
 var failed = 0;
@@ -60,7 +62,7 @@ static void ActionReleaseKicksBall()
 {
     var engine = MatchEngine.CreateDefault();
 
-    StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: true), 10);
+    StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: true), engine.Tuning.TapPassMaxTicks + 3);
     engine.StepTick(new PlayerInput(Vector2.UnitX, ActionDown: false));
 
     Assert(!engine.State.ActivePlayer.HasPossession, "Player should release possession after kicking.");
@@ -144,11 +146,42 @@ static void KickUsesStoredFacingAzimuth()
     var engine = MatchEngine.CreateDefault();
 
     engine.StepTick(new PlayerInput(Vector2.UnitY, ActionDown: false));
-    StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), 10);
+    StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), engine.Tuning.TapPassMaxTicks + 3);
     engine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: false));
 
     Assert(engine.State.Ball.Velocity.Y > 0f, "Kick should travel south from stored facing.");
     Assert(MathF.Abs(engine.State.Ball.Velocity.X) < 0.0001f, "Stored south-facing kick should not drift sideways.");
+}
+
+static void QuickTapPerformsPass()
+{
+    var engine = MatchEngine.CreateDefault();
+    var teammate = engine.State.Players.Single(player => player.Id == 2);
+    teammate.Position = engine.State.ActivePlayer.Position + new Vector2(20f, 0f);
+
+    StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), engine.Tuning.TapPassMaxTicks);
+    engine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: false));
+
+    Assert(engine.State.Ball.PossessorId is null, "Pass should release the ball.");
+    Assert(
+        Near(engine.State.Ball.Velocity.Length(), engine.Tuning.PassSpeedPerTick),
+        "Quick tap should use pass speed.");
+    Assert(engine.State.Ball.Velocity.X > 0f, "Pass should travel toward teammate in the facing cone.");
+}
+
+static void LongerHoldKicksHarder()
+{
+    var shortKick = MatchEngine.CreateDefault();
+    StepMany(shortKick, new PlayerInput(Vector2.Zero, ActionDown: true), shortKick.Tuning.TapPassMaxTicks + 1);
+    shortKick.StepTick(new PlayerInput(Vector2.Zero, ActionDown: false));
+
+    var longKick = MatchEngine.CreateDefault();
+    StepMany(longKick, new PlayerInput(Vector2.Zero, ActionDown: true), longKick.Tuning.MaxKickHoldTicks);
+    longKick.StepTick(new PlayerInput(Vector2.Zero, ActionDown: false));
+
+    Assert(
+        longKick.State.Ball.Velocity.Length() > shortKick.State.Ball.Velocity.Length(),
+        "Longer held kick should be faster.");
 }
 
 static void StepMany(MatchEngine engine, PlayerInput input, int count)

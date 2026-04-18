@@ -15,6 +15,9 @@ public sealed record PhysicsTuning
     public float PossessionDistance { get; init; } = 1.5f;
     public float DribbleLeadDistance { get; init; } = 1.15f;
     public float TackleDistance { get; init; } = 2.2f;
+    public int TapPassMaxTicks { get; init; } = 7;
+    public float PassSpeedPerTick { get; init; } = 24f / 60f;
+    public float PassTargetConeCosine { get; init; } = 0.35f;
     public int MaxKickHoldTicks { get; init; } = 45;
     public float MinKickSpeedPerTick { get; init; } = 18f / 60f;
     public float MaxKickSpeedPerTick { get; init; } = 42f / 60f;
