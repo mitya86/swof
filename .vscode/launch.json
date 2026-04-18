@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "SWOF Windows",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build windows",
+      "program": "${workspaceFolder}/Swof.Windows/bin/Debug/net6.0-windows/Swof.Windows.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/Swof.Windows",
+      "stopAtEntry": false,
+      "console": "internalConsole"
+    }
+  ]
+}

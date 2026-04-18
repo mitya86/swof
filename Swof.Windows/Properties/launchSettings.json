@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "SWOF Windows": {
+      "commandName": "Project",
+      "workingDirectory": "$(ProjectDir)"
+    }
+  }
+}
