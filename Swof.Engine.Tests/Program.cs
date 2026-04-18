@@ -16,7 +16,8 @@ var tests = new (string Name, Action Test)[]
     ("longer hold kicks harder", LongerHoldKicksHarder),
     ("hard kick lifts ball", HardKickLiftsBall),
     ("long pass lifts ball", LongPassLiftsBall),
-    ("gravity returns loose ball to ground", GravityReturnsLooseBallToGround)
+    ("gravity returns loose ball to ground", GravityReturnsLooseBallToGround),
+    ("render snapshot interpolates between ticks", RenderSnapshotInterpolatesBetweenTicks)
 };
 
 var failed = 0;
@@ -222,6 +223,23 @@ static void GravityReturnsLooseBallToGround()
 
     Assert(engine.State.Ball.Height >= 0f, "Ball height should never go below ground.");
     Assert(engine.State.Ball.Height < 0.05f, "Gravity and bounce decay should return the ball near ground.");
+}
+
+static void RenderSnapshotInterpolatesBetweenTicks()
+{
+    var engine = MatchEngine.CreateDefault();
+
+    var initialX = engine.State.ActivePlayer.Position.X;
+    engine.StepTick(new PlayerInput(Vector2.UnitX, ActionDown: false));
+    var tickOneX = engine.State.ActivePlayer.Position.X;
+
+    var ticks = engine.Step(engine.Tuning.TickSeconds / 2f, new PlayerInput(Vector2.UnitX, ActionDown: false));
+    var renderX = engine.GetRenderSnapshot().ActivePlayer.Position.X;
+
+    Assert(ticks == 0, "Half a tick should not advance simulation.");
+    Assert(engine.State.Tick == 1, "Half a tick should not mutate authoritative tick.");
+    Assert(renderX > initialX, "Interpolated render player should move past previous tick position.");
+    Assert(renderX < tickOneX, "Interpolated render player should remain before current tick position.");
 }
 
 static void StepMany(MatchEngine engine, PlayerInput input, int count)

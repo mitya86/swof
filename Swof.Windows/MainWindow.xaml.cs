@@ -20,7 +20,7 @@ namespace Swof.Windows
         {
             InitializeComponent();
 
-            Field.State = _engine.State;
+            Field.Snapshot = _engine.CurrentSnapshot;
             _timer.Interval = TimeSpan.FromMilliseconds(16);
             _timer.Tick += Tick;
             _timer.Start();
@@ -33,6 +33,7 @@ namespace Swof.Windows
             _previousFrame = now;
 
             _engine.Step(deltaSeconds, ReadInput());
+            Field.Snapshot = _engine.GetRenderSnapshot();
             Field.InvalidateVisual();
             UpdateStatus();
         }
@@ -108,22 +109,22 @@ namespace Swof.Windows
         private static readonly Pen LinePen = new(LineBrush, 2);
         private static readonly Pen ActivePen = new(ActiveOutlineBrush, 3);
 
-        public MatchState? State { get; set; }
+        public MatchSnapshot? Snapshot { get; set; }
 
         protected override void OnRender(DrawingContext context)
         {
             base.OnRender(context);
 
-            if (State is null)
+            if (Snapshot is null)
             {
                 return;
             }
 
-            var fieldRect = GetFieldRect(State.Field);
+            var fieldRect = GetFieldRect(Snapshot.Field);
             context.DrawRectangle(GrassBrush, null, fieldRect);
-            DrawFieldLines(context, State.Field, fieldRect);
-            DrawPlayers(context, State.Field, fieldRect);
-            DrawBall(context, State.Field, fieldRect);
+            DrawFieldLines(context, Snapshot.Field, fieldRect);
+            DrawPlayers(context, Snapshot.Field, fieldRect);
+            DrawBall(context, Snapshot.Field, fieldRect);
         }
 
         private Rect GetFieldRect(FieldDimensions field)
@@ -183,14 +184,14 @@ namespace Swof.Windows
 
         private void DrawPlayers(DrawingContext context, FieldDimensions field, Rect rect)
         {
-            foreach (var player in State!.Players)
+            foreach (var player in Snapshot!.Players)
             {
                 var center = ToScreen(player.Position, field, rect);
                 var radius = ScaleDistance(player.Radius, field, rect);
                 var brush = player.Team == TeamSide.Home ? HomeBrush : AwayBrush;
                 DrawPlayerBody(context, player, center, radius, brush);
 
-                if (player.Id == State.ActivePlayerId)
+                if (player.Id == Snapshot.ActivePlayerId)
                 {
                     context.DrawEllipse(null, ActivePen, center, radius + 5, radius + 5);
                 }
@@ -202,7 +203,7 @@ namespace Swof.Windows
             }
         }
 
-        private static void DrawPlayerBody(DrawingContext context, PlayerState player, Point center, double radius, Brush shirtBrush)
+        private static void DrawPlayerBody(DrawingContext context, PlayerSnapshot player, Point center, double radius, Brush shirtBrush)
         {
             var forward = player.Facing.ToUnitVector();
             var right = new NumericsVector2(forward.Y, -forward.X);
@@ -232,13 +233,13 @@ namespace Swof.Windows
 
         private void DrawBall(DrawingContext context, FieldDimensions field, Rect rect)
         {
-            var shadowCenter = ToScreen(State!.Ball.Position, field, rect);
-            var baseRadius = Math.Max(4d, ScaleDistance(State.Ball.Radius, field, rect));
-            var heightPixels = State.Ball.Height / field.Length * rect.Width;
+            var shadowCenter = ToScreen(Snapshot!.Ball.Position, field, rect);
+            var baseRadius = Math.Max(4d, ScaleDistance(Snapshot.Ball.Radius, field, rect));
+            var heightPixels = Snapshot.Ball.Height / field.Length * rect.Width;
             var ballCenter = new Point(shadowCenter.X, shadowCenter.Y - heightPixels);
-            var ballRadius = baseRadius * (1d + Math.Min(0.5d, State.Ball.Height * 0.045d));
-            var shadowRadiusX = baseRadius * Math.Max(0.45d, 1d - State.Ball.Height * 0.035d);
-            var shadowRadiusY = baseRadius * Math.Max(0.25d, 0.55d - State.Ball.Height * 0.025d);
+            var ballRadius = baseRadius * (1d + Math.Min(0.5d, Snapshot.Ball.Height * 0.045d));
+            var shadowRadiusX = baseRadius * Math.Max(0.45d, 1d - Snapshot.Ball.Height * 0.035d);
+            var shadowRadiusY = baseRadius * Math.Max(0.25d, 0.55d - Snapshot.Ball.Height * 0.025d);
 
             context.DrawEllipse(BallShadowBrush, null, shadowCenter, shadowRadiusX, shadowRadiusY);
             context.DrawEllipse(BallBrush, new Pen(Brushes.Black, 1), ballCenter, ballRadius, ballRadius);

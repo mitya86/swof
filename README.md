@@ -23,6 +23,14 @@ This repository starts a clean .NET football engine inspired by one-button arcad
 - Goal detection.
 - Touchline and goal-line out detection.
 
+## Simulation And Rendering
+
+The engine advances through deterministic fixed ticks with `MatchEngine.StepTick(input)`.
+
+Hosts can call `MatchEngine.Step(deltaSeconds, input)` to accumulate wall-clock time into fixed ticks. Rendering should use `MatchEngine.GetRenderSnapshot()`, which interpolates between immutable previous/current simulation snapshots without mutating authoritative state.
+
+This keeps match logic replayable while allowing smooth modern rendering over pixel-art presentation.
+
 ## Research Notes
 
 - [SWOS-inspired physics contract](docs/research/swos-physics-contract.md)

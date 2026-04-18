@@ -13,10 +13,15 @@ public sealed class MatchEngine
     {
         State = state;
         Tuning = tuning ?? PhysicsTuning.Default;
+        CurrentSnapshot = MatchSnapshot.FromState(State);
+        PreviousSnapshot = CurrentSnapshot;
     }
 
     public MatchState State { get; }
     public PhysicsTuning Tuning { get; }
+    public MatchSnapshot PreviousSnapshot { get; private set; }
+    public MatchSnapshot CurrentSnapshot { get; private set; }
+    public float RenderAlpha => Math.Clamp(_accumulatedSeconds / Tuning.TickSeconds, 0f, 1f);
 
     public static MatchEngine CreateDefault(PhysicsTuning? tuning = null)
     {
@@ -54,7 +59,7 @@ public sealed class MatchEngine
         var ticks = 0;
         while (_accumulatedSeconds >= Tuning.TickSeconds)
         {
-            StepTick(input);
+            AdvanceOneTick(input);
             _accumulatedSeconds -= Tuning.TickSeconds;
             ticks++;
         }
@@ -63,6 +68,24 @@ public sealed class MatchEngine
     }
 
     public void StepTick(PlayerInput input)
+    {
+        AdvanceOneTick(input);
+        _accumulatedSeconds = 0f;
+    }
+
+    public MatchSnapshot GetRenderSnapshot()
+    {
+        return MatchSnapshot.Interpolate(PreviousSnapshot, CurrentSnapshot, RenderAlpha);
+    }
+
+    private void AdvanceOneTick(PlayerInput input)
+    {
+        PreviousSnapshot = CurrentSnapshot;
+        SimulateTick(input);
+        CurrentSnapshot = MatchSnapshot.FromState(State);
+    }
+
+    private void SimulateTick(PlayerInput input)
     {
         State.Tick++;
         State.ClockSeconds += Tuning.TickSeconds;
