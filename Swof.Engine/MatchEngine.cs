@@ -7,6 +7,8 @@ public sealed class MatchEngine
     private bool _previousActionDown;
     private int _actionHeldTicks;
     private int _ballCollectionCooldownTicks;
+    private int? _releasedByPlayerId;
+    private int _releasedByCollectionBlockTicks;
     private float _accumulatedSeconds;
 
     public MatchEngine(MatchState state, PhysicsTuning? tuning = null)
@@ -29,12 +31,12 @@ public sealed class MatchEngine
         var field = FieldDimensions.Default;
         var players = new List<PlayerState>
         {
-            CreatePlayer(1, TeamSide.Home, new Vector2(-24f, 0f), tuning, Azimuth.East),
-            CreatePlayer(2, TeamSide.Home, new Vector2(-35f, -15f), tuning, Azimuth.East),
-            CreatePlayer(3, TeamSide.Home, new Vector2(-35f, 15f), tuning, Azimuth.East),
-            CreatePlayer(4, TeamSide.Away, new Vector2(24f, 0f), tuning, Azimuth.West),
-            CreatePlayer(5, TeamSide.Away, new Vector2(35f, -15f), tuning, Azimuth.West),
-            CreatePlayer(6, TeamSide.Away, new Vector2(35f, 15f), tuning, Azimuth.West)
+            CreatePlayer(1, TeamSide.Home, new Vector2(-24f, 0f), tuning, Azimuth.East, new PlayerAttributes(12, 10, 8, 8, 15, 13, 10)),
+            CreatePlayer(2, TeamSide.Home, new Vector2(-35f, -15f), tuning, Azimuth.East, new PlayerAttributes(11, 8, 8, 9, 10, 11, 8)),
+            CreatePlayer(3, TeamSide.Home, new Vector2(-35f, 15f), tuning, Azimuth.East, new PlayerAttributes(9, 9, 10, 11, 8, 9, 9)),
+            CreatePlayer(4, TeamSide.Away, new Vector2(24f, 0f), tuning, Azimuth.West, new PlayerAttributes(12, 10, 8, 8, 15, 13, 10)),
+            CreatePlayer(5, TeamSide.Away, new Vector2(35f, -15f), tuning, Azimuth.West, new PlayerAttributes(9, 8, 10, 12, 8, 9, 8)),
+            CreatePlayer(6, TeamSide.Away, new Vector2(35f, 15f), tuning, Azimuth.West, new PlayerAttributes(10, 11, 8, 8, 11, 12, 12))
         };
         players[0].HasPossession = true;
 
@@ -97,11 +99,22 @@ public sealed class MatchEngine
 
         State.LastEvent = MatchEvent.None;
         _ballCollectionCooldownTicks = Math.Max(0, _ballCollectionCooldownTicks - 1);
+        _releasedByCollectionBlockTicks = Math.Max(0, _releasedByCollectionBlockTicks - 1);
+        if (_releasedByCollectionBlockTicks == 0)
+        {
+            _releasedByPlayerId = null;
+        }
 
-        var activePlayer = State.ActivePlayer;
-        MoveActivePlayer(activePlayer, input.NormalizedMove);
+        var movedPlayer = State.ActivePlayer;
+        MoveActivePlayer(movedPlayer, input.NormalizedMove);
 
+        var actionPressed = !_previousActionDown && input.ActionDown;
         var actionReleased = _previousActionDown && !input.ActionDown;
+        if (actionPressed && !movedPlayer.HasPossession && !movedPlayer.IsSliding && !movedPlayer.IsRecoveringFromSlide)
+        {
+            StartSlidingTackle(movedPlayer);
+        }
+
         if (input.ActionDown)
         {
             _actionHeldTicks++;
@@ -110,23 +123,29 @@ public sealed class MatchEngine
         var releasedBallThisTick = false;
         if (actionReleased)
         {
-            releasedBallThisTick = UseAction(activePlayer, _actionHeldTicks);
+            releasedBallThisTick = UseAction(movedPlayer, _actionHeldTicks);
             _actionHeldTicks = 0;
         }
 
         _previousActionDown = input.ActionDown;
 
-        if (activePlayer.HasPossession)
+        var possessor = State.Players.FirstOrDefault(player => player.HasPossession);
+        if (possessor is not null)
         {
-            CarryBall(activePlayer);
+            ControlBall(possessor);
         }
         else if (!releasedBallThisTick)
         {
             MoveLooseBall();
-            TryCollectBall(activePlayer);
+            TryCollectBall();
         }
 
-        ResolvePlayerBounds(activePlayer);
+        if (movedPlayer.IsSliding)
+        {
+            HandleSlidingBallInteraction(movedPlayer);
+        }
+
+        ResolvePlayerBounds(movedPlayer);
         CheckBallRules();
     }
 
@@ -143,27 +162,249 @@ public sealed class MatchEngine
 
     private void MoveActivePlayer(PlayerState player, Vector2 move)
     {
+        if (player.IsSliding)
+        {
+            player.Position += player.Velocity;
+            player.SlideTicksRemaining--;
+            if (player.SlideTicksRemaining <= 0)
+            {
+                player.SlideTicksRemaining = 0;
+                player.SlideRecoveryTicksRemaining = Tuning.SlideRecoveryTicks;
+                player.Velocity = Vector2.Zero;
+            }
+
+            return;
+        }
+
+        if (player.IsRecoveringFromSlide)
+        {
+            player.SlideRecoveryTicksRemaining--;
+            player.Velocity = Vector2.Zero;
+            return;
+        }
+
         if (move == Vector2.Zero)
         {
-            player.Velocity = Approach(player.Velocity, Vector2.Zero, player.FrictionPerTick);
+            player.Velocity = Approach(player.Velocity, Vector2.Zero, Tuning.PlayerDecelerationPerTick);
         }
         else
         {
             player.Facing = Azimuth.FromVector(move).Quantized(8);
-            player.Velocity += move * player.AccelerationPerTick;
-            player.Velocity = ClampLength(player.Velocity, player.MaxSpeedPerTick);
+            var desiredVelocity = move * player.MaxSpeedPerTick;
+            var speed01 = Math.Clamp(player.Velocity.Length() / MathF.Max(0.0001f, player.MaxSpeedPerTick), 0f, 1f);
+            var acceleration = Lerp(Tuning.PlayerBurstAccelerationPerTick, Tuning.PlayerSustainAccelerationPerTick, speed01);
+            player.Velocity = Approach(player.Velocity, desiredVelocity, acceleration);
         }
 
         player.Position += player.Velocity;
     }
 
-    private void CarryBall(PlayerState player)
+    private void ControlBall(PlayerState player)
     {
-        State.Ball.Position = player.Position + player.Facing.ToUnitVector() * Tuning.DribbleLeadDistance;
-        State.Ball.Velocity = player.Velocity;
+        MoveControlledBall(player);
+        SettleControlledBallWhenStationary(player);
+        if (!IsBallInControlEnvelope(player))
+        {
+            LoseBall(player);
+            return;
+        }
+
+        TouchBallOnStride(player);
         State.Ball.Height = 0f;
         State.Ball.VerticalVelocity = 0f;
         State.Ball.PossessorId = player.Id;
+
+        TryPassiveRepossession(player);
+    }
+
+    private void SettleControlledBallWhenStationary(PlayerState player)
+    {
+        var speed = player.Velocity.Length();
+        if (speed > Tuning.StationaryControlSpeedThresholdPerTick)
+        {
+            return;
+        }
+
+        var control01 = player.Attributes.BallControl01;
+        var restingLead = Tuning.DribbleLeadDistance
+            + Lerp(Tuning.StationaryLowControlLeadExtra, Tuning.StationaryHighControlLeadExtra, control01);
+        var targetPosition = player.Position + player.Facing.ToUnitVector() * restingLead;
+        State.Ball.Position = Approach(State.Ball.Position, targetPosition, Tuning.StationaryBallSettlePositionPerTick);
+        State.Ball.Velocity = Approach(State.Ball.Velocity, Vector2.Zero, Tuning.StationaryBallSettleVelocityPerTick);
+
+        var maxDistance = (player.Radius + State.Ball.Radius + Tuning.PossessionDistance) * Tuning.StationaryPossessionClampFactor;
+        var offset = State.Ball.Position - player.Position;
+        var distance = offset.Length();
+        if (distance > maxDistance)
+        {
+            var direction = SafeNormalize(offset, player.Facing.ToUnitVector());
+            State.Ball.Position = player.Position + direction * maxDistance;
+            State.Ball.Velocity = Vector2.Zero;
+        }
+    }
+
+    private void MoveControlledBall(PlayerState player)
+    {
+        State.Ball.Position += State.Ball.Velocity;
+        State.Ball.Velocity = Approach(State.Ball.Velocity, player.Velocity, Tuning.DribbleControlFrictionPerTick);
+
+        if (player.Velocity.LengthSquared() < 0.0001f)
+        {
+            player.DribbleStepDistance = 0f;
+        }
+    }
+
+    private void TouchBallOnStride(PlayerState player)
+    {
+        var playerSpeed = player.Velocity.Length();
+        if (playerSpeed <= 0.0001f)
+        {
+            return;
+        }
+
+        player.DribbleStepDistance += playerSpeed;
+        var control01 = player.Attributes.BallControl01;
+        var stepDistance = Lerp(Tuning.DribbleMinStepDistance, Tuning.DribbleMaxStepDistance, control01);
+        if (player.DribbleStepDistance < stepDistance)
+        {
+            return;
+        }
+
+        player.DribbleStepDistance -= stepDistance;
+        var facing = player.Facing.ToUnitVector();
+        var speed01 = Math.Clamp(playerSpeed / player.MaxSpeedPerTick, 0f, 1f);
+        var turnPenalty = ComputeDribbleTurnPenalty(player, facing, speed01, control01);
+        var impulse = Tuning.DribbleTouchImpulsePerTick * (1f + speed01 + turnPenalty);
+        var playerSpeedAlongFacing = Math.Max(0f, Vector2.Dot(player.Velocity, facing));
+        var ballLead = Vector2.Dot(State.Ball.Position - player.Position, facing);
+        var comfortableLead = Lerp(Tuning.DribbleMaxLeadDistance, Tuning.DribbleMinLeadDistance, control01)
+            + speed01 * Lerp(Tuning.DribbleLowControlSpeedLead, Tuning.DribbleHighControlSpeedLead, control01);
+        var nextSpeed = ballLead > comfortableLead
+            ? playerSpeedAlongFacing * 0.92f
+            : playerSpeedAlongFacing + impulse;
+
+        State.Ball.Velocity = facing * nextSpeed;
+        State.Ball.Velocity = ClampLength(State.Ball.Velocity, player.MaxSpeedPerTick * 1.18f);
+    }
+
+    private float ComputeDribbleTurnPenalty(PlayerState player, Vector2 facing, float speed01, float control01)
+    {
+        var movementDirection = SafeNormalize(player.Velocity, facing);
+        var alignment = Math.Clamp(Vector2.Dot(movementDirection, facing), -1f, 1f);
+        var turn01 = (1f - alignment) * 0.5f;
+        return turn01 * speed01 * Lerp(Tuning.DribbleLowControlTurnPenalty, Tuning.DribbleHighControlTurnPenalty, control01);
+    }
+
+    private bool IsBallInControlEnvelope(PlayerState player)
+    {
+        var offset = State.Ball.Position - player.Position;
+        var distance = offset.Length();
+        var control01 = player.Attributes.BallControl01;
+        var maxDistance = player.Radius
+            + State.Ball.Radius
+            + Lerp(Tuning.DribbleLowControlMaxDistance, Tuning.DribbleHighControlMaxDistance, control01);
+        if (distance > maxDistance)
+        {
+            return false;
+        }
+
+        if (distance <= 0.0001f)
+        {
+            return true;
+        }
+
+        var closeControlDistance = player.Radius + State.Ball.Radius + Lerp(0.05f, 0.45f, control01);
+        if (distance <= closeControlDistance)
+        {
+            return true;
+        }
+
+        var behindAlignment = Vector2.Dot(offset / distance, player.Facing.ToUnitVector());
+        var minBehindAlignment = Lerp(-0.1f, -0.9f, control01);
+        return behindAlignment > minBehindAlignment;
+    }
+
+    private void LoseBall(PlayerState player)
+    {
+        player.HasPossession = false;
+        player.DribbleStepDistance = 0f;
+        State.Ball.PossessorId = null;
+        _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, 3);
+    }
+
+    private void TryPassiveRepossession(PlayerState possessor)
+    {
+        var challenger = State.Players
+            .Where(player => player.Team != possessor.Team)
+            .Select(player => new
+            {
+                Player = player,
+                Distance = Vector2.Distance(player.Position, State.Ball.Position)
+            })
+            .Where(candidate => candidate.Distance <= playerBallContestDistance(candidate.Player))
+            .OrderBy(candidate => candidate.Distance)
+            .FirstOrDefault()
+            ?.Player;
+
+        if (challenger is null)
+        {
+            return;
+        }
+
+        var score = ComputePassiveContestScore(possessor, challenger);
+        if (score >= Tuning.PassiveContestCleanWinMargin)
+        {
+            possessor.HasPossession = false;
+            challenger.HasPossession = true;
+            BeginControlledPossession(challenger);
+            return;
+        }
+
+        if (score >= 0f)
+        {
+            KnockBallLoose(possessor, challenger);
+        }
+
+        float playerBallContestDistance(PlayerState player)
+        {
+            return player.Radius + State.Ball.Radius + Tuning.PassiveContestDistance;
+        }
+    }
+
+    private float ComputePassiveContestScore(PlayerState possessor, PlayerState challenger)
+    {
+        var possessorControl = possessor.Attributes.BallControl01;
+        var challengerTackling = challenger.Attributes.EffectiveTackling / 7f;
+        var ballOffset = State.Ball.Position - possessor.Position;
+        var controlDistance = MathF.Max(0.0001f, ballOffset.Length());
+        var exposedBall01 = Math.Clamp(
+            (controlDistance - Tuning.DribbleLeadDistance) /
+            MathF.Max(0.0001f, Tuning.DribbleHighControlMaxDistance),
+            0f,
+            1f);
+        var possessorFacing = possessor.Facing.ToUnitVector();
+        var challengerDirection = SafeNormalize(challenger.Position - possessor.Position, -possessorFacing);
+        var frontChallenge01 = (Vector2.Dot(challengerDirection, possessorFacing) + 1f) * 0.5f;
+        var challengerSpeed01 = Math.Clamp(challenger.Velocity.Length() / MathF.Max(0.0001f, challenger.MaxSpeedPerTick), 0f, 1f);
+        var possessorSpeed01 = Math.Clamp(possessor.Velocity.Length() / MathF.Max(0.0001f, possessor.MaxSpeedPerTick), 0f, 1f);
+
+        return challengerTackling * 0.58f
+            + exposedBall01 * 0.28f
+            + frontChallenge01 * 0.12f
+            + challengerSpeed01 * 0.08f
+            - possessorControl * 0.46f
+            - (1f - exposedBall01) * 0.18f
+            - possessorSpeed01 * 0.06f;
+    }
+
+    private void KnockBallLoose(PlayerState possessor, PlayerState challenger)
+    {
+        var direction = SafeNormalize(State.Ball.Position - challenger.Position, possessor.Facing.ToUnitVector());
+        possessor.HasPossession = false;
+        possessor.DribbleStepDistance = 0f;
+        State.Ball.PossessorId = null;
+        State.Ball.Velocity = direction * Tuning.PassiveContestKnockLooseSpeedPerTick + challenger.Velocity * 0.25f;
+        _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, 2);
     }
 
     private bool UseAction(PlayerState activePlayer, int heldTicks)
@@ -196,7 +437,12 @@ public sealed class MatchEngine
         var targetDistance = target is null ? 0f : Vector2.Distance(player.Position, target.Position);
         var lift = targetDistance >= Tuning.LongPassDistance ? Tuning.PassLiftPerTick : 0f;
 
-        ReleaseBall(player, direction, Tuning.PassSpeedPerTick, lift);
+        ReleaseBall(player, direction, Tuning.PassSpeedPerTick, lift, Tuning.PassCollectionCooldownTicks);
+        player.Velocity = Vector2.Zero;
+        if (target is not null)
+        {
+            State.ActivePlayerId = target.Id;
+        }
     }
 
     private void KickBall(PlayerState player, int heldTicks)
@@ -207,10 +453,10 @@ public sealed class MatchEngine
         var lift01 = Math.Clamp((power01 - Tuning.KickLiftStartsAtPower) / (1f - Tuning.KickLiftStartsAtPower), 0f, 1f);
         var lift = Lerp(Tuning.MinKickLiftPerTick, Tuning.MaxKickLiftPerTick, lift01);
 
-        ReleaseBall(player, direction, speed, lift);
+        ReleaseBall(player, direction, speed, lift, Tuning.KickCollectionCooldownTicks);
     }
 
-    private void ReleaseBall(PlayerState player, Vector2 direction, float speed, float lift)
+    private void ReleaseBall(PlayerState player, Vector2 direction, float speed, float lift, int collectionCooldownTicks)
     {
         player.HasPossession = false;
         State.Ball.PossessorId = null;
@@ -218,7 +464,9 @@ public sealed class MatchEngine
         State.Ball.Velocity = direction * speed + player.Velocity * Tuning.RunnerVelocityCarryToKick;
         State.Ball.Height = 0f;
         State.Ball.VerticalVelocity = lift;
-        _ballCollectionCooldownTicks = Tuning.KickCollectionCooldownTicks;
+        _ballCollectionCooldownTicks = collectionCooldownTicks;
+        _releasedByPlayerId = player.Id;
+        _releasedByCollectionBlockTicks = Tuning.KickCollectionCooldownTicks;
     }
 
     private PlayerState? FindPassTarget(PlayerState passer, Vector2 facing)
@@ -262,7 +510,7 @@ public sealed class MatchEngine
 
         target.HasPossession = false;
         activePlayer.HasPossession = true;
-        State.Ball.PossessorId = activePlayer.Id;
+        BeginControlledPossession(activePlayer);
     }
 
     private void MoveLooseBall()
@@ -291,7 +539,7 @@ public sealed class MatchEngine
         }
     }
 
-    private void TryCollectBall(PlayerState activePlayer)
+    private void TryCollectBall()
     {
         if (State.Ball.IsPossessed)
         {
@@ -303,15 +551,83 @@ public sealed class MatchEngine
             return;
         }
 
-        var distance = Vector2.Distance(activePlayer.Position, State.Ball.Position);
-        if (distance > activePlayer.Radius + State.Ball.Radius + Tuning.PossessionDistance)
+        var collector = State.Players
+            .Where(player => !player.IsSliding && !player.IsRecoveringFromSlide)
+            .Where(player => player.Id != _releasedByPlayerId || _releasedByCollectionBlockTicks <= 0)
+            .Select(player => new
+            {
+                Player = player,
+                Distance = Vector2.Distance(player.Position, State.Ball.Position)
+            })
+            .Where(candidate => candidate.Distance <= candidate.Player.Radius + State.Ball.Radius + Tuning.PossessionDistance)
+            .OrderBy(candidate => candidate.Distance)
+            .FirstOrDefault()
+            ?.Player;
+
+        if (collector is null)
         {
             return;
         }
 
-        activePlayer.HasPossession = true;
-        State.Ball.PossessorId = activePlayer.Id;
-        State.Ball.Velocity = Vector2.Zero;
+        collector.HasPossession = true;
+        BeginControlledPossession(collector);
+    }
+
+    private void StartSlidingTackle(PlayerState player)
+    {
+        player.SlideTicksRemaining = Tuning.SlideTravelTicks;
+        player.SlideRecoveryTicksRemaining = 0;
+        player.DribbleStepDistance = 0f;
+        player.Velocity = player.Facing.ToUnitVector() * Tuning.SlideSpeedPerTick;
+    }
+
+    private void HandleSlidingBallInteraction(PlayerState slider)
+    {
+        var slideDirection = SafeNormalize(slider.Velocity, slider.Facing.ToUnitVector());
+        var hitDistance = slider.Radius + State.Ball.Radius + Tuning.SlideTackleHitDistance;
+
+        var possessor = State.Players.FirstOrDefault(player => player.Id != slider.Id && player.HasPossession);
+        if (possessor is not null)
+        {
+            var toPossessor = possessor.Position - slider.Position;
+            if (toPossessor.Length() <= hitDistance && Vector2.Dot(SafeNormalize(toPossessor, slideDirection), slideDirection) > 0.1f)
+            {
+                KnockBallLoose(possessor, slider);
+            }
+
+            return;
+        }
+
+        if (State.Ball.IsPossessed)
+        {
+            return;
+        }
+
+        var toBall = State.Ball.Position - slider.Position;
+        if (toBall.Length() > hitDistance || Vector2.Dot(SafeNormalize(toBall, slideDirection), slideDirection) <= 0.1f)
+        {
+            return;
+        }
+
+        State.Ball.Velocity = slideDirection * Tuning.SlideLooseBallDeflectSpeedPerTick;
+        _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, 2);
+    }
+
+    private void BeginControlledPossession(PlayerState player)
+    {
+        var control01 = player.Attributes.BallControl01;
+        var stepDistance = Lerp(Tuning.DribbleMinStepDistance, Tuning.DribbleMaxStepDistance, control01);
+        var facing = player.Facing.ToUnitVector();
+
+        foreach (var candidate in State.Players)
+        {
+            candidate.HasPossession = candidate.Id == player.Id;
+        }
+
+        player.DribbleStepDistance = -stepDistance * 0.5f;
+        State.Ball.PossessorId = player.Id;
+        State.Ball.Position = player.Position + facing * Tuning.DribbleLeadDistance;
+        State.Ball.Velocity = player.Velocity * 0.85f;
         State.Ball.Height = 0f;
         State.Ball.VerticalVelocity = 0f;
     }
@@ -423,13 +739,21 @@ public sealed class MatchEngine
         return team == TeamSide.Home ? Azimuth.East : Azimuth.West;
     }
 
-    private static PlayerState CreatePlayer(int id, TeamSide team, Vector2 position, PhysicsTuning tuning, Azimuth facing)
+    private static PlayerState CreatePlayer(
+        int id,
+        TeamSide team,
+        Vector2 position,
+        PhysicsTuning tuning,
+        Azimuth facing,
+        PlayerAttributes attributes)
     {
+        var speed01 = attributes.Speed01;
         return new PlayerState(id, team, position)
         {
             Facing = facing,
+            Attributes = attributes,
             Radius = tuning.PlayerRadius,
-            MaxSpeedPerTick = tuning.PlayerMaxSpeedPerTick,
+            MaxSpeedPerTick = tuning.PlayerMaxSpeedPerTick * Lerp(0.82f, 1.1f, speed01),
             AccelerationPerTick = tuning.PlayerAccelerationPerTick,
             FrictionPerTick = tuning.PlayerFrictionPerTick
         };
@@ -456,6 +780,11 @@ public sealed class MatchEngine
         }
 
         return Vector2.Normalize(vector) * maxLength;
+    }
+
+    private static Vector2 SafeNormalize(Vector2 vector, Vector2 fallback)
+    {
+        return vector.LengthSquared() <= 0.0001f ? fallback : Vector2.Normalize(vector);
     }
 
     private static float Lerp(float from, float to, float amount)

@@ -1,0 +1,7 @@
+run_id,scenario,with_ball,event_start_frame,event_90pct_frame,event_stop_frame,notes
+1,accel,false,,,,hold one direction from standstill
+2,stop,false,,,,reach top speed then release input
+3,turn_90,false,,,,full speed then instant 90-degree change
+4,accel,true,,,,same as run 1 while dribbling
+5,stop,true,,,,same as run 2 while dribbling
+6,turn_90,true,,,,same as run 3 while dribbling

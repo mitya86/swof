@@ -36,6 +36,8 @@ This keeps match logic replayable while allowing smooth modern rendering over pi
 - [SWOS-inspired physics contract](docs/research/swos-physics-contract.md)
 - [SWOS local file inventory](docs/research/swos-file-inventory.md)
 - [SWOS player facing notes](docs/research/swos-player-facing.md)
+- [SWOS dribbling and ball control notes](docs/research/swos-dribbling-and-ball-control.md)
+- [SWOS movement measurement setup](docs/research/swos-movement-measurement-setup.md)
 
 ## Useful Commands
 
