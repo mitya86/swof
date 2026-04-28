@@ -14,6 +14,7 @@ var tests = new (string Name, Action Test)[]
     ("controlled ball is not glued to carry point", ControlledBallIsNotGluedToCarryPoint),
     ("dribble touches accelerate ball", DribbleTouchesAccelerateBall),
     ("dribble touch redirects ball along new facing", DribbleTouchRedirectsBallAlongNewFacing),
+    ("turning keeps controlled ball in front", TurningKeepsControlledBallInFront),
     ("collecting loose ball settles into control", CollectingLooseBallSettlesIntoControl),
     ("straight dribble keeps ball under control", StraightDribbleKeepsBallUnderControl),
     ("stopped player keeps ball trapped in control radius", StoppedPlayerKeepsBallTrappedInControlRadius),
@@ -209,6 +210,25 @@ static void DribbleTouchRedirectsBallAlongNewFacing()
 
     Assert(redirected, "A dribble touch after turning should redirect the ball along the new facing.");
     Assert(engine.State.Ball.PossessorId == engine.State.ActivePlayerId, "High-control player should keep the redirected dribble.");
+}
+
+static void TurningKeepsControlledBallInFront()
+{
+    var engine = MatchEngine.CreateDefault();
+    var player = engine.State.ActivePlayer;
+
+    StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: false), 20);
+    StepMany(engine, new PlayerInput(Vector2.UnitY, ActionDown: false), 25);
+
+    var facing = player.Facing.ToUnitVector();
+    var right = new Vector2(-facing.Y, facing.X);
+    var offset = engine.State.Ball.Position - player.Position;
+    var forward = Vector2.Dot(offset, facing);
+    var side = MathF.Abs(Vector2.Dot(offset, right));
+
+    Assert(player.HasPossession, "Turning run should keep possession in normal control conditions.");
+    Assert(forward > 0.55f, "After turning, the ball should remain in front of the player.");
+    Assert(side < forward, "After turning, lateral ball offset should be smaller than forward lead.");
 }
 
 static void CollectingLooseBallSettlesIntoControl()

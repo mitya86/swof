@@ -202,6 +202,7 @@ public sealed class MatchEngine
     private void ControlBall(PlayerState player)
     {
         MoveControlledBall(player);
+        AlignControlledBallToFacing(player);
         SettleControlledBallWhenStationary(player);
         if (!IsBallInControlEnvelope(player))
         {
@@ -215,6 +216,36 @@ public sealed class MatchEngine
         State.Ball.PossessorId = player.Id;
 
         TryPassiveRepossession(player);
+    }
+
+    private void AlignControlledBallToFacing(PlayerState player)
+    {
+        var speed = player.Velocity.Length();
+        if (speed <= Tuning.StationaryControlSpeedThresholdPerTick)
+        {
+            return;
+        }
+
+        var facing = player.Facing.ToUnitVector();
+        var right = new Vector2(-facing.Y, facing.X);
+        var offset = State.Ball.Position - player.Position;
+        var forward = Vector2.Dot(offset, facing);
+        var side = Vector2.Dot(offset, right);
+
+        if (forward < Tuning.MovingFrontAlignMinForwardDistance)
+        {
+            var needed = Tuning.MovingFrontAlignMinForwardDistance - forward;
+            State.Ball.Position += facing * Math.Min(needed, Tuning.MovingFrontAlignPositionPerTick);
+        }
+
+        var lateralStep = Tuning.MovingFrontAlignPositionPerTick;
+        State.Ball.Position -= right * Math.Clamp(side, -lateralStep, lateralStep);
+
+        var velocity = State.Ball.Velocity;
+        var velocityForward = Vector2.Dot(velocity, facing);
+        var velocitySide = Vector2.Dot(velocity, right);
+        velocitySide = ApproachScalar(velocitySide, 0f, Tuning.MovingFrontAlignVelocityPerTick);
+        State.Ball.Velocity = facing * Math.Max(0f, velocityForward) + right * velocitySide;
     }
 
     private void SettleControlledBallWhenStationary(PlayerState player)
@@ -790,5 +821,15 @@ public sealed class MatchEngine
     private static float Lerp(float from, float to, float amount)
     {
         return from + (to - from) * amount;
+    }
+
+    private static float ApproachScalar(float current, float target, float maxDelta)
+    {
+        if (current < target)
+        {
+            return Math.Min(current + maxDelta, target);
+        }
+
+        return Math.Max(current - maxDelta, target);
     }
 }

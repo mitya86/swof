@@ -32,6 +32,9 @@ public sealed record PhysicsTuning
     public float DribbleHighControlMaxDistance { get; init; } = 2.0f;
     public float DribbleLowControlTurnPenalty { get; init; } = 1.2f;
     public float DribbleHighControlTurnPenalty { get; init; } = 0.35f;
+    public float MovingFrontAlignPositionPerTick { get; init; } = 0.11f;
+    public float MovingFrontAlignVelocityPerTick { get; init; } = 0.06f;
+    public float MovingFrontAlignMinForwardDistance { get; init; } = 0.72f;
     public float StationaryControlSpeedThresholdPerTick { get; init; } = 0.02f;
     public float StationaryBallSettlePositionPerTick { get; init; } = 0.2f;
     public float StationaryBallSettleVelocityPerTick { get; init; } = 0.12f;
