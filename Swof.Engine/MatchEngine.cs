@@ -20,7 +20,7 @@ public sealed class MatchEngine
     }
 
     public MatchState State { get; }
-    public PhysicsTuning Tuning { get; }
+    public PhysicsTuning Tuning { get; private set; }
     public MatchSnapshot PreviousSnapshot { get; private set; }
     public MatchSnapshot CurrentSnapshot { get; private set; }
     public float RenderAlpha => Math.Clamp(_accumulatedSeconds / Tuning.TickSeconds, 0f, 1f);
@@ -78,6 +78,21 @@ public sealed class MatchEngine
     public MatchSnapshot GetRenderSnapshot()
     {
         return MatchSnapshot.Interpolate(PreviousSnapshot, CurrentSnapshot, RenderAlpha);
+    }
+
+    public void ApplyTuning(PhysicsTuning tuning)
+    {
+        Tuning = tuning;
+        State.Ball.Radius = tuning.BallRadius;
+
+        foreach (var player in State.Players)
+        {
+            var speed01 = player.Attributes.Speed01;
+            player.Radius = tuning.PlayerRadius;
+            player.MaxSpeedPerTick = tuning.PlayerMaxSpeedPerTick * Lerp(0.82f, 1.1f, speed01);
+            player.AccelerationPerTick = tuning.PlayerAccelerationPerTick;
+            player.FrictionPerTick = tuning.PlayerFrictionPerTick;
+        }
     }
 
     private void AdvanceOneTick(PlayerInput input)

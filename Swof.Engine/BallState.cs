@@ -8,7 +8,7 @@ public sealed class BallState
     public Vector2 Velocity { get; set; }
     public float Height { get; set; }
     public float VerticalVelocity { get; set; }
-    public float Radius { get; init; } = PhysicsTuning.Default.BallRadius;
+    public float Radius { get; set; } = PhysicsTuning.Default.BallRadius;
     public int? PossessorId { get; set; }
 
     public bool IsPossessed => PossessorId.HasValue;

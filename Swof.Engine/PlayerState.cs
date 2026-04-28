@@ -21,10 +21,10 @@ public sealed class PlayerState
     public float DribbleStepDistance { get; set; }
     public int SlideTicksRemaining { get; set; }
     public int SlideRecoveryTicksRemaining { get; set; }
-    public float Radius { get; init; } = PhysicsTuning.Default.PlayerRadius;
-    public float MaxSpeedPerTick { get; init; } = PhysicsTuning.Default.PlayerMaxSpeedPerTick;
-    public float AccelerationPerTick { get; init; } = PhysicsTuning.Default.PlayerAccelerationPerTick;
-    public float FrictionPerTick { get; init; } = PhysicsTuning.Default.PlayerFrictionPerTick;
+    public float Radius { get; set; } = PhysicsTuning.Default.PlayerRadius;
+    public float MaxSpeedPerTick { get; set; } = PhysicsTuning.Default.PlayerMaxSpeedPerTick;
+    public float AccelerationPerTick { get; set; } = PhysicsTuning.Default.PlayerAccelerationPerTick;
+    public float FrictionPerTick { get; set; } = PhysicsTuning.Default.PlayerFrictionPerTick;
 
     public bool IsSliding => SlideTicksRemaining > 0;
     public bool IsRecoveringFromSlide => SlideRecoveryTicksRemaining > 0;

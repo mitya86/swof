@@ -5,18 +5,130 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Swof.Windows"
         mc:Ignorable="d"
-        Title="SWOF Engine MVP" Height="720" Width="1100"
+        Title="SWOF Engine MVP" Height="760" Width="1320"
         Background="#111111"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        PreviewKeyUp="Window_PreviewKeyUp"
         KeyDown="Window_KeyDown"
         KeyUp="Window_KeyUp">
-    <DockPanel LastChildFill="True">
-        <TextBlock x:Name="StatusText"
-                   DockPanel.Dock="Top"
-                   Margin="14,10"
-                   Foreground="#F2F2F2"
-                   FontFamily="Consolas"
-                   FontSize="16"
-                   Text="Arrows move. Space action. R restarts after out of play." />
-        <local:FieldView x:Name="Field" Focusable="False" />
-    </DockPanel>
+    <Window.Resources>
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#242424" />
+            <Setter Property="Foreground" Value="#F2F2F2" />
+            <Setter Property="BorderBrush" Value="#353535" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style TargetType="DataGridCell">
+            <Setter Property="Background" Value="#141414" />
+            <Setter Property="Foreground" Value="#F2F2F2" />
+            <Setter Property="BorderBrush" Value="#2A2A2A" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#202020" />
+            <Setter Property="Foreground" Value="#F2F2F2" />
+            <Setter Property="BorderBrush" Value="#3A3A3A" />
+            <Setter Property="Padding" Value="4,2" />
+        </Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="6" />
+            <ColumnDefinition Width="390" MinWidth="320" />
+        </Grid.ColumnDefinitions>
+
+        <DockPanel Grid.Column="0" LastChildFill="True">
+            <TextBlock x:Name="StatusText"
+                       DockPanel.Dock="Top"
+                       Margin="14,10"
+                       Foreground="#F2F2F2"
+                       FontFamily="Consolas"
+                       FontSize="16"
+                       Text="Arrows move. Space action. R restarts after out of play." />
+            <local:FieldView x:Name="Field" Focusable="False" />
+        </DockPanel>
+
+        <GridSplitter Grid.Column="1"
+                      Width="6"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch"
+                      ResizeDirection="Columns"
+                      ResizeBehavior="PreviousAndNext"
+                      Background="#2F2F2F"
+                      ShowsPreview="True" />
+
+        <Border Grid.Column="2" Background="#1B1B1B" BorderBrush="#2B2B2B" BorderThickness="1,0,0,0" Padding="12">
+            <DockPanel LastChildFill="True">
+                <StackPanel DockPanel.Dock="Top">
+                    <TextBlock Text="Engine Admin Panel" Foreground="#F2F2F2" FontSize="18" FontWeight="SemiBold" />
+                    <TextBlock x:Name="TuningPathText" Margin="0,6,0,10" Foreground="#A9B1BA" FontFamily="Consolas" TextWrapping="Wrap" />
+                    <UniformGrid Columns="2" Margin="0,0,0,8">
+                        <Button Content="Apply Live" Margin="0,0,6,6" Click="ApplyLive_Click" />
+                        <Button Content="Save" Margin="6,0,0,6" Click="SaveTuning_Click" />
+                        <Button Content="Load" Margin="0,0,6,0" Click="LoadTuning_Click" />
+                        <Button Content="Reset Defaults" Margin="6,0,0,0" Click="ResetDefaults_Click" />
+                    </UniformGrid>
+                    <TextBlock x:Name="TuningFeedbackText" Foreground="#D5E7FF" Margin="0,0,0,8" TextWrapping="Wrap" />
+                </StackPanel>
+
+                <DataGrid x:Name="TuningGrid"
+                          AutoGenerateColumns="False"
+                          CanUserAddRows="False"
+                          CanUserDeleteRows="False"
+                          IsReadOnly="False"
+                          HeadersVisibility="Column"
+                          RowHeaderWidth="0"
+                          GridLinesVisibility="Horizontal"
+                          Foreground="#F2F2F2"
+                          Background="#141414"
+                          BorderBrush="#2A2A2A"
+                          FontFamily="Consolas"
+                          FontSize="13">
+                    <DataGrid.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.HeaderTemplate>
+                                <DataTemplate>
+                                    <Border Background="#202020" BorderBrush="#353535" BorderThickness="0,1,0,1" Padding="6,4">
+                                        <TextBlock Text="{Binding Name}" Foreground="#DDE7F2" FontWeight="SemiBold" />
+                                    </Border>
+                                </DataTemplate>
+                            </GroupStyle.HeaderTemplate>
+                        </GroupStyle>
+                    </DataGrid.GroupStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Setting" Binding="{Binding Name}" Width="2.8*" MinWidth="220" IsReadOnly="True">
+                            <DataGridTextColumn.ElementStyle>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="TextWrapping" Value="Wrap" />
+                                    <Setter Property="ToolTip" Value="{Binding Name}" />
+                                </Style>
+                            </DataGridTextColumn.ElementStyle>
+                        </DataGridTextColumn>
+                        <DataGridTextColumn Header="Group" Binding="{Binding Category}" Width="1.2*" IsReadOnly="True" />
+                        <DataGridTemplateColumn Header="Value" Width="1.1*">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBox Text="{Binding Value, UpdateSourceTrigger=PropertyChanged}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTemplateColumn Header="Adjust" Width="1.8*">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Slider Minimum="{Binding SliderMinimum}"
+                                            Maximum="{Binding SliderMaximum}"
+                                            Value="{Binding SliderValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            TickFrequency="{Binding SliderTick}"
+                                            IsSnapToTickEnabled="False"
+                                            SmallChange="{Binding SliderTick}"
+                                            LargeChange="{Binding SliderLargeChange}" />
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                        <DataGridTextColumn Header="Type" Binding="{Binding TypeName}" Width="0.8*" IsReadOnly="True" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </DockPanel>
+        </Border>
+    </Grid>
 </Window>
