@@ -68,6 +68,10 @@
                         <Button Content="Load" Margin="0,0,6,0" Click="LoadTuning_Click" />
                         <Button Content="Reset Defaults" Margin="6,0,0,0" Click="ResetDefaults_Click" />
                     </UniformGrid>
+                    <DockPanel Margin="0,0,0,8">
+                        <TextBlock DockPanel.Dock="Left" Text="Curve Mode:" Foreground="#DDE7F2" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <ComboBox x:Name="CurveModeCombo" MinWidth="180" />
+                    </DockPanel>
                     <TextBlock x:Name="TuningFeedbackText" Foreground="#D5E7FF" Margin="0,0,0,8" TextWrapping="Wrap" />
                 </StackPanel>
 

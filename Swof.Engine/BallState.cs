@@ -8,6 +8,7 @@ public sealed class BallState
     public Vector2 Velocity { get; set; }
     public float Height { get; set; }
     public float VerticalVelocity { get; set; }
+    public float CurveSpinZ { get; set; }
     public float Radius { get; set; } = PhysicsTuning.Default.BallRadius;
     public int? PossessorId { get; set; }
 

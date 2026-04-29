@@ -8,6 +8,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Data;
 using System.Windows.Input;
@@ -19,6 +20,7 @@ namespace Swof.Windows
 {
     public partial class MainWindow : Window
     {
+        private static readonly JsonSerializerOptions TuningJsonOptions = CreateTuningJsonOptions();
         private readonly MatchEngine _engine;
         private readonly DispatcherTimer _timer = new();
         private readonly HashSet<Key> _keysDown = new();
@@ -32,6 +34,8 @@ namespace Swof.Windows
             var tuning = PhysicsTuningStore.LoadOrDefault();
             _engine = MatchEngine.CreateDefault(tuning);
             LoadEntriesFromTuning(tuning);
+            CurveModeCombo.ItemsSource = Enum.GetValues<BallCurveMode>();
+            CurveModeCombo.SelectedItem = tuning.BallCurveMode;
 
             TuningPathText.Text = $"Profile: {PhysicsTuningStore.DefaultPath}";
             TuningGrid.ItemsSource = _tuningEntries;
@@ -191,6 +195,7 @@ namespace Swof.Windows
             var tuning = PhysicsTuningStore.LoadOrDefault();
             _engine.ApplyTuning(tuning);
             LoadEntriesFromTuning(tuning);
+            CurveModeCombo.SelectedItem = tuning.BallCurveMode;
             TuningFeedbackText.Text = "Loaded tuning profile from disk and applied live.";
         }
 
@@ -198,6 +203,7 @@ namespace Swof.Windows
         {
             LoadEntriesFromTuning(PhysicsTuning.Default);
             _engine.ApplyTuning(PhysicsTuning.Default);
+            CurveModeCombo.SelectedItem = PhysicsTuning.Default.BallCurveMode;
             TuningFeedbackText.Text = "Reset to default tuning and applied live.";
         }
 
@@ -281,8 +287,13 @@ namespace Swof.Windows
 
             try
             {
-                var json = objectNode.ToJsonString(new JsonSerializerOptions());
-                tuning = JsonSerializer.Deserialize<PhysicsTuning>(json) ?? PhysicsTuning.Default;
+                var selectedMode = CurveModeCombo.SelectedItem is BallCurveMode mode
+                    ? mode
+                    : PhysicsTuning.Default.BallCurveMode;
+                objectNode[nameof(PhysicsTuning.BallCurveMode)] = selectedMode.ToString();
+
+                var json = objectNode.ToJsonString(TuningJsonOptions);
+                tuning = JsonSerializer.Deserialize<PhysicsTuning>(json, TuningJsonOptions) ?? PhysicsTuning.Default;
                 error = string.Empty;
                 return true;
             }
@@ -346,6 +357,14 @@ namespace Swof.Windows
                 return 500;
             }
 
+            if (name.StartsWith("Aftertouch", StringComparison.Ordinal)
+                || name.StartsWith("SwosCurve", StringComparison.Ordinal)
+                || name.StartsWith("Spin", StringComparison.Ordinal)
+                || name.StartsWith("Magnus", StringComparison.Ordinal))
+            {
+                return 600;
+            }
+
             return 900;
         }
 
@@ -360,8 +379,16 @@ namespace Swof.Windows
                 300 => "Possession and Dribble",
                 400 => "Tackles and Sliding",
                 500 => "Passing and Kicking",
+                600 => "Ball Curving",
                 _ => "Other"
             };
+        }
+
+        private static JsonSerializerOptions CreateTuningJsonOptions()
+        {
+            var options = new JsonSerializerOptions();
+            options.Converters.Add(new JsonStringEnumConverter());
+            return options;
         }
     }
 

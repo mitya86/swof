@@ -64,6 +64,17 @@ public sealed record PhysicsTuning
     public int PassCollectionCooldownTicks { get; init; } = 3;
     public int KickCollectionCooldownTicks { get; init; } = 11;
     public float RunnerVelocityCarryToKick { get; init; } = 0.25f;
+    public BallCurveMode BallCurveMode { get; init; } = BallCurveMode.SwosLikeLut;
+    public int AftertouchWindowTicks { get; init; } = 18;
+    public float AftertouchInputDeadzone { get; init; } = 0.18f;
+    public float SwosCurveLateralAccelPerTick { get; init; } = 0.013f;
+    public float SwosCurveMaxSideSpeedPerTick { get; init; } = 0.28f;
+    public float SpinInitialFromKickPower { get; init; } = 1.8f;
+    public float SpinInputAddPerTick { get; init; } = 0.19f;
+    public float SpinMaxAbs { get; init; } = 3.1f;
+    public float SpinDecayPerTick { get; init; } = 0.992f;
+    public float SpinGroundDampingPerTick { get; init; } = 0.94f;
+    public float MagnusLateralPerTick { get; init; } = 0.0055f;
 
     public float TickSeconds => 1f / TickRate;
 }

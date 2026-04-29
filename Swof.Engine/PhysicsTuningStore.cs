@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Swof.Engine;
 
@@ -8,6 +9,11 @@ public static class PhysicsTuningStore
     {
         WriteIndented = true
     };
+
+    static PhysicsTuningStore()
+    {
+        JsonOptions.Converters.Add(new JsonStringEnumConverter());
+    }
 
     public static string DefaultPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

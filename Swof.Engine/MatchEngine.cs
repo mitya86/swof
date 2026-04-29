@@ -5,10 +5,15 @@ namespace Swof.Engine;
 public sealed class MatchEngine
 {
     private bool _previousActionDown;
+    private bool _actionCommittedThisHold;
     private int _actionHeldTicks;
     private int _ballCollectionCooldownTicks;
     private int? _releasedByPlayerId;
     private int _releasedByCollectionBlockTicks;
+    private int _aftertouchTicksRemaining;
+    private int? _aftertouchPlayerId;
+    private Vector2 _aftertouchBasisForward = Vector2.UnitX;
+    private Vector2 _aftertouchBasisRight = Vector2.UnitY;
     private float _accumulatedSeconds;
 
     public MatchEngine(MatchState state, PhysicsTuning? tuning = null)
@@ -125,20 +130,39 @@ public sealed class MatchEngine
 
         var actionPressed = !_previousActionDown && input.ActionDown;
         var actionReleased = _previousActionDown && !input.ActionDown;
+        if (actionPressed)
+        {
+            if (_actionHeldTicks == 0)
+            {
+                _actionCommittedThisHold = false;
+            }
+        }
+
         if (actionPressed && !movedPlayer.HasPossession && !movedPlayer.IsSliding && !movedPlayer.IsRecoveringFromSlide)
         {
             StartSlidingTackle(movedPlayer);
         }
 
+        var releasedBallThisTick = false;
         if (input.ActionDown)
         {
             _actionHeldTicks++;
+            if (movedPlayer.HasPossession && !_actionCommittedThisHold && _actionHeldTicks > Tuning.TapPassMaxTicks)
+            {
+                KickBall(movedPlayer, _actionHeldTicks);
+                _actionCommittedThisHold = true;
+                releasedBallThisTick = true;
+            }
         }
 
-        var releasedBallThisTick = false;
         if (actionReleased)
         {
-            releasedBallThisTick = UseAction(movedPlayer, _actionHeldTicks);
+            if (!_actionCommittedThisHold)
+            {
+                releasedBallThisTick = UseAction(movedPlayer, _actionHeldTicks);
+            }
+
+            _actionCommittedThisHold = false;
             _actionHeldTicks = 0;
         }
 
@@ -151,6 +175,7 @@ public sealed class MatchEngine
         }
         else if (!releasedBallThisTick)
         {
+            ApplyAftertouchInput(input.NormalizedMove);
             MoveLooseBall();
             TryCollectBall();
         }
@@ -376,6 +401,8 @@ public sealed class MatchEngine
         player.DribbleStepDistance = 0f;
         State.Ball.PossessorId = null;
         _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, 3);
+        _aftertouchTicksRemaining = 0;
+        _aftertouchPlayerId = null;
     }
 
     private void TryPassiveRepossession(PlayerState possessor)
@@ -451,6 +478,9 @@ public sealed class MatchEngine
         State.Ball.PossessorId = null;
         State.Ball.Velocity = direction * Tuning.PassiveContestKnockLooseSpeedPerTick + challenger.Velocity * 0.25f;
         _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, 2);
+        _aftertouchTicksRemaining = 0;
+        _aftertouchPlayerId = null;
+        State.Ball.CurveSpinZ = 0f;
     }
 
     private bool UseAction(PlayerState activePlayer, int heldTicks)
@@ -483,7 +513,7 @@ public sealed class MatchEngine
         var targetDistance = target is null ? 0f : Vector2.Distance(player.Position, target.Position);
         var lift = targetDistance >= Tuning.LongPassDistance ? Tuning.PassLiftPerTick : 0f;
 
-        ReleaseBall(player, direction, Tuning.PassSpeedPerTick, lift, Tuning.PassCollectionCooldownTicks);
+        ReleaseBall(player, direction, Tuning.PassSpeedPerTick, lift, Tuning.PassCollectionCooldownTicks, enableAftertouch: false, kickPower01: 0f);
         player.Velocity = Vector2.Zero;
         if (target is not null)
         {
@@ -499,10 +529,10 @@ public sealed class MatchEngine
         var lift01 = Math.Clamp((power01 - Tuning.KickLiftStartsAtPower) / (1f - Tuning.KickLiftStartsAtPower), 0f, 1f);
         var lift = Lerp(Tuning.MinKickLiftPerTick, Tuning.MaxKickLiftPerTick, lift01);
 
-        ReleaseBall(player, direction, speed, lift, Tuning.KickCollectionCooldownTicks);
+        ReleaseBall(player, direction, speed, lift, Tuning.KickCollectionCooldownTicks, enableAftertouch: true, power01);
     }
 
-    private void ReleaseBall(PlayerState player, Vector2 direction, float speed, float lift, int collectionCooldownTicks)
+    private void ReleaseBall(PlayerState player, Vector2 direction, float speed, float lift, int collectionCooldownTicks, bool enableAftertouch, float kickPower01)
     {
         player.HasPossession = false;
         State.Ball.PossessorId = null;
@@ -513,6 +543,11 @@ public sealed class MatchEngine
         _ballCollectionCooldownTicks = collectionCooldownTicks;
         _releasedByPlayerId = player.Id;
         _releasedByCollectionBlockTicks = Tuning.KickCollectionCooldownTicks;
+        _aftertouchPlayerId = enableAftertouch ? player.Id : null;
+        _aftertouchTicksRemaining = enableAftertouch ? Tuning.AftertouchWindowTicks : 0;
+        State.Ball.CurveSpinZ = enableAftertouch ? Tuning.SpinInitialFromKickPower * kickPower01 : 0f;
+        _aftertouchBasisForward = SafeNormalize(direction, player.Facing.ToUnitVector());
+        _aftertouchBasisRight = new Vector2(-_aftertouchBasisForward.Y, _aftertouchBasisForward.X);
     }
 
     private PlayerState? FindPassTarget(PlayerState passer, Vector2 facing)
@@ -561,10 +596,20 @@ public sealed class MatchEngine
 
     private void MoveLooseBall()
     {
+        if (Tuning.BallCurveMode == BallCurveMode.SpinPhysics && MathF.Abs(State.Ball.CurveSpinZ) > 0.0001f && State.Ball.Velocity.LengthSquared() > 0.0001f)
+        {
+            var forward = Vector2.Normalize(State.Ball.Velocity);
+            var right = new Vector2(-forward.Y, forward.X);
+            var speed = State.Ball.Velocity.Length();
+            var magnus = right * (State.Ball.CurveSpinZ * speed * Tuning.MagnusLateralPerTick);
+            State.Ball.Velocity += magnus;
+        }
+
         State.Ball.Position += State.Ball.Velocity;
         State.Ball.Velocity = Approach(State.Ball.Velocity, Vector2.Zero, Tuning.BallFrictionPerTick);
         State.Ball.Height += State.Ball.VerticalVelocity;
         State.Ball.VerticalVelocity -= Tuning.BallGravityPerTick;
+        State.Ball.CurveSpinZ *= Tuning.SpinDecayPerTick;
 
         if (State.Ball.Height <= 0f)
         {
@@ -577,6 +622,8 @@ public sealed class MatchEngine
             {
                 State.Ball.VerticalVelocity = 0f;
             }
+
+            State.Ball.CurveSpinZ *= Tuning.SpinGroundDampingPerTick;
         }
 
         if (State.Ball.Velocity.LengthSquared() < Tuning.MinBallSpeedPerTick * Tuning.MinBallSpeedPerTick)
@@ -617,6 +664,48 @@ public sealed class MatchEngine
 
         collector.HasPossession = true;
         BeginControlledPossession(collector);
+    }
+
+    private void ApplyAftertouchInput(Vector2 move)
+    {
+        if (_aftertouchTicksRemaining <= 0 || _aftertouchPlayerId is null || State.Ball.IsPossessed)
+        {
+            return;
+        }
+
+        var moveLocalRight = Vector2.Dot(move, _aftertouchBasisRight);
+        var signedInput = NormalizeAftertouchInput(moveLocalRight, Tuning.AftertouchInputDeadzone);
+        if (signedInput == 0f && Tuning.BallCurveMode == BallCurveMode.SwosLikeLut)
+        {
+            _aftertouchTicksRemaining--;
+            return;
+        }
+
+        if (State.Ball.Velocity.LengthSquared() > 0.0001f)
+        {
+            var forward = Vector2.Normalize(State.Ball.Velocity);
+            var right = new Vector2(-forward.Y, forward.X);
+            if (Tuning.BallCurveMode == BallCurveMode.SwosLikeLut)
+            {
+                var curve01 = Math.Clamp((float)_aftertouchTicksRemaining / Math.Max(1, Tuning.AftertouchWindowTicks), 0f, 1f);
+                var lateral = signedInput * Tuning.SwosCurveLateralAccelPerTick * (0.45f + curve01 * 0.55f);
+                State.Ball.Velocity += right * lateral;
+
+                var side = Vector2.Dot(State.Ball.Velocity, right);
+                side = Math.Clamp(side, -Tuning.SwosCurveMaxSideSpeedPerTick, Tuning.SwosCurveMaxSideSpeedPerTick);
+                var forwardSpeed = Math.Max(0f, Vector2.Dot(State.Ball.Velocity, forward));
+                State.Ball.Velocity = forward * forwardSpeed + right * side;
+            }
+            else
+            {
+                State.Ball.CurveSpinZ = Math.Clamp(
+                    State.Ball.CurveSpinZ + signedInput * Tuning.SpinInputAddPerTick,
+                    -Tuning.SpinMaxAbs,
+                    Tuning.SpinMaxAbs);
+            }
+        }
+
+        _aftertouchTicksRemaining--;
     }
 
     private void StartSlidingTackle(PlayerState player)
@@ -676,6 +765,9 @@ public sealed class MatchEngine
         State.Ball.Velocity = player.Velocity * 0.85f;
         State.Ball.Height = 0f;
         State.Ball.VerticalVelocity = 0f;
+        State.Ball.CurveSpinZ = 0f;
+        _aftertouchTicksRemaining = 0;
+        _aftertouchPlayerId = null;
     }
 
     private void ResolvePlayerBounds(PlayerState player)
@@ -746,6 +838,7 @@ public sealed class MatchEngine
         State.Ball.Velocity = Vector2.Zero;
         State.Ball.Height = 0f;
         State.Ball.VerticalVelocity = 0f;
+        State.Ball.CurveSpinZ = 0f;
         State.Ball.PossessorId = null;
         foreach (var player in State.Players)
         {
@@ -769,7 +862,10 @@ public sealed class MatchEngine
         State.Ball.Velocity = Vector2.Zero;
         State.Ball.Height = 0f;
         State.Ball.VerticalVelocity = 0f;
+        State.Ball.CurveSpinZ = 0f;
         State.Ball.PossessorId = player.Id;
+        _aftertouchTicksRemaining = 0;
+        _aftertouchPlayerId = null;
     }
 
     private Vector2 ClampToField(Vector2 position)
@@ -846,5 +942,17 @@ public sealed class MatchEngine
         }
 
         return Math.Max(current - maxDelta, target);
+    }
+
+    private static float NormalizeAftertouchInput(float value, float deadzone)
+    {
+        var abs = MathF.Abs(value);
+        if (abs <= deadzone)
+        {
+            return 0f;
+        }
+
+        var normalized = (abs - deadzone) / Math.Max(0.0001f, 1f - deadzone);
+        return MathF.Sign(value) * Math.Clamp(normalized, 0f, 1f);
     }
 }
