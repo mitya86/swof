@@ -4,14 +4,16 @@ namespace Swof.Engine;
 
 public sealed class PlayerState
 {
-    public PlayerState(int id, TeamSide team, Vector2 position)
+    public PlayerState(int id, string name, TeamSide team, Vector2 position)
     {
         Id = id;
+        Name = name;
         Team = team;
         Position = position;
     }
 
     public int Id { get; }
+    public string Name { get; }
     public TeamSide Team { get; }
     public Vector2 Position { get; set; }
     public Vector2 Velocity { get; set; }

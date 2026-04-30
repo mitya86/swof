@@ -12,6 +12,12 @@ public sealed class MatchEngine
     private int _releasedByCollectionBlockTicks;
     private int _aftertouchTicksRemaining;
     private int? _aftertouchPlayerId;
+    private int _dribbleSecureTicksRemaining;
+    private float _dribbleRisk;
+    private float _dribbleSustain01;
+    private Vector2 _previousDribbleMoveDirection = Vector2.Zero;
+    private float _previousDribbleSideDistance;
+    private float _lastDribbleTurn01;
     private Vector2 _aftertouchBasisForward = Vector2.UnitX;
     private Vector2 _aftertouchBasisRight = Vector2.UnitY;
     private float _accumulatedSeconds;
@@ -34,14 +40,17 @@ public sealed class MatchEngine
     {
         tuning ??= PhysicsTuning.Default;
         var field = FieldDimensions.Default;
+        var poor = new PlayerAttributes(4, 4, 4, 4, 4, 4, 4);
+        var moderate = new PlayerAttributes(8, 8, 8, 8, 8, 8, 8);
+        var elite = new PlayerAttributes(15, 15, 15, 15, 15, 15, 15);
         var players = new List<PlayerState>
         {
-            CreatePlayer(1, TeamSide.Home, new Vector2(-24f, 0f), tuning, Azimuth.East, new PlayerAttributes(12, 10, 8, 8, 15, 13, 10)),
-            CreatePlayer(2, TeamSide.Home, new Vector2(-35f, -15f), tuning, Azimuth.East, new PlayerAttributes(11, 8, 8, 9, 10, 11, 8)),
-            CreatePlayer(3, TeamSide.Home, new Vector2(-35f, 15f), tuning, Azimuth.East, new PlayerAttributes(9, 9, 10, 11, 8, 9, 9)),
-            CreatePlayer(4, TeamSide.Away, new Vector2(24f, 0f), tuning, Azimuth.West, new PlayerAttributes(12, 10, 8, 8, 15, 13, 10)),
-            CreatePlayer(5, TeamSide.Away, new Vector2(35f, -15f), tuning, Azimuth.West, new PlayerAttributes(9, 8, 10, 12, 8, 9, 8)),
-            CreatePlayer(6, TeamSide.Away, new Vector2(35f, 15f), tuning, Azimuth.West, new PlayerAttributes(10, 11, 8, 8, 11, 12, 12))
+            CreatePlayer(1, "Home Poor", TeamSide.Home, new Vector2(-24f, 0f), tuning, Azimuth.East, poor),
+            CreatePlayer(2, "Home Mid", TeamSide.Home, new Vector2(-35f, -15f), tuning, Azimuth.East, moderate),
+            CreatePlayer(3, "Home Elite", TeamSide.Home, new Vector2(-35f, 15f), tuning, Azimuth.East, elite),
+            CreatePlayer(4, "Away Poor", TeamSide.Away, new Vector2(24f, 0f), tuning, Azimuth.West, poor),
+            CreatePlayer(5, "Away Mid", TeamSide.Away, new Vector2(35f, -15f), tuning, Azimuth.West, moderate),
+            CreatePlayer(6, "Away Elite", TeamSide.Away, new Vector2(35f, 15f), tuning, Azimuth.West, elite)
         };
         players[0].HasPossession = true;
 
@@ -244,6 +253,12 @@ public sealed class MatchEngine
         MoveControlledBall(player);
         AlignControlledBallToFacing(player);
         SettleControlledBallWhenStationary(player);
+        EvaluateDribbleControlRisk(player);
+        if (!player.HasPossession)
+        {
+            return;
+        }
+
         if (!IsBallInControlEnvelope(player))
         {
             LoseBall(player);
@@ -356,6 +371,8 @@ public sealed class MatchEngine
 
         State.Ball.Velocity = facing * nextSpeed;
         State.Ball.Velocity = ClampLength(State.Ball.Velocity, player.MaxSpeedPerTick * 1.18f);
+        _dribbleSecureTicksRemaining = Tuning.DribbleSecureTicksAfterTouch;
+        _dribbleRisk *= 0.92f;
     }
 
     private float ComputeDribbleTurnPenalty(PlayerState player, Vector2 facing, float speed01, float control01)
@@ -397,12 +414,32 @@ public sealed class MatchEngine
 
     private void LoseBall(PlayerState player)
     {
+        var control01 = player.Attributes.BallControl01;
+        var facing = player.Facing.ToUnitVector();
+        var right = new Vector2(-facing.Y, facing.X);
+        var side = Vector2.Dot(State.Ball.Position - player.Position, right);
+        var sideSign = side >= 0f ? 1f : -1f;
+        var looseSpeed = Tuning.DribbleMistouchLooseSpeedPerTick * Lerp(1.12f, 0.68f, control01);
+        var turnSideInfluence = Math.Clamp(_lastDribbleTurn01 * 0.18f, 0f, 0.18f);
+        var forwardCarry = Math.Max(0f, Vector2.Dot(player.Velocity, facing));
+        var forwardReleaseSpeed = Math.Max(forwardCarry * 0.9f, looseSpeed * 0.95f);
+        var wobbleSpeed = looseSpeed * turnSideInfluence;
+
         player.HasPossession = false;
         player.DribbleStepDistance = 0f;
         State.Ball.PossessorId = null;
-        _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, 3);
+        State.Ball.Velocity = facing * forwardReleaseSpeed + right * (sideSign * wobbleSpeed);
+        _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, Tuning.DribbleMistouchCollectionCooldownTicks);
+        _releasedByPlayerId = player.Id;
+        _releasedByCollectionBlockTicks = Math.Max(_releasedByCollectionBlockTicks, Tuning.DribbleMistouchCollectionCooldownTicks);
         _aftertouchTicksRemaining = 0;
         _aftertouchPlayerId = null;
+        _dribbleSecureTicksRemaining = 0;
+        _dribbleRisk = 0f;
+        _dribbleSustain01 = 0f;
+        _previousDribbleMoveDirection = Vector2.Zero;
+        _previousDribbleSideDistance = 0f;
+        _lastDribbleTurn01 = 0f;
     }
 
     private void TryPassiveRepossession(PlayerState possessor)
@@ -768,6 +805,12 @@ public sealed class MatchEngine
         State.Ball.CurveSpinZ = 0f;
         _aftertouchTicksRemaining = 0;
         _aftertouchPlayerId = null;
+        _dribbleSecureTicksRemaining = Tuning.DribbleSecureTicksAfterTouch;
+        _dribbleRisk = 0f;
+        _dribbleSustain01 = 0f;
+        _previousDribbleMoveDirection = Vector2.Zero;
+        _previousDribbleSideDistance = 0f;
+        _lastDribbleTurn01 = 0f;
     }
 
     private void ResolvePlayerBounds(PlayerState player)
@@ -866,6 +909,12 @@ public sealed class MatchEngine
         State.Ball.PossessorId = player.Id;
         _aftertouchTicksRemaining = 0;
         _aftertouchPlayerId = null;
+        _dribbleSecureTicksRemaining = Tuning.DribbleSecureTicksAfterTouch;
+        _dribbleRisk = 0f;
+        _dribbleSustain01 = 0f;
+        _previousDribbleMoveDirection = Vector2.Zero;
+        _previousDribbleSideDistance = 0f;
+        _lastDribbleTurn01 = 0f;
     }
 
     private Vector2 ClampToField(Vector2 position)
@@ -883,6 +932,7 @@ public sealed class MatchEngine
 
     private static PlayerState CreatePlayer(
         int id,
+        string name,
         TeamSide team,
         Vector2 position,
         PhysicsTuning tuning,
@@ -890,7 +940,7 @@ public sealed class MatchEngine
         PlayerAttributes attributes)
     {
         var speed01 = attributes.Speed01;
-        return new PlayerState(id, team, position)
+        return new PlayerState(id, name, team, position)
         {
             Facing = facing,
             Attributes = attributes,
@@ -942,6 +992,78 @@ public sealed class MatchEngine
         }
 
         return Math.Max(current - maxDelta, target);
+    }
+
+    private void EvaluateDribbleControlRisk(PlayerState player)
+    {
+        _dribbleSecureTicksRemaining = Math.Max(0, _dribbleSecureTicksRemaining - 1);
+        _dribbleRisk *= Tuning.DribbleRiskDecayPerTick;
+
+        var speed01 = Math.Clamp(player.Velocity.Length() / MathF.Max(0.0001f, player.MaxSpeedPerTick), 0f, 1f);
+        if (speed01 <= 0.06f)
+        {
+            _dribbleRisk *= 0.84f;
+            _dribbleSustain01 = Math.Max(0f, _dribbleSustain01 - 0.05f);
+            _previousDribbleMoveDirection = Vector2.Zero;
+            _previousDribbleSideDistance = 0f;
+            _lastDribbleTurn01 = 0f;
+            return;
+        }
+
+        var control01 = player.Attributes.BallControl01;
+        var currentMoveDirection = SafeNormalize(player.Velocity, player.Facing.ToUnitVector());
+        var turn01 = 0f;
+        if (_previousDribbleMoveDirection.LengthSquared() > 0.0001f)
+        {
+            turn01 = (1f - Math.Clamp(Vector2.Dot(_previousDribbleMoveDirection, currentMoveDirection), -1f, 1f)) * 0.5f;
+        }
+
+        _previousDribbleMoveDirection = currentMoveDirection;
+        var turn01Adjusted = MathF.Pow(Math.Clamp(turn01, 0f, 1f), 0.65f);
+        _lastDribbleTurn01 = turn01Adjusted;
+
+        var offset = State.Ball.Position - player.Position;
+        var distance = offset.Length();
+        var excessDistance01 = Math.Clamp(
+            (distance - Tuning.DribbleLeadDistance) / MathF.Max(0.0001f, Tuning.DribbleHighControlMaxDistance),
+            0f,
+            1f);
+        var right = new Vector2(-currentMoveDirection.Y, currentMoveDirection.X);
+        var sideDistance = MathF.Abs(Vector2.Dot(offset, right));
+        var sideChange01 = Math.Clamp(
+            MathF.Abs(sideDistance - _previousDribbleSideDistance) /
+            MathF.Max(0.0001f, player.Radius + State.Ball.Radius + Tuning.PossessionDistance),
+            0f,
+            1f);
+        _previousDribbleSideDistance = sideDistance;
+        var sideDistance01 = Math.Clamp(
+            sideDistance / MathF.Max(0.0001f, player.Radius + State.Ball.Radius + Tuning.PossessionDistance),
+            0f,
+            1f);
+        var careless01 = Math.Clamp(MathF.Max(turn01Adjusted, sideChange01 * 1.2f), 0f, 1f);
+        if (careless01 <= 0.008f)
+        {
+            _dribbleRisk *= 0.93f;
+        }
+
+        _dribbleSustain01 = Math.Clamp(_dribbleSustain01 + Tuning.DribbleSustainRampPerTick, 0f, 1f);
+        var sustainMultiplier = 1f + _dribbleSustain01 * (Tuning.DribbleSustainMaxMultiplier - 1f);
+
+        var secureMultiplier = _dribbleSecureTicksRemaining > 0 ? 0.42f : 1f;
+        var turnRisk = turn01Adjusted * speed01 * (1f - control01) * Tuning.DribbleRiskTurnGainPerTick * secureMultiplier;
+        var distanceRisk = excessDistance01 * speed01 * careless01 * (1.1f - control01 * 0.7f) * Tuning.DribbleRiskDistanceGainPerTick;
+        var sideRisk = sideDistance01 * speed01 * careless01 * (1.05f - control01 * 0.6f) * Tuning.DribbleRiskDistanceGainPerTick * 0.9f;
+        var sustainRisk = Tuning.DribbleSustainRiskPerTick
+            * speed01
+            * (1.2f - control01)
+            * secureMultiplier
+            * sustainMultiplier;
+        _dribbleRisk += turnRisk + distanceRisk + sideRisk + sustainRisk;
+
+        if (_dribbleRisk > Tuning.DribbleRiskBreakThreshold)
+        {
+            LoseBall(player);
+        }
     }
 
     private static float NormalizeAftertouchInput(float value, float deadzone)

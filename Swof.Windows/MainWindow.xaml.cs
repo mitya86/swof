@@ -100,6 +100,39 @@ namespace Swof.Windows
 
             StatusText.Text =
                 $"Home {state.HomeScore} - {state.AwayScore} Away | Tick {state.Tick} | Active P{active.Id} {active.Team} | Ball {possession} | {state.ClockSeconds:0.0}s{eventText}";
+
+            var skills = new List<(string Alias, int Value)>
+            {
+                ("P", active.Attributes.EffectivePassing),
+                ("K", active.Attributes.EffectiveShooting),
+                ("H", active.Attributes.EffectiveHeading),
+                ("T", active.Attributes.EffectiveTackling),
+                ("C", active.Attributes.EffectiveBallControl),
+                ("S", active.Attributes.EffectiveSpeed),
+                ("F", active.Attributes.EffectiveFinishing)
+            };
+            var top3 = string.Concat(skills
+                .OrderByDescending(skill => skill.Value)
+                .ThenBy(skill => skill.Alias, StringComparer.Ordinal)
+                .Take(3)
+                .Select(skill => skill.Alias));
+            var skillText = string.Join(" ",
+                skills.Select(skill => $"{skill.Alias}:{ToStarScale(skill.Value)}"));
+            PlayerSkillText.Text = $"{active.Name} | {skillText} | Top:{top3}";
+        }
+
+        private static string ToStarScale(int value10)
+        {
+            var clamped = Math.Clamp(value10, 0, 10);
+            var full = clamped / 2;
+            var half = clamped % 2;
+            var chars = new char[5];
+            for (var i = 0; i < 5; i++)
+            {
+                chars[i] = i < full ? '★' : (i == full && half == 1 ? '⭑' : '·');
+            }
+
+            return new string(chars);
         }
 
         private void Window_KeyDown(object sender, KeyEventArgs e)

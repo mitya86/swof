@@ -26,11 +26,12 @@ public sealed record PlayerAttributes(
     public int EffectiveSpeed => Effective(Speed);
     public int EffectiveFinishing => Effective(Finishing);
 
-    public float BallControl01 => EffectiveBallControl / 7f;
-    public float Speed01 => EffectiveSpeed / 7f;
+    public float BallControl01 => EffectiveBallControl / 10f;
+    public float Speed01 => EffectiveSpeed / 10f;
 
     public static int Effective(byte value)
     {
-        return Math.Clamp(value, (byte)0, (byte)15) % 8;
+        var clamped = Math.Clamp(value, (byte)0, (byte)15);
+        return (int)MathF.Round(clamped * (10f / 15f), MidpointRounding.AwayFromZero);
     }
 }
