@@ -1,5 +1,6 @@
 bin/
 obj/
+.ghidra_proj/*
 .vs/
 .vscode/*
 !.vscode/launch.json
@@ -8,3 +9,10 @@ obj/
 *.suo
 TestResults/
 capture/
+tools/analysis/*
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
