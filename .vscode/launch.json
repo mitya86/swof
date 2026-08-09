@@ -2,11 +2,22 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "SWOF Windows",
+      "name": "SWOF Game (MonoGame)",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build game",
+      "program": "${workspaceFolder}/Swof.Game/bin/Debug/net10.0/Swof.Game.dll",
+      "args": [],
+      "cwd": "${workspaceFolder}/Swof.Game/bin/Debug/net10.0",
+      "stopAtEntry": false,
+      "console": "internalConsole"
+    },
+    {
+      "name": "SWOF WPF Tool",
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build windows",
-      "program": "${workspaceFolder}/Swof.Windows/bin/Debug/net6.0-windows/Swof.Windows.dll",
+      "program": "${workspaceFolder}/Swof.Windows/bin/Debug/net10.0-windows/Swof.Windows.dll",
       "args": [],
       "cwd": "${workspaceFolder}/Swof.Windows",
       "stopAtEntry": false,

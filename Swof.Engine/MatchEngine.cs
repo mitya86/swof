@@ -136,32 +136,25 @@ public sealed class MatchEngine
 
         var movedPlayer = State.ActivePlayer;
         MoveActivePlayer(movedPlayer, input.NormalizedMove);
+        ResolvePlayerBounds(movedPlayer);
 
         var actionPressed = !_previousActionDown && input.ActionDown;
         var actionReleased = _previousActionDown && !input.ActionDown;
         if (actionPressed)
         {
-            if (_actionHeldTicks == 0)
-            {
-                _actionCommittedThisHold = false;
-            }
+            _actionCommittedThisHold = false;
         }
 
         if (actionPressed && !movedPlayer.HasPossession && !movedPlayer.IsSliding && !movedPlayer.IsRecoveringFromSlide)
         {
             StartSlidingTackle(movedPlayer);
+            _actionCommittedThisHold = true;
         }
 
         var releasedBallThisTick = false;
         if (input.ActionDown)
         {
-            _actionHeldTicks++;
-            if (movedPlayer.HasPossession && !_actionCommittedThisHold && _actionHeldTicks > Tuning.TapPassMaxTicks)
-            {
-                KickBall(movedPlayer, _actionHeldTicks);
-                _actionCommittedThisHold = true;
-                releasedBallThisTick = true;
-            }
+            _actionHeldTicks = Math.Min(_actionHeldTicks + 1, Tuning.MaxKickHoldTicks);
         }
 
         if (actionReleased)
@@ -194,7 +187,6 @@ public sealed class MatchEngine
             HandleSlidingBallInteraction(movedPlayer);
         }
 
-        ResolvePlayerBounds(movedPlayer);
         CheckBallRules();
     }
 
@@ -232,20 +224,48 @@ public sealed class MatchEngine
             return;
         }
 
-        if (move == Vector2.Zero)
+        if (move.LengthSquared() <= 0.0001f)
         {
             player.Velocity = Approach(player.Velocity, Vector2.Zero, Tuning.PlayerDecelerationPerTick);
         }
         else
         {
             player.Facing = Azimuth.FromVector(move).Quantized(8);
-            var desiredVelocity = move * player.MaxSpeedPerTick;
-            var speed01 = Math.Clamp(player.Velocity.Length() / MathF.Max(0.0001f, player.MaxSpeedPerTick), 0f, 1f);
-            var acceleration = Lerp(Tuning.PlayerBurstAccelerationPerTick, Tuning.PlayerSustainAccelerationPerTick, speed01);
-            player.Velocity = Approach(player.Velocity, desiredVelocity, acceleration);
+            var desiredDirection = player.Facing.ToUnitVector();
+            var desiredVelocity = desiredDirection * player.MaxSpeedPerTick;
+            var response = ComputePlayerMovementResponse(player, desiredDirection);
+            player.Velocity = Approach(player.Velocity, desiredVelocity, response);
         }
 
         player.Position += player.Velocity;
+    }
+
+    private float ComputePlayerMovementResponse(PlayerState player, Vector2 desiredDirection)
+    {
+        var speed = player.Velocity.Length();
+        var speed01 = Math.Clamp(speed / MathF.Max(0.0001f, player.MaxSpeedPerTick), 0f, 1f);
+        var forwardAcceleration = Lerp(
+            Tuning.PlayerBurstAccelerationPerTick,
+            Tuning.PlayerSustainAccelerationPerTick,
+            speed01);
+        if (speed <= 0.0001f)
+        {
+            return Math.Max(0f, forwardAcceleration);
+        }
+
+        var currentDirection = player.Velocity / speed;
+        var alignment = Math.Clamp(Vector2.Dot(currentDirection, desiredDirection), -1f, 1f);
+        if (alignment >= 0f)
+        {
+            // Digital football controls need intent to read quickly. Momentum still rounds the path,
+            // but lateral steering cannot inherit the sluggish top-speed acceleration rate.
+            var turn01 = MathF.Pow(1f - alignment, 0.75f);
+            return Math.Max(0f, Lerp(forwardAcceleration, Tuning.PlayerTurnAccelerationPerTick, turn01));
+        }
+
+        return Math.Max(
+            0f,
+            Lerp(Tuning.PlayerTurnAccelerationPerTick, Tuning.PlayerReverseAccelerationPerTick, -alignment));
     }
 
     private void ControlBall(PlayerState player)
@@ -816,9 +836,27 @@ public sealed class MatchEngine
     private void ResolvePlayerBounds(PlayerState player)
     {
         var field = State.Field;
+        var minX = field.Left + player.Radius;
+        var maxX = field.Right - player.Radius;
+        var minY = field.Top + player.Radius;
+        var maxY = field.Bottom - player.Radius;
+        var position = player.Position;
+        var velocity = player.Velocity;
+
+        if ((position.X < minX && velocity.X < 0f) || (position.X > maxX && velocity.X > 0f))
+        {
+            velocity.X = 0f;
+        }
+
+        if ((position.Y < minY && velocity.Y < 0f) || (position.Y > maxY && velocity.Y > 0f))
+        {
+            velocity.Y = 0f;
+        }
+
         player.Position = new Vector2(
-            Math.Clamp(player.Position.X, field.Left + player.Radius, field.Right - player.Radius),
-            Math.Clamp(player.Position.Y, field.Top + player.Radius, field.Bottom - player.Radius));
+            Math.Clamp(position.X, minX, maxX),
+            Math.Clamp(position.Y, minY, maxY));
+        player.Velocity = velocity;
     }
 
     private void CheckBallRules()
@@ -1011,7 +1049,8 @@ public sealed class MatchEngine
         }
 
         var control01 = player.Attributes.BallControl01;
-        var currentMoveDirection = SafeNormalize(player.Velocity, player.Facing.ToUnitVector());
+        var velocityDirection = SafeNormalize(player.Velocity, player.Facing.ToUnitVector());
+        var currentMoveDirection = player.Facing.ToUnitVector();
         var turn01 = 0f;
         if (_previousDribbleMoveDirection.LengthSquared() > 0.0001f)
         {
@@ -1028,7 +1067,7 @@ public sealed class MatchEngine
             (distance - Tuning.DribbleLeadDistance) / MathF.Max(0.0001f, Tuning.DribbleHighControlMaxDistance),
             0f,
             1f);
-        var right = new Vector2(-currentMoveDirection.Y, currentMoveDirection.X);
+        var right = new Vector2(-velocityDirection.Y, velocityDirection.X);
         var sideDistance = MathF.Abs(Vector2.Dot(offset, right));
         var sideChange01 = Math.Clamp(
             MathF.Abs(sideDistance - _previousDribbleSideDistance) /
@@ -1050,15 +1089,29 @@ public sealed class MatchEngine
         var sustainMultiplier = 1f + _dribbleSustain01 * (Tuning.DribbleSustainMaxMultiplier - 1f);
 
         var secureMultiplier = _dribbleSecureTicksRemaining > 0 ? 0.42f : 1f;
-        var turnRisk = turn01Adjusted * speed01 * (1f - control01) * Tuning.DribbleRiskTurnGainPerTick * secureMultiplier;
-        var distanceRisk = excessDistance01 * speed01 * careless01 * (1.1f - control01 * 0.7f) * Tuning.DribbleRiskDistanceGainPerTick;
-        var sideRisk = sideDistance01 * speed01 * careless01 * (1.05f - control01 * 0.6f) * Tuning.DribbleRiskDistanceGainPerTick * 0.9f;
-        var sustainRisk = Tuning.DribbleSustainRiskPerTick
+        var turnRisk = turn01Adjusted
             * speed01
-            * (1.2f - control01)
+            * (1f - control01)
+            * Tuning.DribbleRiskTurnGainPerTick
             * secureMultiplier
             * sustainMultiplier;
-        _dribbleRisk += turnRisk + distanceRisk + sideRisk + sustainRisk;
+        var distanceRisk = excessDistance01
+            * speed01
+            * careless01
+            * (1.1f - control01 * 0.7f)
+            * Tuning.DribbleRiskDistanceGainPerTick
+            * sustainMultiplier;
+        var sideRisk = sideDistance01
+            * speed01
+            * careless01
+            * (1.05f - control01 * 0.6f)
+            * Tuning.DribbleRiskDistanceGainPerTick
+            * 0.9f
+            * sustainMultiplier;
+
+        // Running pressure amplifies poor touches, but a clean straight run is never a reason by itself
+        // to take control away from the player.
+        _dribbleRisk += turnRisk + distanceRisk + sideRisk;
 
         if (_dribbleRisk > Tuning.DribbleRiskBreakThreshold)
         {

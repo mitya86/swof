@@ -11,6 +11,12 @@ var tests = new (string Name, Action Test)[]
     ("accumulator matches direct fixed ticks", AccumulatorMatchesDirectTicks),
     ("movement updates facing azimuth", MovementUpdatesFacingAzimuth),
     ("neutral input keeps facing for dribble", NeutralInputKeepsFacingForDribble),
+    ("player acceleration is quick but progressive", PlayerAccelerationIsQuickButProgressive),
+    ("player stops promptly after input release", PlayerStopsPromptlyAfterInputRelease),
+    ("player turns across momentum responsively", PlayerTurnsAcrossMomentumResponsively),
+    ("player reversal takes effect promptly", PlayerReversalTakesEffectPromptly),
+    ("diagonal movement preserves the speed cap", DiagonalMovementPreservesSpeedCap),
+    ("boundary contact cancels only outward momentum", BoundaryContactCancelsOnlyOutwardMomentum),
     ("controlled ball is not glued to carry point", ControlledBallIsNotGluedToCarryPoint),
     ("dribble touches accelerate ball", DribbleTouchesAccelerateBall),
     ("dribble touch redirects ball along new facing", DribbleTouchRedirectsBallAlongNewFacing),
@@ -161,6 +167,104 @@ static void NeutralInputKeepsFacingForDribble()
     Assert(engine.State.Ball.PossessorId == engine.State.ActivePlayerId, "Ball should remain under player control.");
 }
 
+static void PlayerAccelerationIsQuickButProgressive()
+{
+    var engine = CreateMovementEngine();
+    var player = engine.State.ActivePlayer;
+
+    engine.StepTick(new PlayerInput(Vector2.UnitX, ActionDown: false));
+    var firstTickSpeed = player.Velocity.Length();
+    StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: false), 7);
+
+    Assert(firstTickSpeed > 0f, "Movement input should have an immediate effect.");
+    Assert(
+        firstTickSpeed < player.MaxSpeedPerTick * 0.35f,
+        "The first movement tick should not jump straight to running speed.");
+    Assert(
+        player.Velocity.Length() >= player.MaxSpeedPerTick * 0.9f,
+        "A runner should reach responsive arcade pace within eight ticks.");
+}
+
+static void PlayerStopsPromptlyAfterInputRelease()
+{
+    var engine = CreateMovementEngine();
+    var player = engine.State.ActivePlayer;
+    StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: false), 20);
+    var runningSpeed = player.Velocity.Length();
+
+    engine.StepTick(PlayerInput.Empty);
+    var brakingSpeed = player.Velocity.Length();
+    StepMany(engine, PlayerInput.Empty, 3);
+
+    Assert(brakingSpeed < runningSpeed, "Releasing input should brake on the next tick.");
+    Assert(player.Velocity.Length() < 0.0001f, "A player should stop within four neutral ticks.");
+}
+
+static void PlayerTurnsAcrossMomentumResponsively()
+{
+    var engine = CreateMovementEngine();
+    var player = engine.State.ActivePlayer;
+    StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: false), 20);
+    var runningSpeed = player.Velocity.Length();
+
+    StepMany(engine, new PlayerInput(Vector2.UnitY, ActionDown: false), 6);
+
+    var movementDirection = Vector2.Normalize(player.Velocity);
+    Assert(
+        Vector2.Dot(movementDirection, Vector2.UnitY) > 0.9f,
+        "A 90-degree input should redirect most movement within six ticks.");
+    Assert(
+        player.Velocity.Length() > runningSpeed * 0.7f,
+        "Turning should round the path without making the player feel stuck.");
+}
+
+static void PlayerReversalTakesEffectPromptly()
+{
+    var engine = CreateMovementEngine();
+    var player = engine.State.ActivePlayer;
+    StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: false), 20);
+
+    StepMany(engine, new PlayerInput(-Vector2.UnitX, ActionDown: false), 4);
+
+    Assert(player.Velocity.X < 0f, "A full reversal should change travel direction within four ticks.");
+    Assert(Near(player.Facing.NormalizedDegrees, Azimuth.West.NormalizedDegrees), "Facing should track reversal intent immediately.");
+}
+
+static void DiagonalMovementPreservesSpeedCap()
+{
+    var engine = CreateMovementEngine();
+    var player = engine.State.ActivePlayer;
+    var diagonal = Vector2.Normalize(Vector2.One);
+
+    StepMany(engine, new PlayerInput(Vector2.One, ActionDown: false), 30);
+
+    Assert(
+        player.Velocity.Length() <= player.MaxSpeedPerTick + 0.0001f,
+        "Diagonal input must not exceed the cardinal movement speed.");
+    Assert(
+        Vector2.Dot(Vector2.Normalize(player.Velocity), diagonal) > 0.999f,
+        "Steady diagonal movement should follow the requested eight-way direction.");
+}
+
+static void BoundaryContactCancelsOnlyOutwardMomentum()
+{
+    var engine = CreateMovementEngine();
+    var player = engine.State.ActivePlayer;
+    var boundaryX = engine.State.Field.Right - player.Radius;
+    player.Position = new Vector2(boundaryX - 0.01f, 0f);
+    player.Velocity = Vector2.UnitX * player.MaxSpeedPerTick;
+
+    engine.StepTick(new PlayerInput(Vector2.UnitX, ActionDown: false));
+
+    Assert(Near(player.Position.X, boundaryX), "Player position should clamp to the playable boundary.");
+    Assert(Near(player.Velocity.X, 0f), "Outward velocity should be cancelled at the boundary.");
+
+    engine.StepTick(new PlayerInput(Vector2.UnitY, ActionDown: false));
+
+    Assert(Near(player.Position.X, boundaryX), "Moving along an edge should not push the player back into the field.");
+    Assert(player.Position.Y > 0f, "Tangential movement should remain available at the boundary.");
+}
+
 static void ControlledBallIsNotGluedToCarryPoint()
 {
     var engine = MatchEngine.CreateDefault();
@@ -263,6 +367,11 @@ static void CollectingLooseBallSettlesIntoControl()
 static void StraightDribbleKeepsBallUnderControl()
 {
     var engine = MatchEngine.CreateDefault();
+    foreach (var opponent in engine.State.Players.Where(player => player.Team != engine.State.ActivePlayer.Team))
+    {
+        opponent.Position = new Vector2(opponent.Position.X, engine.State.Field.Top + opponent.Radius);
+    }
+
     var maxDistance = 0f;
 
     for (var i = 0; i < 240; i++)
@@ -306,7 +415,7 @@ static void StoppedPlayerKeepsBallTrappedInControlRadius()
 static void StationaryLeadDependsOnBallControlSkill()
 {
     var tuning = PhysicsTuning.Default;
-    var highControl = new PlayerState(1, TeamSide.Home, Vector2.Zero)
+    var highControl = new PlayerState(1, "High Control", TeamSide.Home, Vector2.Zero)
     {
         Facing = Azimuth.East,
         HasPossession = true,
@@ -326,7 +435,7 @@ static void StationaryLeadDependsOnBallControlSkill()
     var highEngine = new MatchEngine(new MatchState(FieldDimensions.Default, new[] { highControl }, highBall, highControl.Id), tuning);
     StepMany(highEngine, PlayerInput.Empty, 25);
 
-    var lowControl = new PlayerState(2, TeamSide.Home, Vector2.Zero)
+    var lowControl = new PlayerState(2, "Low Control", TeamSide.Home, Vector2.Zero)
     {
         Facing = Azimuth.East,
         HasPossession = true,
@@ -356,7 +465,7 @@ static void StationaryLeadDependsOnBallControlSkill()
 static void LowControlPlayerCanLoseBallOnAbruptTurn()
 {
     var tuning = PhysicsTuning.Default;
-    var player = new PlayerState(1, TeamSide.Home, Vector2.Zero)
+    var player = new PlayerState(1, "Low Control Runner", TeamSide.Home, Vector2.Zero)
     {
         Facing = Azimuth.East,
         HasPossession = true,
@@ -515,7 +624,7 @@ static void NonActivePossessorControlsBall()
 static void PassiveChallengerCanWinControlledBall()
 {
     var tuning = PhysicsTuning.Default;
-    var attacker = new PlayerState(1, TeamSide.Home, Vector2.Zero)
+    var attacker = new PlayerState(1, "Attacker", TeamSide.Home, Vector2.Zero)
     {
         Facing = Azimuth.East,
         HasPossession = true,
@@ -525,7 +634,7 @@ static void PassiveChallengerCanWinControlledBall()
         AccelerationPerTick = tuning.PlayerAccelerationPerTick,
         FrictionPerTick = tuning.PlayerFrictionPerTick
     };
-    var defender = new PlayerState(2, TeamSide.Away, new Vector2(1.15f, 0f))
+    var defender = new PlayerState(2, "Defender", TeamSide.Away, new Vector2(1.15f, 0f))
     {
         Facing = Azimuth.West,
         Attributes = new PlayerAttributes(8, 8, 8, 15, 8, 10, 8),
@@ -552,7 +661,7 @@ static void PassiveChallengerCanWinControlledBall()
 static void HighControlPlayerResistsPassiveChallenge()
 {
     var tuning = PhysicsTuning.Default;
-    var attacker = new PlayerState(1, TeamSide.Home, Vector2.Zero)
+    var attacker = new PlayerState(1, "Attacker", TeamSide.Home, Vector2.Zero)
     {
         Facing = Azimuth.East,
         HasPossession = true,
@@ -562,7 +671,7 @@ static void HighControlPlayerResistsPassiveChallenge()
         AccelerationPerTick = tuning.PlayerAccelerationPerTick,
         FrictionPerTick = tuning.PlayerFrictionPerTick
     };
-    var defender = new PlayerState(2, TeamSide.Away, new Vector2(1.15f, 0f))
+    var defender = new PlayerState(2, "Defender", TeamSide.Away, new Vector2(1.15f, 0f))
     {
         Facing = Azimuth.West,
         Attributes = new PlayerAttributes(8, 8, 8, 8, 8, 10, 8),
@@ -619,7 +728,7 @@ static void SlidingTackleHasTravelAndRecoveryPhases()
 static void SlidingTackleCanKnockBallLoose()
 {
     var tuning = PhysicsTuning.Default;
-    var slider = new PlayerState(1, TeamSide.Home, Vector2.Zero)
+    var slider = new PlayerState(1, "Slider", TeamSide.Home, Vector2.Zero)
     {
         Facing = Azimuth.East,
         Radius = tuning.PlayerRadius,
@@ -627,7 +736,7 @@ static void SlidingTackleCanKnockBallLoose()
         AccelerationPerTick = tuning.PlayerAccelerationPerTick,
         FrictionPerTick = tuning.PlayerFrictionPerTick
     };
-    var carrier = new PlayerState(2, TeamSide.Away, new Vector2(2f, 0f))
+    var carrier = new PlayerState(2, "Carrier", TeamSide.Away, new Vector2(2f, 0f))
     {
         Facing = Azimuth.West,
         HasPossession = true,
@@ -719,6 +828,29 @@ static void RenderSnapshotInterpolatesBetweenTicks()
     Assert(engine.State.Tick == 1, "Half a tick should not mutate authoritative tick.");
     Assert(renderX > initialX, "Interpolated render player should move past previous tick position.");
     Assert(renderX < tickOneX, "Interpolated render player should remain before current tick position.");
+}
+
+static MatchEngine CreateMovementEngine()
+{
+    var tuning = PhysicsTuning.Default;
+    var player = new PlayerState(1, "Movement Test Runner", TeamSide.Home, Vector2.Zero)
+    {
+        Facing = Azimuth.East,
+        Attributes = PlayerAttributes.DefaultOutfield,
+        Radius = tuning.PlayerRadius,
+        MaxSpeedPerTick = tuning.PlayerMaxSpeedPerTick,
+        AccelerationPerTick = tuning.PlayerAccelerationPerTick,
+        FrictionPerTick = tuning.PlayerFrictionPerTick
+    };
+    var ball = new BallState
+    {
+        Position = new Vector2(40f, 20f),
+        Radius = tuning.BallRadius
+    };
+
+    return new MatchEngine(
+        new MatchState(FieldDimensions.Default, new[] { player }, ball, activePlayerId: player.Id),
+        tuning);
 }
 
 static void StepMany(MatchEngine engine, PlayerInput input, int count)

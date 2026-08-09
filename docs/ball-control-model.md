@@ -25,7 +25,7 @@ A dribble-risk accumulator is updated every tick from:
 - turn severity
 - side drift and side-drift change
 - excess ball distance from ideal lead
-- sustained-running pressure over time
+- sustained-running pressure, which amplifies the above mistakes but adds no risk on its own
 If risk crosses `DribbleRiskBreakThreshold`, possession is lost.
 
 6. Mistouch release:
@@ -41,8 +41,10 @@ On control break, the ball is released forward-biased with a small turn-dependen
 ## Why This Is Not "Glued"
 
 The model intentionally allows failure under prolonged or careless dribbling:
-- sustained running increases risk even with mostly straight movement
+- clean straight running remains reliable, even for a low-control player
+- sustained running makes later sharp turns and wide touches harder to recover
 - low-control players accumulate risk faster
 - possession breaks can happen without tackles when risk is high enough
 
 This is intended to approximate SWOS-like contestable dribbling while remaining deterministic and tuneable.
+Control loss follows a visible mistake rather than an invisible timer, so player skill changes recovery margin without overriding clear input.

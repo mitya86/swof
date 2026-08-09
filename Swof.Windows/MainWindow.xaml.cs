@@ -539,7 +539,26 @@ namespace Swof.Windows
 
     public sealed class FieldView : FrameworkElement
     {
+        private const float CameraLengthRatio = 0.44f;
+        private const float CameraWidthRatio = 0.58f;
+        private const float CameraBoundaryMargin = 8f;
+        private const float CameraBallWeight = 0.72f;
+        private const float CameraLookaheadTicks = 14f;
+        private const float CameraMaxLookaheadRatio = 0.24f;
+        private const float CenterCircleRadiusMeters = 9.15f;
+        private const float GoalNetDepthMeters = 2.1f;
+        private const float BenchOffsetFromTouchlineMeters = 2.2f;
+        private const float BenchLengthMeters = 12f;
+        private const float BenchDepthMeters = 1.8f;
         private static readonly Brush GrassBrush = new SolidColorBrush(Color.FromRgb(33, 126, 55));
+        private static readonly Brush PitchStripeBrush = new SolidColorBrush(Color.FromRgb(29, 112, 49));
+        private static readonly Brush SurroundBrush = new SolidColorBrush(Color.FromRgb(64, 71, 58));
+        private static readonly Brush TrackBrush = new SolidColorBrush(Color.FromRgb(93, 97, 90));
+        private static readonly Brush GoalNetBrush = new SolidColorBrush(Color.FromArgb(105, 235, 235, 235));
+        private static readonly Brush BenchBrush = new SolidColorBrush(Color.FromRgb(42, 47, 58));
+        private static readonly Brush BenchRoofBrush = new SolidColorBrush(Color.FromRgb(78, 88, 108));
+        private static readonly Brush CrowdDarkBrush = new SolidColorBrush(Color.FromRgb(34, 34, 41));
+        private static readonly Brush CrowdLightBrush = new SolidColorBrush(Color.FromRgb(58, 58, 68));
         private static readonly Brush LineBrush = new SolidColorBrush(Color.FromRgb(242, 242, 242));
         private static readonly Brush HomeBrush = new SolidColorBrush(Color.FromRgb(235, 58, 58));
         private static readonly Brush AwayBrush = new SolidColorBrush(Color.FromRgb(64, 119, 230));
@@ -562,74 +581,241 @@ namespace Swof.Windows
                 return;
             }
 
-            var fieldRect = GetFieldRect(Snapshot.Field);
-            context.DrawRectangle(GrassBrush, null, fieldRect);
-            DrawFieldLines(context, Snapshot.Field, fieldRect);
-            DrawPlayers(context, Snapshot.Field, fieldRect);
-            DrawBall(context, Snapshot.Field, fieldRect);
+            var viewRect = GetViewRect();
+            var camera = GetCameraViewport(Snapshot, viewRect);
+            DrawStadiumBackground(context, Snapshot.Field, camera, viewRect);
+            DrawFieldLines(context, Snapshot.Field, camera, viewRect);
+            DrawPlayers(context, Snapshot.Field, camera, viewRect);
+            DrawBall(context, Snapshot.Field, camera, viewRect);
         }
 
-        private Rect GetFieldRect(FieldDimensions field)
+        private Rect GetViewRect()
         {
             var margin = 28d;
-            var availableWidth = Math.Max(1d, ActualWidth - margin * 2d);
-            var availableHeight = Math.Max(1d, ActualHeight - margin * 2d);
-            var fieldAspect = field.Length / field.Width;
-            var width = availableWidth;
-            var height = width / fieldAspect;
+            return new Rect(
+                margin,
+                margin,
+                Math.Max(1d, ActualWidth - margin * 2d),
+                Math.Max(1d, ActualHeight - margin * 2d));
+        }
 
-            if (height > availableHeight)
+        private static CameraViewport GetCameraViewport(MatchSnapshot snapshot, Rect viewRect)
+        {
+            var field = snapshot.Field;
+            var spanX = field.Length * CameraLengthRatio;
+            var spanY = field.Width * CameraWidthRatio;
+            var screenAspect = (float)(viewRect.Width / Math.Max(1d, viewRect.Height));
+            var worldAspect = spanX / MathF.Max(0.0001f, spanY);
+            if (worldAspect < screenAspect)
             {
-                height = availableHeight;
-                width = height * fieldAspect;
+                spanX = spanY * screenAspect;
+            }
+            else
+            {
+                spanY = spanX / MathF.Max(0.0001f, screenAspect);
             }
 
-            return new Rect(
-                (ActualWidth - width) / 2d,
-                (ActualHeight - height) / 2d,
-                width,
-                height);
+            spanX = Math.Clamp(spanX, 24f, field.Length);
+            spanY = Math.Clamp(spanY, 18f, field.Width);
+
+            var active = snapshot.Players.FirstOrDefault(player => player.Id == snapshot.ActivePlayerId) ?? snapshot.Players[0];
+            var center = snapshot.Ball.Position * CameraBallWeight + active.Position * (1f - CameraBallWeight);
+            var lookahead = snapshot.Ball.Velocity * CameraLookaheadTicks;
+            var maxLookahead = new NumericsVector2(spanX * CameraMaxLookaheadRatio, spanY * CameraMaxLookaheadRatio);
+            lookahead = new NumericsVector2(
+                Math.Clamp(lookahead.X, -maxLookahead.X, maxLookahead.X),
+                Math.Clamp(lookahead.Y, -maxLookahead.Y, maxLookahead.Y));
+            center += lookahead;
+
+            var halfX = spanX * 0.5f;
+            var halfY = spanY * 0.5f;
+            center = new NumericsVector2(
+                Math.Clamp(center.X, field.Left - CameraBoundaryMargin + halfX, field.Right + CameraBoundaryMargin - halfX),
+                Math.Clamp(center.Y, field.Top - CameraBoundaryMargin + halfY, field.Bottom + CameraBoundaryMargin - halfY));
+
+            return new CameraViewport(
+                center.X - halfX,
+                center.X + halfX,
+                center.Y - halfY,
+                center.Y + halfY);
         }
 
-        private void DrawFieldLines(DrawingContext context, FieldDimensions field, Rect rect)
+        private void DrawFieldLines(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect)
         {
-            context.DrawRectangle(null, LinePen, rect);
+            var pitchTopLeft = ToScreen(new NumericsVector2(field.Left, field.Top), camera, rect);
+            var pitchBottomRight = ToScreen(new NumericsVector2(field.Right, field.Bottom), camera, rect);
+            var pitchRect = new Rect(pitchTopLeft, pitchBottomRight);
+            context.DrawRectangle(null, LinePen, pitchRect);
 
-            var centerTop = ToScreen(new NumericsVector2(0f, field.Top), field, rect);
-            var centerBottom = ToScreen(new NumericsVector2(0f, field.Bottom), field, rect);
+            var centerTop = ToScreen(new NumericsVector2(0f, field.Top), camera, rect);
+            var centerBottom = ToScreen(new NumericsVector2(0f, field.Bottom), camera, rect);
             context.DrawLine(LinePen, centerTop, centerBottom);
-            context.DrawEllipse(null, LinePen, ToScreen(NumericsVector2.Zero, field, rect), 58, 58);
+            var centerRadius = ScaleDistance(CenterCircleRadiusMeters, camera, rect);
+            context.DrawEllipse(null, LinePen, ToScreen(NumericsVector2.Zero, camera, rect), centerRadius, centerRadius);
 
-            DrawGoal(context, field, rect, field.Left);
-            DrawGoal(context, field, rect, field.Right);
-            DrawPenaltyArea(context, field, rect, leftSide: true);
-            DrawPenaltyArea(context, field, rect, leftSide: false);
+            DrawGoal(context, field, camera, rect, field.Left);
+            DrawGoal(context, field, camera, rect, field.Right);
+            DrawPenaltyArea(context, field, camera, rect, leftSide: true);
+            DrawPenaltyArea(context, field, camera, rect, leftSide: false);
         }
 
-        private void DrawGoal(DrawingContext context, FieldDimensions field, Rect rect, float x)
+        private void DrawStadiumBackground(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect)
         {
-            var top = ToScreen(new NumericsVector2(x, field.GoalTop), field, rect);
-            var bottom = ToScreen(new NumericsVector2(x, field.GoalBottom), field, rect);
+            context.DrawRectangle(SurroundBrush, null, rect);
+
+            var pitchTopLeft = ToScreen(new NumericsVector2(field.Left, field.Top), camera, rect);
+            var pitchBottomRight = ToScreen(new NumericsVector2(field.Right, field.Bottom), camera, rect);
+            var pitchRect = new Rect(pitchTopLeft, pitchBottomRight);
+            context.DrawRectangle(GrassBrush, null, pitchRect);
+
+            var stripeCount = 10;
+            for (var i = 0; i < stripeCount; i++)
+            {
+                if (i % 2 == 0)
+                {
+                    continue;
+                }
+
+                var stripeX = pitchRect.Left + pitchRect.Width * i / stripeCount;
+                var stripeW = pitchRect.Width / stripeCount;
+                context.DrawRectangle(PitchStripeBrush, null, new Rect(stripeX, pitchRect.Top, stripeW, pitchRect.Height));
+            }
+
+            DrawTrack(context, pitchRect);
+            DrawGoalWithNet(context, field, camera, rect, leftGoal: true);
+            DrawGoalWithNet(context, field, camera, rect, leftGoal: false);
+            DrawBenches(context, field, camera, rect);
+            DrawCrowdBands(context, pitchRect, rect);
+        }
+
+        private static void DrawTrack(DrawingContext context, Rect pitchRect)
+        {
+            const double lane = 14d;
+            var outer = new Rect(
+                pitchRect.Left - lane,
+                pitchRect.Top - lane,
+                pitchRect.Width + lane * 2d,
+                pitchRect.Height + lane * 2d);
+            var inner = new Rect(
+                pitchRect.Left - lane * 0.3d,
+                pitchRect.Top - lane * 0.3d,
+                pitchRect.Width + lane * 0.6d,
+                pitchRect.Height + lane * 0.6d);
+            context.DrawRectangle(TrackBrush, null, outer);
+            context.DrawRectangle(GrassBrush, null, inner);
+            context.DrawRectangle(null, new Pen(LineBrush, 1), outer);
+        }
+
+        private void DrawGoalWithNet(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect, bool leftGoal)
+        {
+            var goalX = leftGoal ? field.Left : field.Right;
+            var postTop = ToScreen(new NumericsVector2(goalX, field.GoalTop), camera, rect);
+            var postBottom = ToScreen(new NumericsVector2(goalX, field.GoalBottom), camera, rect);
+            var depthX = leftGoal ? goalX - GoalNetDepthMeters : goalX + GoalNetDepthMeters;
+            var backTop = ToScreen(new NumericsVector2(depthX, field.GoalTop), camera, rect);
+            var backBottom = ToScreen(new NumericsVector2(depthX, field.GoalBottom), camera, rect);
+
+            var net = new StreamGeometry();
+            using (var geo = net.Open())
+            {
+                geo.BeginFigure(postTop, true, true);
+                geo.LineTo(postBottom, true, true);
+                geo.LineTo(backBottom, true, true);
+                geo.LineTo(backTop, true, true);
+            }
+            net.Freeze();
+            context.DrawGeometry(GoalNetBrush, new Pen(LineBrush, 1), net);
+            context.DrawLine(new Pen(LineBrush, 3), postTop, postBottom);
+            context.DrawLine(new Pen(LineBrush, 2), postTop, backTop);
+            context.DrawLine(new Pen(LineBrush, 2), postBottom, backBottom);
+
+            var meshRows = 4;
+            for (var i = 1; i < meshRows; i++)
+            {
+                var t = i / (double)meshRows;
+                var front = LerpPoint(postTop, postBottom, t);
+                var back = LerpPoint(backTop, backBottom, t);
+                context.DrawLine(new Pen(LineBrush, 0.7), front, back);
+            }
+        }
+
+        private void DrawBenches(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect)
+        {
+            var benchHalfLen = BenchLengthMeters * 0.5f;
+            var yTop = field.Top - BenchOffsetFromTouchlineMeters - BenchDepthMeters;
+            var yBottom = field.Bottom + BenchOffsetFromTouchlineMeters;
+            DrawBench(context, camera, rect, -benchHalfLen, benchHalfLen, yTop, yTop + BenchDepthMeters);
+            DrawBench(context, camera, rect, -benchHalfLen, benchHalfLen, yBottom, yBottom + BenchDepthMeters);
+        }
+
+        private void DrawBench(DrawingContext context, CameraViewport camera, Rect rect, float x1, float x2, float y1, float y2)
+        {
+            var topLeft = ToScreen(new NumericsVector2(x1, y1), camera, rect);
+            var bottomRight = ToScreen(new NumericsVector2(x2, y2), camera, rect);
+            var benchRect = new Rect(topLeft, bottomRight);
+            context.DrawRectangle(BenchBrush, new Pen(LineBrush, 1), benchRect);
+            var roof = new Rect(benchRect.Left, benchRect.Top - 3, benchRect.Width, 3);
+            context.DrawRectangle(BenchRoofBrush, null, roof);
+        }
+
+        private static void DrawCrowdBands(DrawingContext context, Rect pitchRect, Rect viewRect)
+        {
+            var topBand = new Rect(viewRect.Left, viewRect.Top, viewRect.Width, Math.Max(0, pitchRect.Top - viewRect.Top - 18));
+            var bottomBand = new Rect(viewRect.Left, Math.Min(viewRect.Bottom, pitchRect.Bottom + 18), viewRect.Width, Math.Max(0, viewRect.Bottom - pitchRect.Bottom - 18));
+            var leftBand = new Rect(viewRect.Left, pitchRect.Top, Math.Max(0, pitchRect.Left - viewRect.Left - 18), pitchRect.Height);
+            var rightBand = new Rect(Math.Min(viewRect.Right, pitchRect.Right + 18), pitchRect.Top, Math.Max(0, viewRect.Right - pitchRect.Right - 18), pitchRect.Height);
+
+            FillCrowdBand(context, topBand);
+            FillCrowdBand(context, bottomBand);
+            FillCrowdBand(context, leftBand);
+            FillCrowdBand(context, rightBand);
+        }
+
+        private static void FillCrowdBand(DrawingContext context, Rect band)
+        {
+            if (band.Width < 8 || band.Height < 8)
+            {
+                return;
+            }
+
+            context.DrawRectangle(CrowdDarkBrush, null, band);
+            var spacing = 7d;
+            for (double y = band.Top + 4; y < band.Bottom - 2; y += spacing)
+            {
+                for (double x = band.Left + 4; x < band.Right - 2; x += spacing)
+                {
+                    var parity = ((int)((x + y) / spacing)) % 3;
+                    var brush = parity == 0 ? CrowdLightBrush : LineBrush;
+                    var size = parity == 2 ? 1.2 : 1.8;
+                    context.DrawEllipse(brush, null, new Point(x, y), size, size);
+                }
+            }
+        }
+
+        private void DrawGoal(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect, float x)
+        {
+            var top = ToScreen(new NumericsVector2(x, field.GoalTop), camera, rect);
+            var bottom = ToScreen(new NumericsVector2(x, field.GoalBottom), camera, rect);
             context.DrawLine(new Pen(LineBrush, 5), top, bottom);
         }
 
-        private void DrawPenaltyArea(DrawingContext context, FieldDimensions field, Rect rect, bool leftSide)
+        private void DrawPenaltyArea(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect, bool leftSide)
         {
             var x1 = leftSide ? field.Left : field.Right - field.PenaltyAreaLength;
             var x2 = leftSide ? field.Left + field.PenaltyAreaLength : field.Right;
             var y1 = -field.PenaltyAreaWidth / 2f;
             var y2 = field.PenaltyAreaWidth / 2f;
-            var topLeft = ToScreen(new NumericsVector2(x1, y1), field, rect);
-            var bottomRight = ToScreen(new NumericsVector2(x2, y2), field, rect);
+            var topLeft = ToScreen(new NumericsVector2(x1, y1), camera, rect);
+            var bottomRight = ToScreen(new NumericsVector2(x2, y2), camera, rect);
             context.DrawRectangle(null, LinePen, new Rect(topLeft, bottomRight));
         }
 
-        private void DrawPlayers(DrawingContext context, FieldDimensions field, Rect rect)
+        private void DrawPlayers(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect)
         {
             foreach (var player in Snapshot!.Players)
             {
-                var center = ToScreen(player.Position, field, rect);
-                var radius = ScaleDistance(player.Radius, field, rect);
+                var center = ToScreen(player.Position, camera, rect);
+                var radius = ScaleDistance(player.Radius, camera, rect);
                 var brush = player.Team == TeamSide.Home ? HomeBrush : AwayBrush;
                 DrawPlayerBody(context, player, center, radius, brush);
 
@@ -673,11 +859,11 @@ namespace Swof.Windows
             context.DrawEllipse(SkinBrush, new Pen(Brushes.Black, 1), head, radius * 0.42, radius * 0.42);
         }
 
-        private void DrawBall(DrawingContext context, FieldDimensions field, Rect rect)
+        private void DrawBall(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect)
         {
-            var shadowCenter = ToScreen(Snapshot!.Ball.Position, field, rect);
-            var baseRadius = Math.Max(4d, ScaleDistance(Snapshot.Ball.Radius, field, rect));
-            var heightPixels = Snapshot.Ball.Height / field.Length * rect.Width;
+            var shadowCenter = ToScreen(Snapshot!.Ball.Position, camera, rect);
+            var baseRadius = Math.Max(4d, ScaleDistance(Snapshot.Ball.Radius, camera, rect));
+            var heightPixels = ScaleDistance(Snapshot.Ball.Height, camera, rect);
             var ballCenter = new Point(shadowCenter.X, shadowCenter.Y - heightPixels);
             var ballRadius = baseRadius * (1d + Math.Min(0.5d, Snapshot.Ball.Height * 0.045d));
             var shadowRadiusX = baseRadius * Math.Max(0.45d, 1d - Snapshot.Ball.Height * 0.035d);
@@ -687,21 +873,32 @@ namespace Swof.Windows
             context.DrawEllipse(BallBrush, new Pen(Brushes.Black, 1), ballCenter, ballRadius, ballRadius);
         }
 
-        private static Point ToScreen(NumericsVector2 world, FieldDimensions field, Rect rect)
+        private static Point ToScreen(NumericsVector2 world, CameraViewport camera, Rect rect)
         {
-            var x01 = (world.X - field.Left) / field.Length;
-            var y01 = (world.Y - field.Top) / field.Width;
+            var x01 = (world.X - camera.Left) / MathF.Max(0.0001f, camera.Width);
+            var y01 = (world.Y - camera.Top) / MathF.Max(0.0001f, camera.Height);
             return new Point(rect.Left + x01 * rect.Width, rect.Top + y01 * rect.Height);
         }
 
-        private static double ScaleDistance(float worldDistance, FieldDimensions field, Rect rect)
+        private static double ScaleDistance(float worldDistance, CameraViewport camera, Rect rect)
         {
-            return worldDistance / field.Length * rect.Width;
+            return worldDistance / camera.Width * rect.Width;
         }
 
         private static Point Offset(Point point, NumericsVector2 direction, double distance)
         {
             return new Point(point.X + direction.X * distance, point.Y + direction.Y * distance);
+        }
+
+        private static Point LerpPoint(Point a, Point b, double t)
+        {
+            return new Point(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t);
+        }
+
+        private readonly record struct CameraViewport(float Left, float Right, float Top, float Bottom)
+        {
+            public float Width => Right - Left;
+            public float Height => Bottom - Top;
         }
     }
 }

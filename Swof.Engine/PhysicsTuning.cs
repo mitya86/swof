@@ -10,6 +10,10 @@ public sealed record PhysicsTuning
     public float PlayerFrictionPerTick { get; init; } = 9f / (60f * 60f);
     public float PlayerBurstAccelerationPerTick { get; init; } = 0.055f;
     public float PlayerSustainAccelerationPerTick { get; init; } = 0.014f;
+    /// <summary>Maximum velocity change while steering across the current run direction.</summary>
+    public float PlayerTurnAccelerationPerTick { get; init; } = 0.07f;
+    /// <summary>Maximum velocity change when reversing against the current run direction.</summary>
+    public float PlayerReverseAccelerationPerTick { get; init; } = 0.085f;
     public float PlayerDecelerationPerTick { get; init; } = 0.09f;
     public float PlayerRadius { get; init; } = 1.05f;
     public float BallRadius { get; init; } = 0.42f;
@@ -32,16 +36,15 @@ public sealed record PhysicsTuning
     public float DribbleHighControlMaxDistance { get; init; } = 1.62f;
     public float DribbleLowControlTurnPenalty { get; init; } = 1.2f;
     public float DribbleHighControlTurnPenalty { get; init; } = 0.35f;
-    public int DribbleSecureTicksAfterTouch { get; init; } = 1;
-    public float DribbleRiskDecayPerTick { get; init; } = 0.975f;
-    public float DribbleRiskTurnGainPerTick { get; init; } = 0.5f;
-    public float DribbleRiskDistanceGainPerTick { get; init; } = 0.34f;
-    public float DribbleSustainRiskPerTick { get; init; } = 0.024f;
-    public float DribbleSustainRampPerTick { get; init; } = 0.012f;
-    public float DribbleSustainMaxMultiplier { get; init; } = 3.2f;
-    public float DribbleRiskBreakThreshold { get; init; } = 0.28f;
+    public int DribbleSecureTicksAfterTouch { get; init; } = 3;
+    public float DribbleRiskDecayPerTick { get; init; } = 0.94f;
+    public float DribbleRiskTurnGainPerTick { get; init; } = 0.18f;
+    public float DribbleRiskDistanceGainPerTick { get; init; } = 0.24f;
+    public float DribbleSustainRampPerTick { get; init; } = 0.01f;
+    public float DribbleSustainMaxMultiplier { get; init; } = 2.2f;
+    public float DribbleRiskBreakThreshold { get; init; } = 0.34f;
     public float DribbleMistouchLooseSpeedPerTick { get; init; } = 0.3f;
-    public int DribbleMistouchCollectionCooldownTicks { get; init; } = 18;
+    public int DribbleMistouchCollectionCooldownTicks { get; init; } = 8;
     public float MovingFrontAlignPositionPerTick { get; init; } = 0.045f;
     public float MovingFrontAlignVelocityPerTick { get; init; } = 0.03f;
     public float MovingFrontAlignMinForwardDistance { get; init; } = 0.72f;

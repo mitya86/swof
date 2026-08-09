@@ -8,11 +8,11 @@ public sealed record FieldDimensions(
     float PenaltyAreaWidth)
 {
     public static FieldDimensions Default { get; } = new(
-        Length: 100f,
-        Width: 64f,
-        GoalWidth: 14f,
+        Length: 105f,
+        Width: 68f,
+        GoalWidth: 7.32f,
         PenaltyAreaLength: 16.5f,
-        PenaltyAreaWidth: 40f);
+        PenaltyAreaWidth: 40.32f);
 
     public float Left => -Length / 2f;
     public float Right => Length / 2f;
