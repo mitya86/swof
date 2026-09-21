@@ -133,10 +133,15 @@ Manual-supported behavior:
 Current clean-room placeholder:
 
 ```text
-0-7 held ticks: pass
-8+ held ticks: kick
-45 held ticks: maximum kick power
+release on 0-7 held ticks: targeted pass
+8 held ticks: shot contact, without waiting for release
+contact: one fixed launch-speed and lift impulse
+continued hold: shot passes through friendly players; no extra ball impulse
+first early direction: one curve and/or drive/loft aftertouch impulse
+ground contact: strong spin and Magnus damping
 ```
+
+See `swos-one-button-action.md` for the source/harness evidence, the aftertouch axes, and the intentional timing differences from the original.
 
 Binary probe note:
 
@@ -234,7 +239,7 @@ Ball friction: 0.00144 field units / tick^2
 Ball gravity: 0.0128 field units / tick^2
 Ball bounce energy retention: 0.42
 Long-pass lift: 0.120 field units / tick
-Kick hold max time: 45 ticks
+Immediate kick power: 0.700 normalized
 Tap pass max time: 7 ticks
 Pass speed: 0.400 field units / tick
 Kick speed range: 0.300 to 0.700 field units / tick

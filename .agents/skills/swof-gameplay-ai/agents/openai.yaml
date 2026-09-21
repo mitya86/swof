@@ -1,0 +1,4 @@
+interface:
+  display_name: "SWOF Gameplay AI"
+  short_description: "Design deterministic individual-player futsal AI"
+  default_prompt: "Use $swof-gameplay-ai to design and implement the next incremental futsal AI behavior."

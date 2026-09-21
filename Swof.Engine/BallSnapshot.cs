@@ -8,7 +8,8 @@ public sealed record BallSnapshot(
     float Height,
     float VerticalVelocity,
     float Radius,
-    int? PossessorId)
+    int? PossessorId,
+    BallControlKind ControlKind)
 {
     public static BallSnapshot FromState(BallState ball)
     {
@@ -18,7 +19,8 @@ public sealed record BallSnapshot(
             ball.Height,
             ball.VerticalVelocity,
             ball.Radius,
-            ball.PossessorId);
+            ball.PossessorId,
+            ball.ControlKind);
     }
 
     public static BallSnapshot Interpolate(BallSnapshot from, BallSnapshot to, float alpha)

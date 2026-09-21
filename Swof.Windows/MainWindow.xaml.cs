@@ -1,4 +1,5 @@
 using Swof.Engine;
+using Swof.Engine.AI;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -22,6 +23,8 @@ namespace Swof.Windows
     {
         private static readonly JsonSerializerOptions TuningJsonOptions = CreateTuningJsonOptions();
         private readonly MatchEngine _engine;
+        private readonly ComputerPlayerController _computerPlayers;
+        private readonly PlayerInputBuffer _inputBuffer = new();
         private readonly DispatcherTimer _timer = new();
         private readonly HashSet<Key> _keysDown = new();
         private readonly ObservableCollection<TuningEntry> _tuningEntries = new();
@@ -33,6 +36,7 @@ namespace Swof.Windows
 
             var tuning = PhysicsTuningStore.LoadOrDefault();
             _engine = MatchEngine.CreateDefault(tuning);
+            _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
             LoadEntriesFromTuning(tuning);
             CurveModeCombo.ItemsSource = Enum.GetValues<BallCurveMode>();
             CurveModeCombo.SelectedItem = tuning.BallCurveMode;
@@ -54,7 +58,8 @@ namespace Swof.Windows
             var deltaSeconds = Math.Min((float)(now - _previousFrame).TotalSeconds, 0.05f);
             _previousFrame = now;
 
-            _engine.Step(deltaSeconds, ReadInput());
+            _inputBuffer.Capture(ReadInput());
+            _engine.Step(deltaSeconds, _inputBuffer, _computerPlayers);
             Field.Snapshot = _engine.GetRenderSnapshot();
             Field.InvalidateVisual();
             UpdateStatus();
@@ -382,6 +387,7 @@ namespace Swof.Windows
             if (name.StartsWith("TapPass", StringComparison.Ordinal)
                 || name.StartsWith("Pass", StringComparison.Ordinal)
                 || name.StartsWith("Kick", StringComparison.Ordinal)
+                || name.StartsWith("ImmediateKick", StringComparison.Ordinal)
                 || name.StartsWith("LongPass", StringComparison.Ordinal)
                 || name.StartsWith("MaxKick", StringComparison.Ordinal)
                 || name.StartsWith("MinKick", StringComparison.Ordinal)
@@ -393,6 +399,8 @@ namespace Swof.Windows
             if (name.StartsWith("Aftertouch", StringComparison.Ordinal)
                 || name.StartsWith("SwosCurve", StringComparison.Ordinal)
                 || name.StartsWith("Spin", StringComparison.Ordinal)
+                || name.StartsWith("GroundMagnus", StringComparison.Ordinal)
+                || name.StartsWith("MaxGround", StringComparison.Ordinal)
                 || name.StartsWith("Magnus", StringComparison.Ordinal))
             {
                 return 600;
@@ -539,21 +547,18 @@ namespace Swof.Windows
 
     public sealed class FieldView : FrameworkElement
     {
-        private const float CameraLengthRatio = 0.44f;
-        private const float CameraWidthRatio = 0.58f;
-        private const float CameraBoundaryMargin = 8f;
+        private const float CameraVisibleCourtLengthRatio = 0.7f;
+        private const float CameraBoundaryMargin = 3f;
         private const float CameraBallWeight = 0.72f;
         private const float CameraLookaheadTicks = 14f;
         private const float CameraMaxLookaheadRatio = 0.24f;
-        private const float CenterCircleRadiusMeters = 9.15f;
-        private const float GoalNetDepthMeters = 2.1f;
-        private const float BenchOffsetFromTouchlineMeters = 2.2f;
-        private const float BenchLengthMeters = 12f;
-        private const float BenchDepthMeters = 1.8f;
-        private static readonly Brush GrassBrush = new SolidColorBrush(Color.FromRgb(33, 126, 55));
-        private static readonly Brush PitchStripeBrush = new SolidColorBrush(Color.FromRgb(29, 112, 49));
-        private static readonly Brush SurroundBrush = new SolidColorBrush(Color.FromRgb(64, 71, 58));
-        private static readonly Brush TrackBrush = new SolidColorBrush(Color.FromRgb(93, 97, 90));
+        private const float BenchOffsetFromTouchlineMeters = 1.2f;
+        private const float BenchLengthMeters = 5f;
+        private const float BenchDepthMeters = 1f;
+        private static readonly Brush GrassBrush = new SolidColorBrush(Color.FromRgb(35, 123, 157));
+        private static readonly Brush PitchStripeBrush = new SolidColorBrush(Color.FromRgb(32, 116, 149));
+        private static readonly Brush SurroundBrush = new SolidColorBrush(Color.FromRgb(17, 25, 32));
+        private static readonly Brush TrackBrush = new SolidColorBrush(Color.FromRgb(24, 77, 98));
         private static readonly Brush GoalNetBrush = new SolidColorBrush(Color.FromArgb(105, 235, 235, 235));
         private static readonly Brush BenchBrush = new SolidColorBrush(Color.FromRgb(42, 47, 58));
         private static readonly Brush BenchRoofBrush = new SolidColorBrush(Color.FromRgb(78, 88, 108));
@@ -562,6 +567,8 @@ namespace Swof.Windows
         private static readonly Brush LineBrush = new SolidColorBrush(Color.FromRgb(242, 242, 242));
         private static readonly Brush HomeBrush = new SolidColorBrush(Color.FromRgb(235, 58, 58));
         private static readonly Brush AwayBrush = new SolidColorBrush(Color.FromRgb(64, 119, 230));
+        private static readonly Brush HomeGoalkeeperBrush = new SolidColorBrush(Color.FromRgb(72, 190, 105));
+        private static readonly Brush AwayGoalkeeperBrush = new SolidColorBrush(Color.FromRgb(225, 176, 55));
         private static readonly Brush ActiveOutlineBrush = new SolidColorBrush(Color.FromRgb(255, 230, 80));
         private static readonly Brush SkinBrush = new SolidColorBrush(Color.FromRgb(239, 190, 135));
         private static readonly Brush ShortsBrush = new SolidColorBrush(Color.FromRgb(30, 30, 34));
@@ -602,21 +609,23 @@ namespace Swof.Windows
         private static CameraViewport GetCameraViewport(MatchSnapshot snapshot, Rect viewRect)
         {
             var field = snapshot.Field;
-            var spanX = field.Length * CameraLengthRatio;
-            var spanY = field.Width * CameraWidthRatio;
             var screenAspect = (float)(viewRect.Width / Math.Max(1d, viewRect.Height));
-            var worldAspect = spanX / MathF.Max(0.0001f, spanY);
-            if (worldAspect < screenAspect)
+            var worldWidth = field.Length + CameraBoundaryMargin * 2f;
+            var worldHeight = field.Width + CameraBoundaryMargin * 2f;
+            var spanX = field.Length * CameraVisibleCourtLengthRatio;
+            var spanY = spanX / MathF.Max(0.1f, screenAspect);
+
+            if (spanY > worldHeight)
             {
+                spanY = worldHeight;
                 spanX = spanY * screenAspect;
             }
-            else
-            {
-                spanY = spanX / MathF.Max(0.0001f, screenAspect);
-            }
 
-            spanX = Math.Clamp(spanX, 24f, field.Length);
-            spanY = Math.Clamp(spanY, 18f, field.Width);
+            if (spanX > worldWidth)
+            {
+                spanX = worldWidth;
+                spanY = spanX / MathF.Max(0.1f, screenAspect);
+            }
 
             var active = snapshot.Players.FirstOrDefault(player => player.Id == snapshot.ActivePlayerId) ?? snapshot.Players[0];
             var center = snapshot.Ball.Position * CameraBallWeight + active.Position * (1f - CameraBallWeight);
@@ -650,13 +659,15 @@ namespace Swof.Windows
             var centerTop = ToScreen(new NumericsVector2(0f, field.Top), camera, rect);
             var centerBottom = ToScreen(new NumericsVector2(0f, field.Bottom), camera, rect);
             context.DrawLine(LinePen, centerTop, centerBottom);
-            var centerRadius = ScaleDistance(CenterCircleRadiusMeters, camera, rect);
+            var centerRadius = ScaleDistance(field.CenterCircleRadius, camera, rect);
             context.DrawEllipse(null, LinePen, ToScreen(NumericsVector2.Zero, camera, rect), centerRadius, centerRadius);
+            context.DrawEllipse(LineBrush, null, ToScreen(NumericsVector2.Zero, camera, rect), 2.5d, 2.5d);
 
             DrawGoal(context, field, camera, rect, field.Left);
             DrawGoal(context, field, camera, rect, field.Right);
             DrawPenaltyArea(context, field, camera, rect, leftSide: true);
             DrawPenaltyArea(context, field, camera, rect, leftSide: false);
+            DrawFutsalMarks(context, field, camera, rect);
         }
 
         private void DrawStadiumBackground(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect)
@@ -666,9 +677,15 @@ namespace Swof.Windows
             var pitchTopLeft = ToScreen(new NumericsVector2(field.Left, field.Top), camera, rect);
             var pitchBottomRight = ToScreen(new NumericsVector2(field.Right, field.Bottom), camera, rect);
             var pitchRect = new Rect(pitchTopLeft, pitchBottomRight);
+            var apron = new Rect(
+                pitchRect.Left - 12d,
+                pitchRect.Top - 12d,
+                pitchRect.Width + 24d,
+                pitchRect.Height + 24d);
+            context.DrawRectangle(TrackBrush, null, apron);
             context.DrawRectangle(GrassBrush, null, pitchRect);
 
-            var stripeCount = 10;
+            var stripeCount = 8;
             for (var i = 0; i < stripeCount; i++)
             {
                 if (i % 2 == 0)
@@ -681,11 +698,9 @@ namespace Swof.Windows
                 context.DrawRectangle(PitchStripeBrush, null, new Rect(stripeX, pitchRect.Top, stripeW, pitchRect.Height));
             }
 
-            DrawTrack(context, pitchRect);
             DrawGoalWithNet(context, field, camera, rect, leftGoal: true);
             DrawGoalWithNet(context, field, camera, rect, leftGoal: false);
             DrawBenches(context, field, camera, rect);
-            DrawCrowdBands(context, pitchRect, rect);
         }
 
         private static void DrawTrack(DrawingContext context, Rect pitchRect)
@@ -711,7 +726,7 @@ namespace Swof.Windows
             var goalX = leftGoal ? field.Left : field.Right;
             var postTop = ToScreen(new NumericsVector2(goalX, field.GoalTop), camera, rect);
             var postBottom = ToScreen(new NumericsVector2(goalX, field.GoalBottom), camera, rect);
-            var depthX = leftGoal ? goalX - GoalNetDepthMeters : goalX + GoalNetDepthMeters;
+            var depthX = leftGoal ? goalX - field.GoalDepth : goalX + field.GoalDepth;
             var backTop = ToScreen(new NumericsVector2(depthX, field.GoalTop), camera, rect);
             var backBottom = ToScreen(new NumericsVector2(depthX, field.GoalBottom), camera, rect);
 
@@ -741,11 +756,9 @@ namespace Swof.Windows
 
         private void DrawBenches(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect)
         {
-            var benchHalfLen = BenchLengthMeters * 0.5f;
             var yTop = field.Top - BenchOffsetFromTouchlineMeters - BenchDepthMeters;
-            var yBottom = field.Bottom + BenchOffsetFromTouchlineMeters;
-            DrawBench(context, camera, rect, -benchHalfLen, benchHalfLen, yTop, yTop + BenchDepthMeters);
-            DrawBench(context, camera, rect, -benchHalfLen, benchHalfLen, yBottom, yBottom + BenchDepthMeters);
+            DrawBench(context, camera, rect, -10f, -10f + BenchLengthMeters, yTop, yTop + BenchDepthMeters);
+            DrawBench(context, camera, rect, 5f, 5f + BenchLengthMeters, yTop, yTop + BenchDepthMeters);
         }
 
         private void DrawBench(DrawingContext context, CameraViewport camera, Rect rect, float x1, float x2, float y1, float y2)
@@ -801,13 +814,97 @@ namespace Swof.Windows
 
         private void DrawPenaltyArea(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect, bool leftSide)
         {
-            var x1 = leftSide ? field.Left : field.Right - field.PenaltyAreaLength;
-            var x2 = leftSide ? field.Left + field.PenaltyAreaLength : field.Right;
-            var y1 = -field.PenaltyAreaWidth / 2f;
-            var y2 = field.PenaltyAreaWidth / 2f;
-            var topLeft = ToScreen(new NumericsVector2(x1, y1), camera, rect);
-            var bottomRight = ToScreen(new NumericsVector2(x2, y2), camera, rect);
-            context.DrawRectangle(null, LinePen, new Rect(topLeft, bottomRight));
+            var goalX = leftSide ? field.Left : field.Right;
+            var insideX = leftSide
+                ? goalX + field.PenaltyAreaRadius
+                : goalX - field.PenaltyAreaRadius;
+            var topPost = new NumericsVector2(goalX, field.GoalTop);
+            var bottomPost = new NumericsVector2(goalX, field.GoalBottom);
+            if (leftSide)
+            {
+                DrawWorldArc(context, topPost, field.PenaltyAreaRadius, -MathF.PI / 2f, 0f, camera, rect);
+                DrawWorldArc(context, bottomPost, field.PenaltyAreaRadius, 0f, MathF.PI / 2f, camera, rect);
+            }
+            else
+            {
+                DrawWorldArc(context, topPost, field.PenaltyAreaRadius, MathF.PI, MathF.PI * 1.5f, camera, rect);
+                DrawWorldArc(context, bottomPost, field.PenaltyAreaRadius, MathF.PI / 2f, MathF.PI, camera, rect);
+            }
+
+            context.DrawLine(
+                LinePen,
+                ToScreen(new NumericsVector2(insideX, field.GoalTop), camera, rect),
+                ToScreen(new NumericsVector2(insideX, field.GoalBottom), camera, rect));
+        }
+
+        private void DrawFutsalMarks(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect)
+        {
+            foreach (var side in new[] { -1f, 1f })
+            {
+                var goalX = side < 0f ? field.Left : field.Right;
+                var inward = side < 0f ? 1f : -1f;
+                DrawMark(
+                    context,
+                    new NumericsVector2(goalX + inward * field.PenaltyMarkDistance, 0f),
+                    camera,
+                    rect);
+                var secondMark = new NumericsVector2(
+                    goalX + inward * field.SecondPenaltyMarkDistance,
+                    0f);
+                DrawMark(context, secondMark, camera, rect);
+                DrawMark(context, secondMark + new NumericsVector2(0f, -5f), camera, rect);
+                DrawMark(context, secondMark + new NumericsVector2(0f, 5f), camera, rect);
+            }
+
+            DrawWorldArc(context, new NumericsVector2(field.Left, field.Top), field.CornerArcRadius, 0f, MathF.PI / 2f, camera, rect);
+            DrawWorldArc(context, new NumericsVector2(field.Right, field.Top), field.CornerArcRadius, MathF.PI / 2f, MathF.PI, camera, rect);
+            DrawWorldArc(context, new NumericsVector2(field.Right, field.Bottom), field.CornerArcRadius, MathF.PI, MathF.PI * 1.5f, camera, rect);
+            DrawWorldArc(context, new NumericsVector2(field.Left, field.Bottom), field.CornerArcRadius, MathF.PI * 1.5f, MathF.PI * 2f, camera, rect);
+
+            foreach (var x in new[] { -10f, -5f, 5f, 10f })
+            {
+                context.DrawLine(
+                    LinePen,
+                    ToScreen(new NumericsVector2(x, field.Top - 0.4f), camera, rect),
+                    ToScreen(new NumericsVector2(x, field.Top + 0.4f), camera, rect));
+            }
+        }
+
+        private static void DrawMark(
+            DrawingContext context,
+            NumericsVector2 position,
+            CameraViewport camera,
+            Rect rect)
+        {
+            context.DrawEllipse(LineBrush, null, ToScreen(position, camera, rect), 2d, 2d);
+        }
+
+        private static void DrawWorldArc(
+            DrawingContext context,
+            NumericsVector2 center,
+            float radius,
+            float startAngle,
+            float endAngle,
+            CameraViewport camera,
+            Rect rect)
+        {
+            const int segments = 24;
+            var geometry = new StreamGeometry();
+            using (var path = geometry.Open())
+            {
+                var first = center + new NumericsVector2(MathF.Cos(startAngle), MathF.Sin(startAngle)) * radius;
+                path.BeginFigure(ToScreen(first, camera, rect), false, false);
+                for (var i = 1; i <= segments; i++)
+                {
+                    var amount = i / (float)segments;
+                    var angle = startAngle + (endAngle - startAngle) * amount;
+                    var point = center + new NumericsVector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
+                    path.LineTo(ToScreen(point, camera, rect), true, false);
+                }
+            }
+
+            geometry.Freeze();
+            context.DrawGeometry(null, LinePen, geometry);
         }
 
         private void DrawPlayers(DrawingContext context, FieldDimensions field, CameraViewport camera, Rect rect)
@@ -816,7 +913,13 @@ namespace Swof.Windows
             {
                 var center = ToScreen(player.Position, camera, rect);
                 var radius = ScaleDistance(player.Radius, camera, rect);
-                var brush = player.Team == TeamSide.Home ? HomeBrush : AwayBrush;
+                var brush = player.Role switch
+                {
+                    PlayerRole.Goalkeeper when player.Team == TeamSide.Home => HomeGoalkeeperBrush,
+                    PlayerRole.Goalkeeper => AwayGoalkeeperBrush,
+                    _ when player.Team == TeamSide.Home => HomeBrush,
+                    _ => AwayBrush
+                };
                 DrawPlayerBody(context, player, center, radius, brush);
 
                 if (player.Id == Snapshot.ActivePlayerId)

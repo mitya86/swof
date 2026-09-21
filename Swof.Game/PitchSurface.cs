@@ -8,17 +8,13 @@ namespace Swof.Game;
 internal sealed class PitchSurface : IDisposable
 {
     private const int SurfaceWidth = 2048;
-    private const float CenterCircleRadius = 9.15f;
-    private const float GoalNetDepth = 2.1f;
-    private const float TrackWidth = 1.25f;
+    private const float CourtApronWidth = 0.7f;
 
-    private static readonly Color Grass = new(33, 126, 55);
-    private static readonly Color GrassStripe = new(29, 112, 49);
-    private static readonly Color Surround = new(50, 54, 48);
-    private static readonly Color Track = new(93, 97, 90);
+    private static readonly Color Court = new(35, 123, 157);
+    private static readonly Color CourtPanel = new(32, 116, 149);
+    private static readonly Color CourtApron = new(24, 77, 98);
+    private static readonly Color Surround = new(17, 25, 32);
     private static readonly Color Line = new(242, 242, 242);
-    private static readonly Color CrowdDark = new(34, 34, 41);
-    private static readonly Color CrowdLight = new(105, 111, 130);
     private static readonly Color Bench = new(42, 47, 58);
     private static readonly Color BenchRoof = new(78, 88, 108);
     private static readonly Color Net = new(225, 225, 225, 120);
@@ -111,15 +107,14 @@ internal sealed class PitchSurface : IDisposable
             DepthStencilState.None,
             RasterizerState.CullNone);
 
-        DrawCrowd(field);
         FillWorldRectangle(
-            field.Left - TrackWidth,
-            field.Top - TrackWidth,
-            field.Length + TrackWidth * 2f,
-            field.Width + TrackWidth * 2f,
-            Track);
-        FillWorldRectangle(field.Left, field.Top, field.Length, field.Width, Grass);
-        DrawPitchStripes(field);
+            field.Left - CourtApronWidth,
+            field.Top - CourtApronWidth,
+            field.Length + CourtApronWidth * 2f,
+            field.Width + CourtApronWidth * 2f,
+            CourtApron);
+        FillWorldRectangle(field.Left, field.Top, field.Length, field.Width, Court);
+        DrawCourtPanels(field);
         DrawGoalNets(field);
         DrawBenches(field);
         DrawFieldLines(field);
@@ -128,11 +123,11 @@ internal sealed class PitchSurface : IDisposable
         _graphicsDevice.SetRenderTarget(null);
     }
 
-    private void DrawPitchStripes(FieldDimensions field)
+    private void DrawCourtPanels(FieldDimensions field)
     {
-        const int stripeCount = 10;
-        var stripeWidth = field.Length / stripeCount;
-        for (var i = 0; i < stripeCount; i++)
+        const int panelCount = 8;
+        var panelWidth = field.Length / panelCount;
+        for (var i = 0; i < panelCount; i++)
         {
             if (i % 2 == 0)
             {
@@ -140,47 +135,128 @@ internal sealed class PitchSurface : IDisposable
             }
 
             FillWorldRectangle(
-                field.Left + i * stripeWidth,
+                field.Left + i * panelWidth,
                 field.Top,
-                stripeWidth,
+                panelWidth,
                 field.Width,
-                GrassStripe);
+                CourtPanel);
         }
     }
 
     private void DrawFieldLines(FieldDimensions field)
     {
-        const float thickness = 0.16f;
+        const float thickness = 0.08f;
         DrawWorldRectangle(field.Left, field.Top, field.Length, field.Width, Line, thickness);
         DrawWorldLine(new NumericsVector2(0f, field.Top), new NumericsVector2(0f, field.Bottom), Line, thickness);
-        DrawWorldRing(NumericsVector2.Zero, CenterCircleRadius, Line, thickness);
-
-        var penaltyTop = -field.PenaltyAreaWidth * 0.5f;
-        DrawWorldRectangle(
-            field.Left,
-            penaltyTop,
-            field.PenaltyAreaLength,
-            field.PenaltyAreaWidth,
-            Line,
-            thickness);
-        DrawWorldRectangle(
-            field.Right - field.PenaltyAreaLength,
-            penaltyTop,
-            field.PenaltyAreaLength,
-            field.PenaltyAreaWidth,
-            Line,
-            thickness);
+        DrawWorldRing(NumericsVector2.Zero, field.CenterCircleRadius, Line, thickness);
+        DrawWorldSpot(NumericsVector2.Zero, 0.09f, Line);
+        DrawPenaltyArea(field, leftSide: true, thickness);
+        DrawPenaltyArea(field, leftSide: false, thickness);
+        DrawPenaltyMarks(field);
+        DrawCornerArcs(field, thickness);
+        DrawSubstitutionZoneMarks(field, thickness);
 
         DrawWorldLine(
             new NumericsVector2(field.Left, field.GoalTop),
             new NumericsVector2(field.Left, field.GoalBottom),
             Line,
-            thickness * 2.2f);
+            thickness * 2f);
         DrawWorldLine(
             new NumericsVector2(field.Right, field.GoalTop),
             new NumericsVector2(field.Right, field.GoalBottom),
             Line,
-            thickness * 2.2f);
+            thickness * 2f);
+    }
+
+    private void DrawPenaltyArea(FieldDimensions field, bool leftSide, float thickness)
+    {
+        var goalX = leftSide ? field.Left : field.Right;
+        var insideX = leftSide
+            ? goalX + field.PenaltyAreaRadius
+            : goalX - field.PenaltyAreaRadius;
+        var topPost = new NumericsVector2(goalX, field.GoalTop);
+        var bottomPost = new NumericsVector2(goalX, field.GoalBottom);
+
+        if (leftSide)
+        {
+            DrawWorldArc(topPost, field.PenaltyAreaRadius, -MathHelper.PiOver2, 0f, Line, thickness);
+            DrawWorldArc(bottomPost, field.PenaltyAreaRadius, 0f, MathHelper.PiOver2, Line, thickness);
+        }
+        else
+        {
+            DrawWorldArc(topPost, field.PenaltyAreaRadius, MathHelper.Pi, MathHelper.Pi * 1.5f, Line, thickness);
+            DrawWorldArc(bottomPost, field.PenaltyAreaRadius, MathHelper.PiOver2, MathHelper.Pi, Line, thickness);
+        }
+
+        DrawWorldLine(
+            new NumericsVector2(insideX, field.GoalTop),
+            new NumericsVector2(insideX, field.GoalBottom),
+            Line,
+            thickness);
+    }
+
+    private void DrawPenaltyMarks(FieldDimensions field)
+    {
+        foreach (var side in new[] { -1f, 1f })
+        {
+            var goalX = side < 0f ? field.Left : field.Right;
+            var inward = side < 0f ? 1f : -1f;
+            DrawWorldSpot(
+                new NumericsVector2(goalX + inward * field.PenaltyMarkDistance, 0f),
+                0.09f,
+                Line);
+            var secondMark = new NumericsVector2(
+                goalX + inward * field.SecondPenaltyMarkDistance,
+                0f);
+            DrawWorldSpot(secondMark, 0.09f, Line);
+            DrawWorldSpot(secondMark + new NumericsVector2(0f, -5f), 0.07f, Line);
+            DrawWorldSpot(secondMark + new NumericsVector2(0f, 5f), 0.07f, Line);
+        }
+    }
+
+    private void DrawCornerArcs(FieldDimensions field, float thickness)
+    {
+        DrawWorldArc(
+            new NumericsVector2(field.Left, field.Top),
+            field.CornerArcRadius,
+            0f,
+            MathHelper.PiOver2,
+            Line,
+            thickness);
+        DrawWorldArc(
+            new NumericsVector2(field.Right, field.Top),
+            field.CornerArcRadius,
+            MathHelper.PiOver2,
+            MathHelper.Pi,
+            Line,
+            thickness);
+        DrawWorldArc(
+            new NumericsVector2(field.Right, field.Bottom),
+            field.CornerArcRadius,
+            MathHelper.Pi,
+            MathHelper.Pi * 1.5f,
+            Line,
+            thickness);
+        DrawWorldArc(
+            new NumericsVector2(field.Left, field.Bottom),
+            field.CornerArcRadius,
+            MathHelper.Pi * 1.5f,
+            MathHelper.TwoPi,
+            Line,
+            thickness);
+    }
+
+    private void DrawSubstitutionZoneMarks(FieldDimensions field, float thickness)
+    {
+        var zoneEnds = new[] { -10f, -5f, 5f, 10f };
+        foreach (var x in zoneEnds)
+        {
+            DrawWorldLine(
+                new NumericsVector2(x, field.Top - 0.4f),
+                new NumericsVector2(x, field.Top + 0.4f),
+                Line,
+                thickness);
+        }
     }
 
     private void DrawGoalNets(FieldDimensions field)
@@ -192,9 +268,9 @@ internal sealed class PitchSurface : IDisposable
     private void DrawGoalNet(FieldDimensions field, bool leftGoal)
     {
         var frontX = leftGoal ? field.Left : field.Right;
-        var backX = leftGoal ? frontX - GoalNetDepth : frontX + GoalNetDepth;
+        var backX = leftGoal ? frontX - field.GoalDepth : frontX + field.GoalDepth;
         var minX = MathF.Min(frontX, backX);
-        FillWorldRectangle(minX, field.GoalTop, GoalNetDepth, field.GoalWidth, new Color(235, 235, 235, 32));
+        FillWorldRectangle(minX, field.GoalTop, field.GoalDepth, field.GoalWidth, new Color(235, 235, 235, 32));
         DrawWorldLine(new NumericsVector2(backX, field.GoalTop), new NumericsVector2(backX, field.GoalBottom), Net, 0.1f);
         DrawWorldLine(new NumericsVector2(frontX, field.GoalTop), new NumericsVector2(backX, field.GoalTop), Net, 0.1f);
         DrawWorldLine(new NumericsVector2(frontX, field.GoalBottom), new NumericsVector2(backX, field.GoalBottom), Net, 0.1f);
@@ -209,61 +285,18 @@ internal sealed class PitchSurface : IDisposable
 
     private void DrawBenches(FieldDimensions field)
     {
-        const float benchLength = 12f;
-        const float benchDepth = 1.8f;
-        const float offset = 2.2f;
-        var x = -benchLength * 0.5f;
+        const float benchLength = 5f;
+        const float benchDepth = 1f;
+        const float offset = 1.2f;
         var topY = field.Top - offset - benchDepth;
-        var bottomY = field.Bottom + offset;
-
-        FillWorldRectangle(x, topY, benchLength, benchDepth, Bench);
-        FillWorldRectangle(x, topY, benchLength, 0.22f, BenchRoof);
-        FillWorldRectangle(x, bottomY, benchLength, benchDepth, Bench);
-        FillWorldRectangle(x, bottomY, benchLength, 0.22f, BenchRoof);
+        DrawBench(-10f, topY, benchLength, benchDepth);
+        DrawBench(5f, topY, benchLength, benchDepth);
     }
 
-    private void DrawCrowd(FieldDimensions field)
+    private void DrawBench(float x, float y, float width, float height)
     {
-        const float spacing = 1.05f;
-        const float radius = 0.11f;
-        for (var y = _worldTop + 0.5f; y <= field.Top - TrackWidth - 0.35f; y += spacing)
-        {
-            DrawCrowdRow(y, radius, spacing);
-        }
-
-        for (var y = field.Bottom + TrackWidth + 0.35f; y <= _worldTop + _worldHeight - 0.5f; y += spacing)
-        {
-            DrawCrowdRow(y, radius, spacing);
-        }
-
-        for (var y = field.Top; y <= field.Bottom; y += spacing)
-        {
-            for (var x = _worldLeft + 0.5f; x <= field.Left - TrackWidth - 0.35f; x += spacing)
-            {
-                DrawCrowdDot(x, y, radius);
-            }
-
-            for (var x = field.Right + TrackWidth + 0.35f; x <= _worldLeft + _worldWidth - 0.5f; x += spacing)
-            {
-                DrawCrowdDot(x, y, radius);
-            }
-        }
-    }
-
-    private void DrawCrowdRow(float y, float radius, float spacing)
-    {
-        for (var x = _worldLeft + 0.5f; x <= _worldLeft + _worldWidth - 0.5f; x += spacing)
-        {
-            DrawCrowdDot(x, y, radius);
-        }
-    }
-
-    private void DrawCrowdDot(float x, float y, float radius)
-    {
-        var parity = ((int)MathF.Round((x - _worldLeft) * 3f + (y - _worldTop) * 5f)) & 3;
-        var color = parity == 0 ? Line : parity == 1 ? CrowdLight : CrowdDark;
-        var center = WorldToSurface(new NumericsVector2(x, y));
-        _primitives.FillCircle(center, radius * AverageScale, color);
+        FillWorldRectangle(x, y, width, height, Bench);
+        FillWorldRectangle(x, y, width, 0.16f, BenchRoof);
     }
 
     private void FillWorldRectangle(float x, float y, float width, float height, Color color)
@@ -301,6 +334,31 @@ internal sealed class PitchSurface : IDisposable
             DrawWorldLine(previous, current, color, thickness);
             previous = current;
         }
+    }
+
+    private void DrawWorldArc(
+        NumericsVector2 center,
+        float radius,
+        float startAngle,
+        float endAngle,
+        Color color,
+        float thickness)
+    {
+        const int segments = 32;
+        var previous = center + new NumericsVector2(MathF.Cos(startAngle), MathF.Sin(startAngle)) * radius;
+        for (var i = 1; i <= segments; i++)
+        {
+            var amount = i / (float)segments;
+            var angle = MathHelper.Lerp(startAngle, endAngle, amount);
+            var current = center + new NumericsVector2(MathF.Cos(angle), MathF.Sin(angle)) * radius;
+            DrawWorldLine(previous, current, color, thickness);
+            previous = current;
+        }
+    }
+
+    private void DrawWorldSpot(NumericsVector2 center, float radius, Color color)
+    {
+        _primitives.FillCircle(WorldToSurface(center), radius * AverageScale, color);
     }
 
     private void DrawWorldLine(NumericsVector2 from, NumericsVector2 to, Color color, float thickness)

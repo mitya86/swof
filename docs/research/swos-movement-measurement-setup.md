@@ -48,6 +48,8 @@ Use DOSBox built-in capture:
 
 - `Ctrl+Alt+F5` start/stop AVI capture
 
+For fire-button timing, do not start capture on the action under test: this SWOS installation also treats Ctrl as fire, so the DOSBox shortcut can inject an unwanted action. Start recording before entering the scenario, remap guest fire, or use an external window recorder.
+
 Record one scenario per clip and rename files immediately after each run.
 
 To inspect capture timing metadata:

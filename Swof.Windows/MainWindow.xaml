@@ -43,7 +43,7 @@
                            Foreground="#F2F2F2"
                            FontFamily="Consolas"
                            FontSize="16"
-                           Text="Arrows move. Space action. R restarts after out of play." />
+                           Text="Arrows move and add shot aftertouch. Tap Space to pass; hold to shoot or tackle. R restarts after out of play." />
                 <TextBlock x:Name="PlayerSkillText"
                            Margin="0,4,0,0"
                            Foreground="#D5E7FF"

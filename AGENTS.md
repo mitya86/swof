@@ -126,3 +126,15 @@ bd prime                # Refresh Beads context
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
+
+## SWOF Knowledge Routing
+
+Use the repo-local skills before changing their owning surfaces:
+
+- `$swof-gameplay-ai` for futsal AI, tactics, coach/difficulty design, possession phases, control handoff, goalkeeper ownership, or multiplayer controller assignment.
+- `$swof-game-feel` for responsiveness, controls, match tempo, camera/pitch scale, MonoGame rendering, player feedback, or touchscreen readiness.
+- `$swof-validation` to choose, run, and interpret the behavior, build, format, diff, and startup gates.
+
+Project-scoped Codex agents live under `.codex/agents`: `swof_ai_scout` maps AI/control behavior without editing, `swof_feel_auditor` reproduces runtime perception issues, and `swof_validator` runs checks without changing source. Use them only when the user explicitly asks for delegation or parallel agent work.
+
+Keep implemented behavior separate from decided future design. In particular, multiplayer (maximum eight outfield humans with pass-relay ownership for two or three users), coach adaptation, and difficulty layers are architectural decisions, not completed features.

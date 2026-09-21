@@ -7,7 +7,8 @@ namespace Swof.Game;
 
 internal sealed class MatchRenderer : IDisposable
 {
-    private const int HudHeight = 62;
+    private const int CleanHudHeight = 44;
+    private const int DebugHudHeight = 62;
     private const int ViewPadding = 10;
     private const int PlayerAtlasColumns = 2;
     private const int PlayerRunFrameCount = 4;
@@ -22,6 +23,8 @@ internal sealed class MatchRenderer : IDisposable
     private static readonly Color HudColor = new(16, 18, 22, 235);
     private static readonly Color ShadowColor = new(0, 0, 0, 105);
     private static readonly Color PlayerShadowColor = new(0, 0, 0, 82);
+    private static readonly Color HomeGoalkeeperTint = new(145, 255, 175);
+    private static readonly Color AwayGoalkeeperTint = new(255, 220, 130);
 
     private readonly GraphicsDevice _graphicsDevice;
     private readonly RenderPrimitives _primitives;
@@ -30,6 +33,7 @@ internal sealed class MatchRenderer : IDisposable
     private readonly Texture2D _playerRunAtlas;
     private readonly Dictionary<int, float> _playerAnimationPhases = new();
     private readonly RasterizerState _gameplayRasterizerState;
+    private readonly MatchFeedbackPresentation _feedback = new();
     private WorldCamera? _camera;
 
     public MatchRenderer(GraphicsDevice graphicsDevice, Texture2D playerAtlas, Texture2D playerRunAtlas)
@@ -52,15 +56,23 @@ internal sealed class MatchRenderer : IDisposable
         string primaryStatus,
         string secondaryStatus,
         string? notice,
-        float elapsedSeconds)
+        float elapsedSeconds,
+        MatchPresentationSettings settings)
     {
         var bounds = _graphicsDevice.Viewport.Bounds;
+        var hudHeight = settings.ShowDebugHud ? DebugHudHeight : CleanHudHeight;
         var gameView = new Rectangle(
             ViewPadding,
-            HudHeight + ViewPadding,
+            hudHeight + ViewPadding,
             Math.Max(1, bounds.Width - ViewPadding * 2),
-            Math.Max(1, bounds.Height - HudHeight - ViewPadding * 2));
+            Math.Max(1, bounds.Height - hudHeight - ViewPadding * 2));
+        _feedback.Advance(snapshot, elapsedSeconds, settings.FeedbackMode);
         var targetCamera = WorldCamera.Create(snapshot, gameView.Width / (float)gameView.Height);
+        if (settings.CameraEffectsEnabled)
+        {
+            targetCamera = targetCamera.Translate(_feedback.GetCameraOffset(settings.FeedbackIntensity));
+        }
+
         var camera = UpdateCamera(targetCamera, elapsedSeconds);
         // Building the cached pitch uses the shared SpriteBatch, so it must finish before the
         // gameplay batch begins. Prepare is cheap after the first frame unless the field changes.
@@ -75,8 +87,28 @@ internal sealed class MatchRenderer : IDisposable
             DepthStencilState.None,
             _gameplayRasterizerState);
         _pitchSurface.Draw(camera, gameView);
-        DrawPlayers(snapshot, camera, gameView, elapsedSeconds);
+        _primitives.Batch.End();
+
+        // Keep the deliberately low-resolution player pixels crisp. Their world and screen
+        // positions remain floating point, so point sampling does not quantize movement.
+        _primitives.Batch.Begin(
+            SpriteSortMode.Deferred,
+            BlendState.AlphaBlend,
+            SamplerState.PointClamp,
+            DepthStencilState.None,
+            _gameplayRasterizerState);
+        DrawPlayers(snapshot, camera, gameView, elapsedSeconds, settings.FeedbackIntensity);
+        _primitives.Batch.End();
+
+        _primitives.Batch.Begin(
+            SpriteSortMode.Deferred,
+            BlendState.AlphaBlend,
+            SamplerState.LinearClamp,
+            DepthStencilState.None,
+            _gameplayRasterizerState);
         DrawBall(snapshot, camera, gameView);
+        _feedback.Draw(_primitives, snapshot, camera, gameView, settings.FeedbackMode);
+        DrawActivePlayerIdentity(snapshot, font, camera, gameView);
         _primitives.DrawLine(
             new Vector2(gameView.Left, gameView.Top),
             new Vector2(gameView.Right, gameView.Top),
@@ -90,9 +122,16 @@ internal sealed class MatchRenderer : IDisposable
             SamplerState.LinearClamp,
             DepthStencilState.None,
             RasterizerState.CullNone);
-        _primitives.FillRectangle(new Rectangle(0, 0, bounds.Width, HudHeight), HudColor);
-        _primitives.Batch.DrawString(font, primaryStatus, new Vector2(12f, 7f), Color.White);
-        _primitives.Batch.DrawString(font, secondaryStatus, new Vector2(12f, 32f), new Color(190, 211, 235));
+        _primitives.FillRectangle(new Rectangle(0, 0, bounds.Width, hudHeight), HudColor);
+        if (settings.ShowDebugHud)
+        {
+            _primitives.Batch.DrawString(font, primaryStatus, new Vector2(12f, 7f), Color.White);
+            _primitives.Batch.DrawString(font, secondaryStatus, new Vector2(12f, 32f), new Color(190, 211, 235));
+        }
+        else
+        {
+            DrawMatchHud(snapshot, font, bounds, settings);
+        }
 
         if (!string.IsNullOrWhiteSpace(notice))
         {
@@ -139,9 +178,7 @@ internal sealed class MatchRenderer : IDisposable
 
     private WorldCamera UpdateCamera(WorldCamera target, float elapsedSeconds)
     {
-        if (_camera is not WorldCamera current
-            || MathF.Abs(current.Width - target.Width) > 0.001f
-            || MathF.Abs(current.Height - target.Height) > 0.001f)
+        if (_camera is not WorldCamera current)
         {
             _camera = target;
             return target;
@@ -157,7 +194,8 @@ internal sealed class MatchRenderer : IDisposable
         MatchSnapshot snapshot,
         WorldCamera camera,
         Rectangle viewport,
-        float elapsedSeconds)
+        float elapsedSeconds,
+        float feedbackIntensity)
     {
         var scale = camera.ScaleFor(viewport);
         var animationFrameSeconds = Math.Clamp(elapsedSeconds, 0f, MaxCameraFrameSeconds);
@@ -174,6 +212,20 @@ internal sealed class MatchRenderer : IDisposable
 
             var facing = player.Facing.ToUnitVector();
             var forward = GetVisualForward(player, new Vector2(facing.X, facing.Y));
+            var reactionOffset = Vector2.Zero;
+            if (_feedback.TryGetReaction(player, out var reactionDirection, out var reactionStrength))
+            {
+                reactionStrength *= Math.Clamp(feedbackIntensity, 0f, 1f);
+                var reactionForward = new Vector2(reactionDirection.X, reactionDirection.Y);
+                var reacted = Vector2.Lerp(forward, reactionForward, reactionStrength * 0.48f);
+                if (reacted.LengthSquared() > 0.0001f)
+                {
+                    reacted.Normalize();
+                    forward = reacted;
+                }
+
+                reactionOffset = reactionForward * (radius * 0.11f * reactionStrength);
+            }
 
             if (player.HasPossession)
             {
@@ -182,7 +234,10 @@ internal sealed class MatchRenderer : IDisposable
 
             if (player.Id == snapshot.ActivePlayerId)
             {
-                _primitives.DrawRing(center, radius + 9f, ActiveColor);
+                _primitives.DrawRing(center, radius + 8f, ActiveColor);
+                var markerCenter = center - Vector2.UnitY * (radius * 2.15f);
+                _primitives.DrawLine(markerCenter - new Vector2(6f, 5f), markerCenter, ActiveColor, 2.2f);
+                _primitives.DrawLine(markerCenter + new Vector2(6f, -5f), markerCenter, ActiveColor, 2.2f);
             }
 
             var speed01 = Math.Clamp(player.Velocity.Length() / PlayerReferenceSpeedPerTick, 0f, 1f);
@@ -195,7 +250,15 @@ internal sealed class MatchRenderer : IDisposable
             var lift = MathF.Abs(stride) * radius * 0.075f * speed01;
             var right = new Vector2(-forward.Y, forward.X);
             var sway = right * (stride * radius * 0.045f * speed01);
-            var bodyPosition = center + forward * (radius * 0.08f * speed01) + sway - Vector2.UnitY * lift;
+            var windup01 = Math.Clamp(player.ActionCharge01, 0f, 1f);
+            var followThrough01 = Math.Clamp(player.KickAnimation01, 0f, 1f);
+            var actionOffset = forward * radius * (followThrough01 * 0.24f - windup01 * 0.16f);
+            var bodyPosition = center
+                + forward * (radius * 0.08f * speed01)
+                + actionOffset
+                + reactionOffset
+                + sway
+                - Vector2.UnitY * lift;
 
             var shadowStretch = 1f + speed01 * 0.12f;
             _primitives.FillEllipse(
@@ -234,22 +297,26 @@ internal sealed class MatchRenderer : IDisposable
             var sourceOrigin = new Vector2(sourceRectangle.Width * 0.5f, sourceRectangle.Height * 0.5f);
             var sourceHeight = sourceRectangle.Height;
             var baseScale = radius * PlayerSpriteHeightInRadii / sourceHeight;
-            var breathing = MathF.Sin(snapshot.ClockSeconds * 2.2f + player.Id) * 0.006f;
-            var spriteScale = new Vector2(
-                baseScale * (1f + breathing + stride * 0.018f * speed01),
-                baseScale * (1f - breathing - stride * 0.012f * speed01));
+            var actionScale = new Vector2(
+                baseScale * (1f + windup01 * 0.07f),
+                baseScale * (1f - windup01 * 0.09f + followThrough01 * 0.08f));
             var rotation = MathF.Atan2(forward.Y, forward.X)
-                + MathHelper.PiOver2
-                + stride * 0.012f * speed01;
+                + MathHelper.PiOver2;
+            var spriteTint = player.Role switch
+            {
+                PlayerRole.Goalkeeper when player.Team == TeamSide.Home => HomeGoalkeeperTint,
+                PlayerRole.Goalkeeper => AwayGoalkeeperTint,
+                _ => Color.White
+            };
 
             _primitives.Batch.Draw(
                 spriteAtlas,
                 bodyPosition,
                 sourceRectangle,
-                Color.White,
+                spriteTint,
                 rotation,
                 sourceOrigin,
-                spriteScale,
+                actionScale,
                 spriteEffects,
                 layerDepth: 0f);
         }
@@ -264,7 +331,7 @@ internal sealed class MatchRenderer : IDisposable
 
         if (isMoving)
         {
-            var framesPerSecond = MathHelper.Lerp(5f, 11f, speed01);
+            var framesPerSecond = MathHelper.Lerp(8f, 14f, speed01);
             phase = (phase + elapsedSeconds * framesPerSecond) % PlayerRunFrameCount;
             _playerAnimationPhases[playerId] = phase;
         }
@@ -310,6 +377,66 @@ internal sealed class MatchRenderer : IDisposable
             ballCenter + new Vector2(ballRadius * 0.28f, -ballRadius * 0.2f),
             MathF.Max(1f, ballRadius * 0.18f),
             new Color(55, 55, 60));
+    }
+
+    private void DrawActivePlayerIdentity(
+        MatchSnapshot snapshot,
+        SpriteFont font,
+        WorldCamera camera,
+        Rectangle viewport)
+    {
+        var player = snapshot.ActivePlayer;
+        var center = camera.ToScreen(player.Position, viewport);
+        if (!IsVisible(center, 40f, viewport))
+        {
+            return;
+        }
+
+        var label = $"{player.ShirtNumber}  {player.Name.ToUpperInvariant()}";
+        const float textScale = 0.62f;
+        var size = font.MeasureString(label) * textScale;
+        var position = center + new Vector2(-size.X * 0.5f, 17f);
+        var rectangle = new Rectangle(
+            (int)position.X - 5,
+            (int)position.Y - 2,
+            (int)MathF.Ceiling(size.X) + 10,
+            (int)MathF.Ceiling(size.Y) + 4);
+        _primitives.FillRectangle(rectangle, new Color(10, 12, 16, 185));
+        _primitives.Batch.DrawString(
+            font,
+            label,
+            position,
+            Color.White,
+            rotation: 0f,
+            origin: Vector2.Zero,
+            scale: textScale,
+            effects: SpriteEffects.None,
+            layerDepth: 0f);
+    }
+
+    private void DrawMatchHud(
+        MatchSnapshot snapshot,
+        SpriteFont font,
+        Rectangle bounds,
+        MatchPresentationSettings settings)
+    {
+        var score = $"HOME  {snapshot.HomeScore}  -  {snapshot.AwayScore}  AWAY";
+        var minutes = (int)(snapshot.ClockSeconds / 60f);
+        var seconds = (int)snapshot.ClockSeconds % 60;
+        var clock = $"{minutes:00}:{seconds:00}";
+        var active = snapshot.ActivePlayer;
+        var activeText = $"{active.ShirtNumber}  {active.Name.ToUpperInvariant()}";
+
+        var scoreSize = font.MeasureString(score);
+        var clockSize = font.MeasureString(clock);
+        var scorePosition = new Vector2(bounds.Center.X - scoreSize.X * 0.5f, 5f);
+        _primitives.Batch.DrawString(font, score, scorePosition, Color.White);
+        _primitives.Batch.DrawString(font, clock, new Vector2(scorePosition.X + scoreSize.X + 20f, 5f), new Color(190, 211, 235));
+        _primitives.Batch.DrawString(font, activeText, new Vector2(14f, 5f), ActiveColor);
+
+        var help = $"F2 {settings.FeedbackLabel}   F3 DEBUG   F4 CAMERA";
+        var helpSize = font.MeasureString(help);
+        _primitives.Batch.DrawString(font, help, new Vector2(bounds.Right - helpSize.X - 14f, 5f), new Color(130, 145, 162));
     }
 
     private static bool IsVisible(Vector2 center, float margin, Rectangle viewport)

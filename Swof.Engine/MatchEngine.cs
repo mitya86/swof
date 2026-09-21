@@ -1,12 +1,14 @@
 using System.Numerics;
+using Swof.Engine.AI;
 
 namespace Swof.Engine;
 
 public sealed class MatchEngine
 {
-    private bool _previousActionDown;
-    private bool _actionCommittedThisHold;
-    private int _actionHeldTicks;
+    private const float DefensiveControlSwitchHysteresis = 2.25f;
+    private const float DefensiveWrongSidePenalty = 0.75f;
+
+    private readonly Dictionary<int, PlayerActionInputState> _playerActionStates = new();
     private int _ballCollectionCooldownTicks;
     private int? _releasedByPlayerId;
     private int _releasedByCollectionBlockTicks;
@@ -20,23 +22,48 @@ public sealed class MatchEngine
     private float _lastDribbleTurn01;
     private Vector2 _aftertouchBasisForward = Vector2.UnitX;
     private Vector2 _aftertouchBasisRight = Vector2.UnitY;
+    private bool _aftertouchCurveApplied;
+    private bool _aftertouchHeightApplied;
+    private TeamSide? _shotTeamWhileActionHeld;
+    private int? _shotActionPlayerId;
+    private int _goalkeeperPossessionTicks;
+    private TeamSide? _lastPossessionTeam;
     private float _accumulatedSeconds;
 
-    public MatchEngine(MatchState state, PhysicsTuning? tuning = null)
+    public MatchEngine(
+        MatchState state,
+        PhysicsTuning? tuning = null,
+        TeamSide userControlledTeam = TeamSide.Home,
+        bool opponentMovementEnabled = true)
     {
         State = state;
         Tuning = tuning ?? PhysicsTuning.Default;
+        UserControlledTeam = userControlledTeam;
+        OpponentMovementEnabled = opponentMovementEnabled;
+        var initialPossessor = State.Ball.PossessorId is int possessorId
+            ? State.Players.FirstOrDefault(player => player.Id == possessorId)
+            : null;
+        _lastPossessionTeam = initialPossessor?.Team;
+        if (initialPossessor is not null && initialPossessor.Team != UserControlledTeam)
+        {
+            SelectUserDefenderForOpponentPossession(initialPossessor.Position, forceSwitch: true);
+        }
+
         CurrentSnapshot = MatchSnapshot.FromState(State);
         PreviousSnapshot = CurrentSnapshot;
     }
 
     public MatchState State { get; }
     public PhysicsTuning Tuning { get; private set; }
+    public TeamSide UserControlledTeam { get; }
+    public bool OpponentMovementEnabled { get; }
     public MatchSnapshot PreviousSnapshot { get; private set; }
     public MatchSnapshot CurrentSnapshot { get; private set; }
     public float RenderAlpha => Math.Clamp(_accumulatedSeconds / Tuning.TickSeconds, 0f, 1f);
 
-    public static MatchEngine CreateDefault(PhysicsTuning? tuning = null)
+    public static MatchEngine CreateDefault(
+        PhysicsTuning? tuning = null,
+        bool opponentMovementEnabled = true)
     {
         tuning ??= PhysicsTuning.Default;
         var field = FieldDimensions.Default;
@@ -45,12 +72,28 @@ public sealed class MatchEngine
         var elite = new PlayerAttributes(15, 15, 15, 15, 15, 15, 15);
         var players = new List<PlayerState>
         {
-            CreatePlayer(1, "Home Poor", TeamSide.Home, new Vector2(-24f, 0f), tuning, Azimuth.East, poor),
-            CreatePlayer(2, "Home Mid", TeamSide.Home, new Vector2(-35f, -15f), tuning, Azimuth.East, moderate),
-            CreatePlayer(3, "Home Elite", TeamSide.Home, new Vector2(-35f, 15f), tuning, Azimuth.East, elite),
-            CreatePlayer(4, "Away Poor", TeamSide.Away, new Vector2(24f, 0f), tuning, Azimuth.West, poor),
-            CreatePlayer(5, "Away Mid", TeamSide.Away, new Vector2(35f, -15f), tuning, Azimuth.West, moderate),
-            CreatePlayer(6, "Away Elite", TeamSide.Away, new Vector2(35f, 15f), tuning, Azimuth.West, elite)
+            CreatePlayer(1, "Mara", 10, TeamSide.Home, FutsalOutfieldRole.Fixo, new Vector2(-12f, 0f), tuning, Azimuth.East, poor),
+            CreatePlayer(2, "Rook", 6, TeamSide.Home, FutsalOutfieldRole.LeftAla, new Vector2(-7f, -5f), tuning, Azimuth.East, moderate),
+            CreatePlayer(3, "Vale", 8, TeamSide.Home, FutsalOutfieldRole.RightAla, new Vector2(-7f, 5f), tuning, Azimuth.East, elite),
+            CreatePlayer(9, "Tavi", 9, TeamSide.Home, FutsalOutfieldRole.Pivo, new Vector2(-2.5f, 0f), tuning, Azimuth.East, moderate),
+            CreatePlayer(4, "Kade", 9, TeamSide.Away, FutsalOutfieldRole.Fixo, new Vector2(12f, 0f), tuning, Azimuth.West, poor),
+            CreatePlayer(5, "Neri", 7, TeamSide.Away, FutsalOutfieldRole.LeftAla, new Vector2(7f, 5f), tuning, Azimuth.West, moderate),
+            CreatePlayer(6, "Sol", 11, TeamSide.Away, FutsalOutfieldRole.RightAla, new Vector2(7f, -5f), tuning, Azimuth.West, elite),
+            CreatePlayer(10, "Bram", 10, TeamSide.Away, FutsalOutfieldRole.Pivo, new Vector2(2.5f, 0f), tuning, Azimuth.West, moderate),
+            CreateGoalkeeper(
+                7,
+                "Ivo",
+                1,
+                TeamSide.Home,
+                new Vector2(field.Left + tuning.GoalkeeperGoalLineOffset, 0f),
+                tuning),
+            CreateGoalkeeper(
+                8,
+                "Orin",
+                1,
+                TeamSide.Away,
+                new Vector2(field.Right - tuning.GoalkeeperGoalLineOffset, 0f),
+                tuning)
         };
         players[0].HasPossession = true;
 
@@ -58,10 +101,14 @@ public sealed class MatchEngine
         {
             Radius = tuning.BallRadius,
             Position = players[0].Position + players[0].Facing.ToUnitVector() * tuning.DribbleLeadDistance,
-            PossessorId = players[0].Id
+            PossessorId = players[0].Id,
+            ControlKind = BallControlKind.Feet
         };
 
-        return new MatchEngine(new MatchState(field, players, ball, activePlayerId: 1), tuning);
+        return new MatchEngine(
+            new MatchState(field, players, ball, activePlayerId: 1),
+            tuning,
+            opponentMovementEnabled: opponentMovementEnabled);
     }
 
     public int Step(float deltaSeconds, PlayerInput input)
@@ -75,7 +122,65 @@ public sealed class MatchEngine
         var ticks = 0;
         while (_accumulatedSeconds >= Tuning.TickSeconds)
         {
-            AdvanceOneTick(input);
+            AdvanceOneTick(PlayerControlFrame.ForPlayer(State.ActivePlayerId, input));
+            _accumulatedSeconds -= Tuning.TickSeconds;
+            ticks++;
+        }
+
+        return ticks;
+    }
+
+    public int Step(float deltaSeconds, PlayerInputBuffer inputBuffer)
+    {
+        ArgumentNullException.ThrowIfNull(inputBuffer);
+        if (deltaSeconds <= 0f)
+        {
+            return 0;
+        }
+
+        _accumulatedSeconds += deltaSeconds;
+        var ticks = 0;
+        while (_accumulatedSeconds >= Tuning.TickSeconds)
+        {
+            AdvanceOneTick(PlayerControlFrame.ForPlayer(
+                State.ActivePlayerId,
+                inputBuffer.ConsumeForTick()));
+            _accumulatedSeconds -= Tuning.TickSeconds;
+            ticks++;
+        }
+
+        return ticks;
+    }
+
+    /// <summary>
+    /// Advances the fixed-tick simulation while autonomous brains fill every outfield slot not assigned to the active user.
+    /// </summary>
+    /// <param name="deltaSeconds">Elapsed presentation time to add to the fixed-tick accumulator.</param>
+    /// <param name="inputBuffer">The active user's buffered input.</param>
+    /// <param name="computerPlayers">The controller that supplies unassigned outfield inputs.</param>
+    /// <returns>The number of fixed simulation ticks processed.</returns>
+    public int Step(
+        float deltaSeconds,
+        PlayerInputBuffer inputBuffer,
+        ComputerPlayerController computerPlayers)
+    {
+        ArgumentNullException.ThrowIfNull(inputBuffer);
+        ArgumentNullException.ThrowIfNull(computerPlayers);
+        if (deltaSeconds <= 0f)
+        {
+            return 0;
+        }
+
+        _accumulatedSeconds += deltaSeconds;
+        var ticks = 0;
+        while (_accumulatedSeconds >= Tuning.TickSeconds)
+        {
+            var assignedInputs = new Dictionary<int, PlayerInput>
+            {
+                [State.ActivePlayerId] = inputBuffer.ConsumeForTick()
+            };
+            var frame = computerPlayers.CreateControlFrame(CurrentSnapshot, assignedInputs);
+            AdvanceOneTick(frame);
             _accumulatedSeconds -= Tuning.TickSeconds;
             ticks++;
         }
@@ -85,8 +190,34 @@ public sealed class MatchEngine
 
     public void StepTick(PlayerInput input)
     {
-        AdvanceOneTick(input);
+        AdvanceOneTick(PlayerControlFrame.ForPlayer(State.ActivePlayerId, input));
         _accumulatedSeconds = 0f;
+    }
+
+    /// <summary>
+    /// Advances exactly one authoritative tick using simultaneous per-player inputs.
+    /// </summary>
+    /// <param name="frame">The resolved control frame for this tick.</param>
+    public void StepTick(PlayerControlFrame frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        AdvanceOneTick(frame);
+        _accumulatedSeconds = 0f;
+    }
+
+    /// <summary>
+    /// Advances exactly one authoritative tick while autonomous brains fill slots not assigned to the active user.
+    /// </summary>
+    /// <param name="input">The active user's input.</param>
+    /// <param name="computerPlayers">The controller that supplies unassigned outfield inputs.</param>
+    public void StepTick(PlayerInput input, ComputerPlayerController computerPlayers)
+    {
+        ArgumentNullException.ThrowIfNull(computerPlayers);
+        var assignedInputs = new Dictionary<int, PlayerInput>
+        {
+            [State.ActivePlayerId] = input
+        };
+        StepTick(computerPlayers.CreateControlFrame(CurrentSnapshot, assignedInputs));
     }
 
     public MatchSnapshot GetRenderSnapshot()
@@ -103,20 +234,25 @@ public sealed class MatchEngine
         {
             var speed01 = player.Attributes.Speed01;
             player.Radius = tuning.PlayerRadius;
-            player.MaxSpeedPerTick = tuning.PlayerMaxSpeedPerTick * Lerp(0.82f, 1.1f, speed01);
-            player.AccelerationPerTick = tuning.PlayerAccelerationPerTick;
+            player.MaxSpeedPerTick = player.IsGoalkeeper
+                ? tuning.GoalkeeperMaxSpeedPerTick
+                : tuning.PlayerMaxSpeedPerTick * Lerp(0.82f, 1.1f, speed01);
+            player.AccelerationPerTick = player.IsGoalkeeper
+                ? tuning.GoalkeeperAccelerationPerTick
+                : tuning.PlayerAccelerationPerTick;
             player.FrictionPerTick = tuning.PlayerFrictionPerTick;
         }
     }
 
-    private void AdvanceOneTick(PlayerInput input)
+    private void AdvanceOneTick(PlayerControlFrame frame)
     {
+        ValidateControlFrame(frame);
         PreviousSnapshot = CurrentSnapshot;
-        SimulateTick(input);
+        SimulateTick(frame);
         CurrentSnapshot = MatchSnapshot.FromState(State);
     }
 
-    private void SimulateTick(PlayerInput input)
+    private void SimulateTick(PlayerControlFrame frame)
     {
         State.Tick++;
         State.ClockSeconds += Tuning.TickSeconds;
@@ -127,6 +263,13 @@ public sealed class MatchEngine
         }
 
         State.LastEvent = MatchEvent.None;
+        foreach (var player in State.Players)
+        {
+            player.KickAnimation01 = Math.Max(
+                0f,
+                player.KickAnimation01 - 1f / Math.Max(1, Tuning.KickAnimationTicks));
+        }
+
         _ballCollectionCooldownTicks = Math.Max(0, _ballCollectionCooldownTicks - 1);
         _releasedByCollectionBlockTicks = Math.Max(0, _releasedByCollectionBlockTicks - 1);
         if (_releasedByCollectionBlockTicks == 0)
@@ -134,41 +277,21 @@ public sealed class MatchEngine
             _releasedByPlayerId = null;
         }
 
-        var movedPlayer = State.ActivePlayer;
-        MoveActivePlayer(movedPlayer, input.NormalizedMove);
-        ResolvePlayerBounds(movedPlayer);
-
-        var actionPressed = !_previousActionDown && input.ActionDown;
-        var actionReleased = _previousActionDown && !input.ActionDown;
-        if (actionPressed)
+        foreach (var playerId in frame.PlayerIds)
         {
-            _actionCommittedThisHold = false;
+            var controlledPlayer = State.Players.Single(player => player.Id == playerId);
+            MoveControlledPlayer(controlledPlayer, frame.GetInputOrEmpty(playerId).NormalizedMove);
+            ResolvePlayerBounds(controlledPlayer);
         }
 
-        if (actionPressed && !movedPlayer.HasPossession && !movedPlayer.IsSliding && !movedPlayer.IsRecoveringFromSlide)
+        MoveGoalkeepers();
+
+        var releasedBallThisTick = ProcessPlayerActions(frame);
+
+        if (!releasedBallThisTick && TryAutoDistributeGoalkeeper())
         {
-            StartSlidingTackle(movedPlayer);
-            _actionCommittedThisHold = true;
+            releasedBallThisTick = true;
         }
-
-        var releasedBallThisTick = false;
-        if (input.ActionDown)
-        {
-            _actionHeldTicks = Math.Min(_actionHeldTicks + 1, Tuning.MaxKickHoldTicks);
-        }
-
-        if (actionReleased)
-        {
-            if (!_actionCommittedThisHold)
-            {
-                releasedBallThisTick = UseAction(movedPlayer, _actionHeldTicks);
-            }
-
-            _actionCommittedThisHold = false;
-            _actionHeldTicks = 0;
-        }
-
-        _previousActionDown = input.ActionDown;
 
         var possessor = State.Players.FirstOrDefault(player => player.HasPossession);
         if (possessor is not null)
@@ -177,17 +300,144 @@ public sealed class MatchEngine
         }
         else if (!releasedBallThisTick)
         {
-            ApplyAftertouchInput(input.NormalizedMove);
+            var aftertouchInput = _aftertouchPlayerId is int aftertouchPlayerId
+                ? frame.GetInputOrEmpty(aftertouchPlayerId).NormalizedMove
+                : Vector2.Zero;
+            ApplyAftertouchInput(aftertouchInput);
+            var previousBallPosition = State.Ball.Position;
             MoveLooseBall();
-            TryCollectBall();
+            if (!TryGoalkeeperCatch(previousBallPosition))
+            {
+                TryCollectBall();
+            }
         }
 
-        if (movedPlayer.IsSliding)
+        foreach (var slidingPlayer in State.Players
+                     .Where(player => player.IsSliding)
+                     .OrderBy(player => player.Id))
         {
-            HandleSlidingBallInteraction(movedPlayer);
+            HandleSlidingBallInteraction(slidingPlayer);
         }
 
         CheckBallRules();
+    }
+
+    private void ValidateControlFrame(PlayerControlFrame frame)
+    {
+        foreach (var playerId in frame.PlayerIds)
+        {
+            if (!State.Players.Any(player => player.Id == playerId))
+            {
+                throw new ArgumentException(
+                    $"Control frame references player {playerId}, who is not in this match.",
+                    nameof(frame));
+            }
+        }
+    }
+
+    private bool ProcessPlayerActions(PlayerControlFrame frame)
+    {
+        var playerIds = frame.PlayerIds
+            .Concat(_playerActionStates.Keys)
+            .Distinct()
+            .OrderBy(playerId => playerId)
+            .ToArray();
+        var releasedBallThisTick = false;
+
+        foreach (var playerId in playerIds)
+        {
+            var player = State.Players.FirstOrDefault(candidate => candidate.Id == playerId);
+            if (player is null)
+            {
+                _playerActionStates.Remove(playerId);
+                continue;
+            }
+
+            var input = frame.GetInputOrEmpty(playerId);
+            if (!_playerActionStates.TryGetValue(playerId, out var actionState))
+            {
+                actionState = new PlayerActionInputState();
+                _playerActionStates.Add(playerId, actionState);
+            }
+
+            releasedBallThisTick |= ProcessPlayerAction(player, input, actionState);
+        }
+
+        return releasedBallThisTick;
+    }
+
+    private bool ProcessPlayerAction(
+        PlayerState player,
+        PlayerInput input,
+        PlayerActionInputState actionState)
+    {
+        var actionPressed = !actionState.PreviousActionDown && input.ActionDown;
+        var actionReleased = actionState.PreviousActionDown && !input.ActionDown;
+        if (actionPressed)
+        {
+            actionState.ActionCommittedThisHold = false;
+            if (player.HasPossession)
+            {
+                State.AddFeedback(
+                    GameplayFeedbackType.ActionAccepted,
+                    player,
+                    player.Position,
+                    player.Facing.ToUnitVector(),
+                    0.32f);
+            }
+        }
+
+        if (actionPressed
+            && player.Role == PlayerRole.Outfield
+            && !player.HasPossession
+            && !player.IsSliding
+            && !player.IsRecoveringFromSlide)
+        {
+            StartSlidingTackle(player);
+            actionState.ActionCommittedThisHold = true;
+        }
+
+        var releasedBallThisTick = false;
+        if (input.ActionDown)
+        {
+            actionState.ActionHeldTicks = Math.Min(
+                actionState.ActionHeldTicks + 1,
+                Tuning.MaxKickHoldTicks);
+            player.ActionCharge01 = !actionState.ActionCommittedThisHold && player.HasPossession
+                ? Math.Clamp((float)actionState.ActionHeldTicks / (Tuning.TapPassMaxTicks + 1), 0f, 1f)
+                : 0f;
+
+            if (!actionState.ActionCommittedThisHold
+                && player.HasPossession
+                && actionState.ActionHeldTicks > Tuning.TapPassMaxTicks)
+            {
+                KickBall(player);
+                actionState.ActionCommittedThisHold = true;
+                _shotTeamWhileActionHeld = player.Team;
+                _shotActionPlayerId = player.Id;
+                releasedBallThisTick = true;
+            }
+        }
+
+        if (actionReleased)
+        {
+            if (!actionState.ActionCommittedThisHold)
+            {
+                releasedBallThisTick |= UseAction(player, actionState.ActionHeldTicks);
+            }
+
+            actionState.ActionCommittedThisHold = false;
+            actionState.ActionHeldTicks = 0;
+            player.ActionCharge01 = 0f;
+            if (_shotActionPlayerId == player.Id)
+            {
+                _shotTeamWhileActionHeld = null;
+                _shotActionPlayerId = null;
+            }
+        }
+
+        actionState.PreviousActionDown = input.ActionDown;
+        return releasedBallThisTick;
     }
 
     public void ResumeFromRestart()
@@ -201,8 +451,27 @@ public sealed class MatchEngine
         State.LastEvent = MatchEvent.None;
     }
 
-    private void MoveActivePlayer(PlayerState player, Vector2 move)
+    private void MoveControlledPlayer(PlayerState player, Vector2 move)
     {
+        if (!OpponentMovementEnabled && player.Team != UserControlledTeam)
+        {
+            player.Velocity = Vector2.Zero;
+            return;
+        }
+
+        if (player.IsGoalkeeper)
+        {
+            // In the classic Sensible control model the goalkeeper is not an extra
+            // freely selected runner. Directional input only aims a held-ball release.
+            if (IsHoldingBallInHands(player) && move.LengthSquared() > 0.0001f)
+            {
+                player.Facing = Azimuth.FromVector(move).Quantized(8);
+            }
+
+            player.Velocity = Vector2.Zero;
+            return;
+        }
+
         if (player.IsSliding)
         {
             player.Position += player.Velocity;
@@ -240,6 +509,107 @@ public sealed class MatchEngine
         player.Position += player.Velocity;
     }
 
+    private void MoveGoalkeepers()
+    {
+        var field = State.Field;
+        foreach (var goalkeeper in State.Players.Where(player => player.IsGoalkeeper))
+        {
+            if (!OpponentMovementEnabled && goalkeeper.Team != UserControlledTeam)
+            {
+                goalkeeper.Velocity = Vector2.Zero;
+                continue;
+            }
+
+            if (goalkeeper.HasPossession)
+            {
+                goalkeeper.Velocity = Vector2.Zero;
+                continue;
+            }
+
+            var attributes = goalkeeper.GoalkeeperAttributes ?? GoalkeeperAttributes.Default;
+            var distanceFromGoal = goalkeeper.Team == TeamSide.Home
+                ? State.Ball.Position.X - field.Left
+                : field.Right - State.Ball.Position.X;
+            var threat01 = 1f - Math.Clamp(distanceFromGoal / 35f, 0f, 1f);
+            var advance = Lerp(
+                Tuning.GoalkeeperGoalLineOffset,
+                Tuning.GoalkeeperMaxAdvanceDistance,
+                threat01 * (0.75f + attributes.Positioning01 * 0.25f));
+            var targetX = goalkeeper.Team == TeamSide.Home
+                ? field.Left + advance
+                : field.Right - advance;
+            var lateralFollow = 0.65f + attributes.Positioning01 * 0.3f;
+            var targetY = Math.Clamp(
+                State.Ball.Position.Y * lateralFollow,
+                field.GoalTop - Tuning.GoalkeeperLateralPadding,
+                field.GoalBottom + Tuning.GoalkeeperLateralPadding);
+            var target = new Vector2(targetX, targetY);
+            var desiredDirection = SafeNormalize(target - goalkeeper.Position, goalkeeper.Facing.ToUnitVector());
+            var desiredVelocity = desiredDirection * Tuning.GoalkeeperMaxSpeedPerTick;
+            var response = Tuning.GoalkeeperAccelerationPerTick * Lerp(0.8f, 1.2f, attributes.Reflexes01);
+            goalkeeper.Velocity = Approach(goalkeeper.Velocity, desiredVelocity, response);
+
+            if (Vector2.DistanceSquared(goalkeeper.Position, target) <= goalkeeper.Velocity.LengthSquared())
+            {
+                goalkeeper.Position = target;
+                goalkeeper.Velocity = Vector2.Zero;
+            }
+            else
+            {
+                goalkeeper.Position += goalkeeper.Velocity;
+            }
+
+            var toBall = State.Ball.Position - goalkeeper.Position;
+            if (toBall.LengthSquared() > 0.0001f)
+            {
+                goalkeeper.Facing = Azimuth.FromVector(toBall).Quantized(8);
+            }
+
+            ResolveGoalkeeperZone(goalkeeper);
+        }
+    }
+
+    private bool TryAutoDistributeGoalkeeper()
+    {
+        var goalkeeper = State.Players.FirstOrDefault(IsHoldingBallInHands);
+        if (goalkeeper is null)
+        {
+            _goalkeeperPossessionTicks = 0;
+            return false;
+        }
+
+        _goalkeeperPossessionTicks++;
+        var distributionTicks = goalkeeper.Team == UserControlledTeam
+            ? Tuning.GoalkeeperUserDistributionTimeoutTicks
+            : Tuning.GoalkeeperAiDistributionDelayTicks;
+        if (_goalkeeperPossessionTicks < distributionTicks)
+        {
+            return false;
+        }
+
+        var target = FindGoalkeeperDistributionTarget(goalkeeper);
+        if (target is not null)
+        {
+            goalkeeper.Facing = Azimuth.FromVector(target.Position - goalkeeper.Position).Quantized(8);
+            PassBall(goalkeeper);
+        }
+        else
+        {
+            KickBall(goalkeeper);
+        }
+
+        return true;
+    }
+
+    private PlayerState? FindGoalkeeperDistributionTarget(PlayerState goalkeeper)
+    {
+        return State.Players
+            .Where(player => player.Team == goalkeeper.Team && player.Role == PlayerRole.Outfield)
+            .OrderBy(player => Vector2.DistanceSquared(player.Position, goalkeeper.Position))
+            .ThenBy(player => player.Id)
+            .FirstOrDefault();
+    }
+
     private float ComputePlayerMovementResponse(PlayerState player, Vector2 desiredDirection)
     {
         var speed = player.Velocity.Length();
@@ -270,6 +640,12 @@ public sealed class MatchEngine
 
     private void ControlBall(PlayerState player)
     {
+        if (IsHoldingBallInHands(player))
+        {
+            HoldBallInGoalkeeperHands(player);
+            return;
+        }
+
         MoveControlledBall(player);
         AlignControlledBallToFacing(player);
         SettleControlledBallWhenStationary(player);
@@ -289,8 +665,22 @@ public sealed class MatchEngine
         State.Ball.Height = 0f;
         State.Ball.VerticalVelocity = 0f;
         State.Ball.PossessorId = player.Id;
+        State.Ball.ControlKind = BallControlKind.Feet;
 
         TryPassiveRepossession(player);
+    }
+
+    private void HoldBallInGoalkeeperHands(PlayerState goalkeeper)
+    {
+        goalkeeper.Velocity = Vector2.Zero;
+        State.Ball.Position = goalkeeper.Position
+            + goalkeeper.Facing.ToUnitVector() * Tuning.GoalkeeperHeldBallForwardOffset;
+        State.Ball.Velocity = Vector2.Zero;
+        State.Ball.Height = Tuning.GoalkeeperHeldBallHeight;
+        State.Ball.VerticalVelocity = 0f;
+        State.Ball.CurveSpinZ = 0f;
+        State.Ball.PossessorId = goalkeeper.Id;
+        State.Ball.ControlKind = BallControlKind.GoalkeeperHands;
     }
 
     private void AlignControlledBallToFacing(PlayerState player)
@@ -448,6 +838,7 @@ public sealed class MatchEngine
         player.HasPossession = false;
         player.DribbleStepDistance = 0f;
         State.Ball.PossessorId = null;
+        State.Ball.ControlKind = BallControlKind.None;
         State.Ball.Velocity = facing * forwardReleaseSpeed + right * (sideSign * wobbleSpeed);
         _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, Tuning.DribbleMistouchCollectionCooldownTicks);
         _releasedByPlayerId = player.Id;
@@ -465,7 +856,7 @@ public sealed class MatchEngine
     private void TryPassiveRepossession(PlayerState possessor)
     {
         var challenger = State.Players
-            .Where(player => player.Team != possessor.Team)
+            .Where(player => player.Team != possessor.Team && player.Role == PlayerRole.Outfield)
             .Select(player => new
             {
                 Player = player,
@@ -533,6 +924,7 @@ public sealed class MatchEngine
         possessor.HasPossession = false;
         possessor.DribbleStepDistance = 0f;
         State.Ball.PossessorId = null;
+        State.Ball.ControlKind = BallControlKind.None;
         State.Ball.Velocity = direction * Tuning.PassiveContestKnockLooseSpeedPerTick + challenger.Velocity * 0.25f;
         _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, 2);
         _aftertouchTicksRemaining = 0;
@@ -550,7 +942,7 @@ public sealed class MatchEngine
             }
             else
             {
-                KickBall(activePlayer, heldTicks);
+                KickBall(activePlayer);
             }
 
             return true;
@@ -570,31 +962,68 @@ public sealed class MatchEngine
         var targetDistance = target is null ? 0f : Vector2.Distance(player.Position, target.Position);
         var lift = targetDistance >= Tuning.LongPassDistance ? Tuning.PassLiftPerTick : 0f;
 
-        ReleaseBall(player, direction, Tuning.PassSpeedPerTick, lift, Tuning.PassCollectionCooldownTicks, enableAftertouch: false, kickPower01: 0f);
+        ReleaseBall(player, direction, Tuning.PassSpeedPerTick, lift, Tuning.PassCollectionCooldownTicks, enableAftertouch: false);
+        State.AddFeedback(
+            GameplayFeedbackType.PassContact,
+            player,
+            State.Ball.Position,
+            direction,
+            0.62f);
+        player.ActionCharge01 = 0f;
+        player.KickAnimation01 = 1f;
         player.Velocity = Vector2.Zero;
         if (target is not null)
         {
-            State.ActivePlayerId = target.Id;
+            TransferUserControlToOutfielder(target);
         }
     }
 
-    private void KickBall(PlayerState player, int heldTicks)
+    private void KickBall(PlayerState player)
     {
-        var direction = player.Facing.ToUnitVector();
-        var power01 = Math.Clamp((float)heldTicks / Tuning.MaxKickHoldTicks, 0.18f, 1f);
+        var facing = player.Facing.ToUnitVector();
+        var direction = ResolveShotDirection(player, facing);
+        var power01 = Math.Clamp(Tuning.ImmediateKickPower01, 0f, 1f);
         var speed = Lerp(Tuning.MinKickSpeedPerTick, Tuning.MaxKickSpeedPerTick, power01);
         var lift01 = Math.Clamp((power01 - Tuning.KickLiftStartsAtPower) / (1f - Tuning.KickLiftStartsAtPower), 0f, 1f);
         var lift = Lerp(Tuning.MinKickLiftPerTick, Tuning.MaxKickLiftPerTick, lift01);
 
-        ReleaseBall(player, direction, speed, lift, Tuning.KickCollectionCooldownTicks, enableAftertouch: true, power01);
+        ReleaseBall(
+            player,
+            direction,
+            speed,
+            lift,
+            Tuning.KickCollectionCooldownTicks,
+            enableAftertouch: true,
+            preserveDirectionAgainstRunnerCarry: true);
+        State.AddFeedback(
+            GameplayFeedbackType.ShotContact,
+            player,
+            State.Ball.Position,
+            direction,
+            Math.Clamp(0.7f + power01 * 0.3f, 0f, 1f));
+        player.ActionCharge01 = 0f;
+        player.KickAnimation01 = 1f;
     }
 
-    private void ReleaseBall(PlayerState player, Vector2 direction, float speed, float lift, int collectionCooldownTicks, bool enableAftertouch, float kickPower01)
+    private void ReleaseBall(
+        PlayerState player,
+        Vector2 direction,
+        float speed,
+        float lift,
+        int collectionCooldownTicks,
+        bool enableAftertouch,
+        bool preserveDirectionAgainstRunnerCarry = false)
     {
+        var wasGoalkeeperDistribution = IsHoldingBallInHands(player);
+        var runnerCarry = player.Velocity * Tuning.RunnerVelocityCarryToKick;
+        var impulseDirection = preserveDirectionAgainstRunnerCarry
+            ? CompensateForRunnerCarry(direction, speed, runnerCarry)
+            : direction;
         player.HasPossession = false;
         State.Ball.PossessorId = null;
+        State.Ball.ControlKind = BallControlKind.None;
         State.Ball.Position = player.Position + direction * (player.Radius + State.Ball.Radius + 0.2f);
-        State.Ball.Velocity = direction * speed + player.Velocity * Tuning.RunnerVelocityCarryToKick;
+        State.Ball.Velocity = impulseDirection * speed + runnerCarry;
         State.Ball.Height = 0f;
         State.Ball.VerticalVelocity = lift;
         _ballCollectionCooldownTicks = collectionCooldownTicks;
@@ -602,15 +1031,38 @@ public sealed class MatchEngine
         _releasedByCollectionBlockTicks = Tuning.KickCollectionCooldownTicks;
         _aftertouchPlayerId = enableAftertouch ? player.Id : null;
         _aftertouchTicksRemaining = enableAftertouch ? Tuning.AftertouchWindowTicks : 0;
-        State.Ball.CurveSpinZ = enableAftertouch ? Tuning.SpinInitialFromKickPower * kickPower01 : 0f;
-        _aftertouchBasisForward = SafeNormalize(direction, player.Facing.ToUnitVector());
+        _aftertouchCurveApplied = false;
+        _aftertouchHeightApplied = false;
+        State.Ball.CurveSpinZ = 0f;
+        _aftertouchBasisForward = SafeNormalize(State.Ball.Velocity, direction);
         _aftertouchBasisRight = new Vector2(-_aftertouchBasisForward.Y, _aftertouchBasisForward.X);
+
+        if (wasGoalkeeperDistribution)
+        {
+            _goalkeeperPossessionTicks = 0;
+            if (player.Team == UserControlledTeam && State.ActivePlayerId == player.Id)
+            {
+                var nextPlayer = State.Players
+                    .Where(candidate => candidate.Team == player.Team && candidate.Role == PlayerRole.Outfield)
+                    .OrderBy(candidate => Vector2.DistanceSquared(candidate.Position, State.Ball.Position))
+                    .ThenBy(candidate => candidate.Id)
+                    .FirstOrDefault();
+                if (nextPlayer is not null)
+                {
+                    State.ActivePlayerId = nextPlayer.Id;
+                }
+            }
+        }
     }
 
     private PlayerState? FindPassTarget(PlayerState passer, Vector2 facing)
     {
+        var maxTargetDistance = MathF.Max(0f, Tuning.PassTargetMaxDistance);
+        var maxTargetDistanceSquared = maxTargetDistance * maxTargetDistance;
         return State.Players
-            .Where(player => player.Id != passer.Id && player.Team == passer.Team)
+            .Where(player => player.Id != passer.Id
+                && player.Team == passer.Team
+                && player.Role == PlayerRole.Outfield)
             .Select(player =>
             {
                 var offset = player.Position - passer.Position;
@@ -623,16 +1075,59 @@ public sealed class MatchEngine
                 var alignment = Vector2.Dot(Vector2.Normalize(offset), facing);
                 return new { Player = player, DistanceSquared = distanceSquared, Alignment = alignment };
             })
-            .Where(candidate => candidate.Alignment >= Tuning.PassTargetConeCosine)
+            .Where(candidate => candidate.Alignment >= Tuning.PassTargetConeCosine
+                && candidate.DistanceSquared <= maxTargetDistanceSquared)
             .OrderBy(candidate => candidate.DistanceSquared)
             .FirstOrDefault()
             ?.Player;
+    }
+
+    private Vector2 ResolveShotDirection(PlayerState player, Vector2 facing)
+    {
+        if (player.Role != PlayerRole.Outfield || Tuning.ShotGoalAimMaxDistance <= 0f)
+        {
+            return facing;
+        }
+
+        var field = State.Field;
+        var goalX = player.Team == TeamSide.Home ? field.Right : field.Left;
+        var toGoalCenter = new Vector2(goalX, 0f) - player.Position;
+        var distanceToGoalCenter = toGoalCenter.Length();
+        if (distanceToGoalCenter <= 0.0001f || distanceToGoalCenter > Tuning.ShotGoalAimMaxDistance)
+        {
+            return facing;
+        }
+
+        var alignment = Vector2.Dot(facing, toGoalCenter / distanceToGoalCenter);
+        if (alignment < Tuning.ShotGoalAimMinAlignmentCosine)
+        {
+            return facing;
+        }
+
+        var distanceToGoalLine = goalX - player.Position.X;
+        if (MathF.Abs(facing.X) <= 0.0001f || distanceToGoalLine / facing.X <= 0f)
+        {
+            return facing;
+        }
+
+        var projectedGoalLineY = player.Position.Y + facing.Y * distanceToGoalLine / facing.X;
+        var goalHalfWidth = field.GoalWidth * 0.5f;
+        var postMargin = Math.Clamp(Tuning.ShotGoalAimPostMargin, 0f, MathF.Max(0f, goalHalfWidth - 0.1f));
+        var targetY = Math.Clamp(
+            projectedGoalLineY,
+            field.GoalTop + postMargin,
+            field.GoalBottom - postMargin);
+
+        // A digital diagonal expresses a goal-side choice near goal. It does not become
+        // a literal 45-degree miss, while already goal-bound directions remain unchanged.
+        return SafeNormalize(new Vector2(goalX, targetY) - player.Position, facing);
     }
 
     private void TryTackle(PlayerState activePlayer)
     {
         var target = State.Players
             .Where(player => player.Id != activePlayer.Id && player.HasPossession)
+            .Where(player => !IsHoldingBallInHands(player))
             .OrderBy(player => Vector2.DistanceSquared(player.Position, activePlayer.Position))
             .FirstOrDefault();
 
@@ -653,12 +1148,22 @@ public sealed class MatchEngine
 
     private void MoveLooseBall()
     {
-        if (Tuning.BallCurveMode == BallCurveMode.SpinPhysics && MathF.Abs(State.Ball.CurveSpinZ) > 0.0001f && State.Ball.Velocity.LengthSquared() > 0.0001f)
+        if (MathF.Abs(State.Ball.CurveSpinZ) > 0.0001f && State.Ball.Velocity.LengthSquared() > 0.0001f)
         {
             var forward = Vector2.Normalize(State.Ball.Velocity);
             var right = new Vector2(-forward.Y, forward.X);
             var speed = State.Ball.Velocity.Length();
-            var magnus = right * (State.Ball.CurveSpinZ * speed * Tuning.MagnusLateralPerTick);
+            var isAirborne = State.Ball.Height > 0f || State.Ball.VerticalVelocity > 0f;
+            var surfaceFactor = isAirborne ? 1f : Tuning.GroundMagnusFactor;
+            var curveModeFactor = Tuning.BallCurveMode == BallCurveMode.SwosLikeLut
+                ? Tuning.SwosCurveMagnusMultiplier
+                : 1f;
+            var magnus = right * (
+                State.Ball.CurveSpinZ
+                * speed
+                * Tuning.MagnusLateralPerTick
+                * surfaceFactor
+                * curveModeFactor);
             State.Ball.Velocity += magnus;
         }
 
@@ -680,12 +1185,106 @@ public sealed class MatchEngine
                 State.Ball.VerticalVelocity = 0f;
             }
 
-            State.Ball.CurveSpinZ *= Tuning.SpinGroundDampingPerTick;
+            var groundSpinRetention = Math.Min(
+                Tuning.SpinGroundDampingPerTick,
+                Tuning.MaxGroundSpinRetentionPerTick);
+            State.Ball.CurveSpinZ *= Math.Clamp(groundSpinRetention, 0f, 1f);
         }
 
         if (State.Ball.Velocity.LengthSquared() < Tuning.MinBallSpeedPerTick * Tuning.MinBallSpeedPerTick)
         {
             State.Ball.Velocity = Vector2.Zero;
+        }
+    }
+
+    private bool TryGoalkeeperCatch(Vector2 previousBallPosition)
+    {
+        if (State.Ball.IsPossessed || State.Ball.Height > Tuning.GoalkeeperCatchMaxHeight)
+        {
+            return false;
+        }
+
+        foreach (var goalkeeper in State.Players
+            .Where(player => player.IsGoalkeeper)
+            .OrderBy(player => Vector2.DistanceSquared(player.Position, State.Ball.Position)))
+        {
+            if (goalkeeper.Id == _releasedByPlayerId && _releasedByCollectionBlockTicks > 0)
+            {
+                continue;
+            }
+
+            var catchPoint = ClosestPointOnSegment(
+                goalkeeper.Position,
+                previousBallPosition,
+                State.Ball.Position);
+            if (!IsInsideOwnPenaltyArea(goalkeeper.Team, catchPoint))
+            {
+                continue;
+            }
+
+            var attributes = goalkeeper.GoalkeeperAttributes ?? GoalkeeperAttributes.Default;
+            var skillReach = Tuning.GoalkeeperCatchReach
+                * Lerp(0.75f, 1.1f, (attributes.Handling01 + attributes.Reflexes01) * 0.5f);
+            var catchDistance = goalkeeper.Radius + State.Ball.Radius + skillReach;
+            if (Vector2.DistanceSquared(goalkeeper.Position, catchPoint) > catchDistance * catchDistance)
+            {
+                continue;
+            }
+
+            BeginGoalkeeperHandsPossession(goalkeeper);
+            return true;
+        }
+
+        return false;
+    }
+
+    private void BeginGoalkeeperHandsPossession(PlayerState goalkeeper)
+    {
+        var previousPossessorId = State.Ball.PossessorId;
+        var previousActivePlayerId = State.ActivePlayerId;
+        var possessionTeamChanged = _lastPossessionTeam != goalkeeper.Team;
+        foreach (var player in State.Players)
+        {
+            player.HasPossession = player.Id == goalkeeper.Id;
+            player.ActionCharge01 = 0f;
+        }
+
+        goalkeeper.Velocity = Vector2.Zero;
+        goalkeeper.DribbleStepDistance = 0f;
+        State.Ball.PossessorId = goalkeeper.Id;
+        State.Ball.ControlKind = BallControlKind.GoalkeeperHands;
+        HoldBallInGoalkeeperHands(goalkeeper);
+        _goalkeeperPossessionTicks = 0;
+        _aftertouchTicksRemaining = 0;
+        _aftertouchPlayerId = null;
+        _dribbleSecureTicksRemaining = 0;
+        _dribbleRisk = 0f;
+        _dribbleSustain01 = 0f;
+        _lastPossessionTeam = goalkeeper.Team;
+
+        if (previousPossessorId != goalkeeper.Id)
+        {
+            State.AddFeedback(
+                GameplayFeedbackType.GoalkeeperCatch,
+                goalkeeper,
+                goalkeeper.Position,
+                goalkeeper.Facing.ToUnitVector(),
+                0.82f);
+        }
+
+        if (goalkeeper.Team == UserControlledTeam)
+        {
+            State.ActivePlayerId = goalkeeper.Id;
+            _playerActionStates.Remove(previousActivePlayerId);
+            _playerActionStates.Remove(goalkeeper.Id);
+            _shotTeamWhileActionHeld = null;
+            _shotActionPlayerId = null;
+        }
+        else
+        {
+            SelectUserDefenderForOpponentPossession(
+                goalkeeper.Position,
+                forceSwitch: possessionTeamChanged);
         }
     }
 
@@ -702,7 +1301,9 @@ public sealed class MatchEngine
         }
 
         var collector = State.Players
+            .Where(player => player.Role == PlayerRole.Outfield)
             .Where(player => !player.IsSliding && !player.IsRecoveringFromSlide)
+            .Where(player => _shotTeamWhileActionHeld is null || player.Team != _shotTeamWhileActionHeld)
             .Where(player => player.Id != _releasedByPlayerId || _releasedByCollectionBlockTicks <= 0)
             .Select(player => new
             {
@@ -731,34 +1332,46 @@ public sealed class MatchEngine
         }
 
         var moveLocalRight = Vector2.Dot(move, _aftertouchBasisRight);
-        var signedInput = NormalizeAftertouchInput(moveLocalRight, Tuning.AftertouchInputDeadzone);
-        if (signedInput == 0f && Tuning.BallCurveMode == BallCurveMode.SwosLikeLut)
-        {
-            _aftertouchTicksRemaining--;
-            return;
-        }
+        var moveLocalForward = Vector2.Dot(move, _aftertouchBasisForward);
+        var lateralInput = NormalizeAftertouchInput(moveLocalRight, Tuning.AftertouchInputDeadzone);
+        var heightInput = NormalizeAftertouchInput(moveLocalForward, Tuning.AftertouchInputDeadzone);
 
         if (State.Ball.Velocity.LengthSquared() > 0.0001f)
         {
-            var forward = Vector2.Normalize(State.Ball.Velocity);
-            var right = new Vector2(-forward.Y, forward.X);
-            if (Tuning.BallCurveMode == BallCurveMode.SwosLikeLut)
+            var timing01 = Math.Clamp(
+                (float)_aftertouchTicksRemaining / Math.Max(1, Tuning.AftertouchWindowTicks),
+                0f,
+                1f);
+            var timingStrength = 0.45f + timing01 * 0.55f;
+            if (!_aftertouchCurveApplied && lateralInput != 0f)
             {
-                var curve01 = Math.Clamp((float)_aftertouchTicksRemaining / Math.Max(1, Tuning.AftertouchWindowTicks), 0f, 1f);
-                var lateral = signedInput * Tuning.SwosCurveLateralAccelPerTick * (0.45f + curve01 * 0.55f);
-                State.Ball.Velocity += right * lateral;
-
-                var side = Vector2.Dot(State.Ball.Velocity, right);
-                side = Math.Clamp(side, -Tuning.SwosCurveMaxSideSpeedPerTick, Tuning.SwosCurveMaxSideSpeedPerTick);
-                var forwardSpeed = Math.Max(0f, Vector2.Dot(State.Ball.Velocity, forward));
-                State.Ball.Velocity = forward * forwardSpeed + right * side;
-            }
-            else
-            {
+                var spinImpulse = Tuning.BallCurveMode == BallCurveMode.SwosLikeLut
+                    ? Tuning.SwosCurveSpinImpulse
+                    : Tuning.AftertouchSpinImpulse;
                 State.Ball.CurveSpinZ = Math.Clamp(
-                    State.Ball.CurveSpinZ + signedInput * Tuning.SpinInputAddPerTick,
+                    lateralInput * spinImpulse * timingStrength,
                     -Tuning.SpinMaxAbs,
                     Tuning.SpinMaxAbs);
+                _aftertouchCurveApplied = true;
+            }
+
+            var heightInputWindowOpen = Tuning.AftertouchWindowTicks - _aftertouchTicksRemaining
+                < Tuning.AftertouchHeightInputTicks;
+            if (!_aftertouchHeightApplied && heightInputWindowOpen && heightInput > 0f)
+            {
+                State.Ball.VerticalVelocity = Math.Max(
+                    0f,
+                    State.Ball.VerticalVelocity
+                    - heightInput * Tuning.AftertouchDriveVerticalImpulse * timingStrength);
+                _aftertouchHeightApplied = true;
+            }
+            else if (!_aftertouchHeightApplied && heightInputWindowOpen && heightInput < 0f)
+            {
+                State.Ball.VerticalVelocity = Math.Min(
+                    Tuning.AftertouchMaxVerticalVelocityPerTick,
+                    State.Ball.VerticalVelocity
+                    - heightInput * Tuning.AftertouchLoftVerticalImpulse * timingStrength);
+                _aftertouchHeightApplied = true;
             }
         }
 
@@ -771,6 +1384,12 @@ public sealed class MatchEngine
         player.SlideRecoveryTicksRemaining = 0;
         player.DribbleStepDistance = 0f;
         player.Velocity = player.Facing.ToUnitVector() * Tuning.SlideSpeedPerTick;
+        State.AddFeedback(
+            GameplayFeedbackType.TackleStarted,
+            player,
+            player.Position,
+            player.Facing.ToUnitVector(),
+            0.55f);
     }
 
     private void HandleSlidingBallInteraction(PlayerState slider)
@@ -781,6 +1400,11 @@ public sealed class MatchEngine
         var possessor = State.Players.FirstOrDefault(player => player.Id != slider.Id && player.HasPossession);
         if (possessor is not null)
         {
+            if (IsHoldingBallInHands(possessor))
+            {
+                return;
+            }
+
             var toPossessor = possessor.Position - slider.Position;
             if (toPossessor.Length() <= hitDistance && Vector2.Dot(SafeNormalize(toPossessor, slideDirection), slideDirection) > 0.1f)
             {
@@ -807,6 +1431,7 @@ public sealed class MatchEngine
 
     private void BeginControlledPossession(PlayerState player)
     {
+        var previousPossessorId = State.Ball.PossessorId;
         var control01 = player.Attributes.BallControl01;
         var stepDistance = Lerp(Tuning.DribbleMinStepDistance, Tuning.DribbleMaxStepDistance, control01);
         var facing = player.Facing.ToUnitVector();
@@ -818,6 +1443,7 @@ public sealed class MatchEngine
 
         player.DribbleStepDistance = -stepDistance * 0.5f;
         State.Ball.PossessorId = player.Id;
+        State.Ball.ControlKind = BallControlKind.Feet;
         State.Ball.Position = player.Position + facing * Tuning.DribbleLeadDistance;
         State.Ball.Velocity = player.Velocity * 0.85f;
         State.Ball.Height = 0f;
@@ -831,6 +1457,125 @@ public sealed class MatchEngine
         _previousDribbleMoveDirection = Vector2.Zero;
         _previousDribbleSideDistance = 0f;
         _lastDribbleTurn01 = 0f;
+
+        UpdateUserControlForPossession(player);
+
+        if (previousPossessorId != player.Id)
+        {
+            State.AddFeedback(
+                GameplayFeedbackType.PossessionChanged,
+                player,
+                player.Position,
+                player.Facing.ToUnitVector(),
+                0.42f);
+        }
+    }
+
+    private void TransferUserControlToOutfielder(PlayerState player)
+    {
+        if (player.Team != UserControlledTeam
+            || player.Role != PlayerRole.Outfield
+            || State.ActivePlayerId == player.Id)
+        {
+            return;
+        }
+
+        SetActiveUserPlayer(player);
+    }
+
+    private void UpdateUserControlForPossession(PlayerState possessor)
+    {
+        var possessionTeamChanged = _lastPossessionTeam != possessor.Team;
+        _lastPossessionTeam = possessor.Team;
+        if (possessor.Team == UserControlledTeam)
+        {
+            TransferUserControlToOutfielder(possessor);
+            return;
+        }
+
+        SelectUserDefenderForOpponentPossession(
+            possessor.Position,
+            forceSwitch: possessionTeamChanged);
+    }
+
+    private void SelectUserDefenderForOpponentPossession(Vector2 threatPosition, bool forceSwitch)
+    {
+        var allOutfielders = State.Players
+            .Where(player => player.Team == UserControlledTeam && player.Role == PlayerRole.Outfield)
+            .ToArray();
+        var availableOutfielders = allOutfielders
+            .Where(player => !player.IsSliding && !player.IsRecoveringFromSlide)
+            .ToArray();
+        var candidates = availableOutfielders.Length > 0 ? availableOutfielders : allOutfielders;
+        var best = candidates
+            .OrderBy(player => DefensiveControlScore(player, threatPosition))
+            .ThenBy(player => player.Id)
+            .FirstOrDefault();
+        if (best is null)
+        {
+            return;
+        }
+
+        var current = candidates.FirstOrDefault(player => player.Id == State.ActivePlayerId);
+        if (!forceSwitch
+            && current is not null
+            && DefensiveControlScore(current, threatPosition)
+                <= DefensiveControlScore(best, threatPosition) + DefensiveControlSwitchHysteresis)
+        {
+            return;
+        }
+
+        SetActiveUserPlayer(best);
+    }
+
+    private float DefensiveControlScore(PlayerState player, Vector2 threatPosition)
+    {
+        var wrongSideDistance = UserControlledTeam == TeamSide.Home
+            ? MathF.Max(0f, player.Position.X - threatPosition.X)
+            : MathF.Max(0f, threatPosition.X - player.Position.X);
+        return Vector2.Distance(player.Position, threatPosition)
+            + wrongSideDistance * DefensiveWrongSidePenalty;
+    }
+
+    private void SetActiveUserPlayer(PlayerState player)
+    {
+        if (State.ActivePlayerId == player.Id)
+        {
+            return;
+        }
+
+        var previousActivePlayerId = State.ActivePlayerId;
+        State.ActivePlayerId = player.Id;
+        _playerActionStates.Remove(previousActivePlayerId);
+        _playerActionStates.Remove(player.Id);
+    }
+
+    private void ResolveGoalkeeperZone(PlayerState goalkeeper)
+    {
+        var field = State.Field;
+        var minX = goalkeeper.Team == TeamSide.Home
+            ? field.Left + goalkeeper.Radius
+            : field.Right - Tuning.GoalkeeperMaxAdvanceDistance;
+        var maxX = goalkeeper.Team == TeamSide.Home
+            ? field.Left + Tuning.GoalkeeperMaxAdvanceDistance
+            : field.Right - goalkeeper.Radius;
+        var minY = Math.Max(field.Top + goalkeeper.Radius, field.GoalTop - Tuning.GoalkeeperLateralPadding);
+        var maxY = Math.Min(field.Bottom - goalkeeper.Radius, field.GoalBottom + Tuning.GoalkeeperLateralPadding);
+        var clamped = new Vector2(
+            Math.Clamp(goalkeeper.Position.X, minX, maxX),
+            Math.Clamp(goalkeeper.Position.Y, minY, maxY));
+
+        if (clamped.X != goalkeeper.Position.X)
+        {
+            goalkeeper.Velocity = new Vector2(0f, goalkeeper.Velocity.Y);
+        }
+
+        if (clamped.Y != goalkeeper.Position.Y)
+        {
+            goalkeeper.Velocity = new Vector2(goalkeeper.Velocity.X, 0f);
+        }
+
+        goalkeeper.Position = clamped;
     }
 
     private void ResolvePlayerBounds(PlayerState player)
@@ -894,6 +1639,13 @@ public sealed class MatchEngine
                     State.AwayScore++;
                 }
 
+                State.AddFeedback(
+                    GameplayFeedbackType.GoalScored,
+                    player: null,
+                    ball.Position,
+                    scoringTeam == TeamSide.Home ? Vector2.UnitX : -Vector2.UnitX,
+                    1f);
+
                 StopForRestart(new MatchEvent(
                     MatchEventType.GoalScored,
                     RestartKind.Kickoff,
@@ -921,10 +1673,16 @@ public sealed class MatchEngine
         State.Ball.VerticalVelocity = 0f;
         State.Ball.CurveSpinZ = 0f;
         State.Ball.PossessorId = null;
+        State.Ball.ControlKind = BallControlKind.None;
         foreach (var player in State.Players)
         {
             player.HasPossession = false;
+            player.ActionCharge01 = 0f;
         }
+
+        _playerActionStates.Clear();
+        _shotTeamWhileActionHeld = null;
+        _shotActionPlayerId = null;
 
         State.IsBallOutOfPlay = true;
         State.LastEvent = matchEvent;
@@ -932,8 +1690,25 @@ public sealed class MatchEngine
 
     private void ResetForKickoff(TeamSide kickoffTeam)
     {
-        var player = State.Players.First(candidate => candidate.Team == kickoffTeam);
-        State.ActivePlayerId = player.Id;
+        _playerActionStates.Clear();
+        _shotTeamWhileActionHeld = null;
+        _shotActionPlayerId = null;
+        var player = State.Players.First(candidate =>
+            candidate.Team == kickoffTeam && candidate.Role == PlayerRole.Outfield);
+        if (player.Team == UserControlledTeam)
+        {
+            TransferUserControlToOutfielder(player);
+        }
+        else
+        {
+            var userOutfielder = State.Players
+                .Where(candidate => candidate.Team == UserControlledTeam && candidate.Role == PlayerRole.Outfield)
+                .OrderBy(candidate => Vector2.DistanceSquared(candidate.Position, State.Ball.Position))
+                .ThenBy(candidate => candidate.Id)
+                .First();
+            TransferUserControlToOutfielder(userOutfielder);
+        }
+
         player.Position = kickoffTeam == TeamSide.Home ? new Vector2(-4f, 0f) : new Vector2(4f, 0f);
         player.Velocity = Vector2.Zero;
         player.Facing = FacingForTeam(kickoffTeam);
@@ -945,6 +1720,7 @@ public sealed class MatchEngine
         State.Ball.VerticalVelocity = 0f;
         State.Ball.CurveSpinZ = 0f;
         State.Ball.PossessorId = player.Id;
+        State.Ball.ControlKind = BallControlKind.Feet;
         _aftertouchTicksRemaining = 0;
         _aftertouchPlayerId = null;
         _dribbleSecureTicksRemaining = Tuning.DribbleSecureTicksAfterTouch;
@@ -953,6 +1729,7 @@ public sealed class MatchEngine
         _previousDribbleMoveDirection = Vector2.Zero;
         _previousDribbleSideDistance = 0f;
         _lastDribbleTurn01 = 0f;
+        _lastPossessionTeam = kickoffTeam;
     }
 
     private Vector2 ClampToField(Vector2 position)
@@ -971,7 +1748,9 @@ public sealed class MatchEngine
     private static PlayerState CreatePlayer(
         int id,
         string name,
+        byte shirtNumber,
         TeamSide team,
+        FutsalOutfieldRole futsalRole,
         Vector2 position,
         PhysicsTuning tuning,
         Azimuth facing,
@@ -980,13 +1759,64 @@ public sealed class MatchEngine
         var speed01 = attributes.Speed01;
         return new PlayerState(id, name, team, position)
         {
+            ShirtNumber = shirtNumber,
             Facing = facing,
+            FutsalRole = futsalRole,
             Attributes = attributes,
             Radius = tuning.PlayerRadius,
             MaxSpeedPerTick = tuning.PlayerMaxSpeedPerTick * Lerp(0.82f, 1.1f, speed01),
             AccelerationPerTick = tuning.PlayerAccelerationPerTick,
             FrictionPerTick = tuning.PlayerFrictionPerTick
         };
+    }
+
+    private static PlayerState CreateGoalkeeper(
+        int id,
+        string name,
+        byte shirtNumber,
+        TeamSide team,
+        Vector2 position,
+        PhysicsTuning tuning)
+    {
+        var attributes = new PlayerAttributes(8, 4, 4, 4, 8, 8, 4);
+        return new PlayerState(id, name, team, position)
+        {
+            ShirtNumber = shirtNumber,
+            Role = PlayerRole.Goalkeeper,
+            GoalkeeperAttributes = GoalkeeperAttributes.Default,
+            Facing = FacingForTeam(team),
+            Attributes = attributes,
+            Radius = tuning.PlayerRadius,
+            MaxSpeedPerTick = tuning.GoalkeeperMaxSpeedPerTick,
+            AccelerationPerTick = tuning.GoalkeeperAccelerationPerTick,
+            FrictionPerTick = tuning.PlayerFrictionPerTick
+        };
+    }
+
+    private bool IsHoldingBallInHands(PlayerState player)
+    {
+        return player.IsGoalkeeper
+            && player.HasPossession
+            && State.Ball.PossessorId == player.Id
+            && State.Ball.ControlKind == BallControlKind.GoalkeeperHands;
+    }
+
+    private bool IsInsideOwnPenaltyArea(TeamSide team, Vector2 position)
+    {
+        return State.Field.ContainsInPenaltyArea(team, position);
+    }
+
+    private static Vector2 ClosestPointOnSegment(Vector2 point, Vector2 segmentStart, Vector2 segmentEnd)
+    {
+        var segment = segmentEnd - segmentStart;
+        var lengthSquared = segment.LengthSquared();
+        if (lengthSquared <= 0.0001f)
+        {
+            return segmentStart;
+        }
+
+        var amount = Math.Clamp(Vector2.Dot(point - segmentStart, segment) / lengthSquared, 0f, 1f);
+        return segmentStart + segment * amount;
     }
 
     private static Vector2 Approach(Vector2 current, Vector2 target, float maxDelta)
@@ -1015,6 +1845,33 @@ public sealed class MatchEngine
     private static Vector2 SafeNormalize(Vector2 vector, Vector2 fallback)
     {
         return vector.LengthSquared() <= 0.0001f ? fallback : Vector2.Normalize(vector);
+    }
+
+    private static Vector2 CompensateForRunnerCarry(Vector2 desiredDirection, float kickSpeed, Vector2 runnerCarry)
+    {
+        var desired = SafeNormalize(desiredDirection, Vector2.UnitX);
+        if (kickSpeed <= 0.0001f || runnerCarry.LengthSquared() <= 0.0001f)
+        {
+            return desired;
+        }
+
+        var parallelCarry = Vector2.Dot(runnerCarry, desired);
+        var lateralCarrySquared = MathF.Max(
+            0f,
+            runnerCarry.LengthSquared() - parallelCarry * parallelCarry);
+        var kickSpeedSquared = kickSpeed * kickSpeed;
+        if (lateralCarrySquared >= kickSpeedSquared)
+        {
+            return desired;
+        }
+
+        var resultingSpeed = parallelCarry + MathF.Sqrt(kickSpeedSquared - lateralCarrySquared);
+        if (resultingSpeed <= 0.0001f)
+        {
+            return desired;
+        }
+
+        return SafeNormalize(desired * resultingSpeed - runnerCarry, desired);
     }
 
     private static float Lerp(float from, float to, float amount)
@@ -1129,5 +1986,12 @@ public sealed class MatchEngine
 
         var normalized = (abs - deadzone) / Math.Max(0.0001f, 1f - deadzone);
         return MathF.Sign(value) * Math.Clamp(normalized, 0f, 1f);
+    }
+
+    private sealed class PlayerActionInputState
+    {
+        public bool PreviousActionDown { get; set; }
+        public bool ActionCommittedThisHold { get; set; }
+        public int ActionHeldTicks { get; set; }
     }
 }

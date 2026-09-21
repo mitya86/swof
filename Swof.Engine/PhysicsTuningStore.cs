@@ -31,6 +31,17 @@ public static class PhysicsTuningStore
         try
         {
             var json = File.ReadAllText(resolvedPath);
+            using var document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty(
+                    nameof(PhysicsTuning.ProfileVersion),
+                    out var versionElement)
+                || versionElement.ValueKind != JsonValueKind.Number
+                || !versionElement.TryGetInt32(out var version)
+                || version != PhysicsTuning.CurrentProfileVersion)
+            {
+                return PhysicsTuning.Default;
+            }
+
             return JsonSerializer.Deserialize<PhysicsTuning>(json, JsonOptions) ?? PhysicsTuning.Default;
         }
         catch
@@ -48,7 +59,8 @@ public static class PhysicsTuningStore
             Directory.CreateDirectory(directory);
         }
 
-        var json = JsonSerializer.Serialize(tuning, JsonOptions);
+        var currentTuning = tuning with { ProfileVersion = PhysicsTuning.CurrentProfileVersion };
+        var json = JsonSerializer.Serialize(currentTuning, JsonOptions);
         File.WriteAllText(resolvedPath, json);
     }
 }

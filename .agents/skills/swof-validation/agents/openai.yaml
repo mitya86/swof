@@ -1,0 +1,4 @@
+interface:
+  display_name: "SWOF Validation"
+  short_description: "Run and interpret SWOF quality gates"
+  default_prompt: "Use $swof-validation to run the right checks for this SWOF change and report the evidence."

@@ -2,6 +2,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Swof.Engine;
+using Swof.Engine.AI;
 using NumericsVector2 = System.Numerics.Vector2;
 
 namespace Swof.Game;
@@ -9,10 +10,17 @@ namespace Swof.Game;
 internal sealed class SwofGame : Microsoft.Xna.Framework.Game
 {
     private const float MaxFrameDeltaSeconds = 0.05f;
+    private const float DemoActionStartSeconds = 1f;
+    private const float DemoPassReleaseSeconds = 1.08f;
+    private const float DemoShotReleaseSeconds = 1.28f;
 
     private readonly GraphicsDeviceManager _graphics;
     private readonly MatchEngine _engine;
+    private readonly ComputerPlayerController _computerPlayers;
+    private readonly PlayerInputBuffer _inputBuffer = new();
+    private readonly MatchDemoAction _demoAction;
     private MatchRenderer? _renderer;
+    private MatchFeedbackPlayer? _feedbackPlayer;
     private SpriteFont? _font;
     private KeyboardState _previousKeyboard;
     private GamePadState _previousGamePad;
@@ -22,11 +30,31 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private double _fpsWindowStarted;
     private int _framesInWindow;
     private float _framesPerSecond;
+    private int _feedbackModeIndex;
+    private float _demoElapsedSeconds;
+    private bool _showDebugHud;
+    private bool _cameraEffectsEnabled;
 
-    public SwofGame()
+    private static readonly MatchFeedbackMode[] FeedbackModes =
+    [
+        MatchFeedbackMode.Dry,
+        MatchFeedbackMode.Connected,
+        MatchFeedbackMode.Arcade
+    ];
+
+    public SwofGame(SwofGameLaunchOptions? launchOptions = null)
     {
+        launchOptions ??= SwofGameLaunchOptions.Default;
         var tuning = PhysicsTuningStore.LoadOrDefault();
         _engine = MatchEngine.CreateDefault(tuning);
+        _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
+        _demoAction = launchOptions.DemoAction;
+        _feedbackModeIndex = Array.IndexOf(FeedbackModes, launchOptions.FeedbackMode);
+        if (_feedbackModeIndex < 0)
+        {
+            _feedbackModeIndex = 1;
+        }
+
         _graphics = new GraphicsDeviceManager(this)
         {
             PreferredBackBufferWidth = 1280,
@@ -47,7 +75,11 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     {
         Window.Title = "SWOF";
         Window.AllowUserResizing = true;
-        SetNotice("MonoGame host active", 2.5d);
+        if (_demoAction == MatchDemoAction.None)
+        {
+            SetNotice("Both teams active: support runs and structured marking", 4.5d);
+        }
+
         base.Initialize();
     }
 
@@ -57,6 +89,14 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         var playerAtlas = Content.Load<Texture2D>("PlayerAtlasV2");
         var playerRunAtlas = Content.Load<Texture2D>("PlayerRunAtlas");
         _renderer = new MatchRenderer(GraphicsDevice, playerAtlas, playerRunAtlas);
+        try
+        {
+            _feedbackPlayer = new MatchFeedbackPlayer();
+        }
+        catch (Exception)
+        {
+            SetNotice("Audio feedback unavailable", 2.5d);
+        }
     }
 
     protected override void Update(GameTime gameTime)
@@ -83,14 +123,42 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             ReloadTuning();
         }
 
+        if (IsNewKeyPress(Keys.F2, keyboard))
+        {
+            _feedbackModeIndex = (_feedbackModeIndex + 1) % FeedbackModes.Length;
+            var label = FeedbackModes[_feedbackModeIndex].ToString().ToLowerInvariant();
+            SetNotice($"Game feel: {label}", 1.5d);
+        }
+
+        if (IsNewKeyPress(Keys.F3, keyboard))
+        {
+            _showDebugHud = !_showDebugHud;
+            SetNotice(_showDebugHud ? "Debug HUD enabled" : "Match HUD enabled", 1.5d);
+        }
+
+        if (IsNewKeyPress(Keys.F4, keyboard))
+        {
+            _cameraEffectsEnabled = !_cameraEffectsEnabled;
+            SetNotice(_cameraEffectsEnabled ? "Camera feedback enabled" : "Camera feedback disabled", 1.5d);
+        }
+
         if (IsNewKeyPress(Keys.R, keyboard) || IsNewButtonPress(Buttons.Start, gamePad))
         {
             _engine.ResumeFromRestart();
         }
 
-        var input = IsActive ? ReadInput(keyboard, gamePad) : PlayerInput.Empty;
         var deltaSeconds = Math.Min((float)gameTime.ElapsedGameTime.TotalSeconds, MaxFrameDeltaSeconds);
-        _engine.Step(deltaSeconds, input);
+        var input = _demoAction == MatchDemoAction.None
+            ? IsActive ? ReadInput(keyboard, gamePad) : PlayerInput.Empty
+            : ReadDemoInput(deltaSeconds);
+        _inputBuffer.Capture(input);
+        _engine.Step(deltaSeconds, _inputBuffer, _computerPlayers);
+        _feedbackPlayer?.Update(
+            _engine.CurrentSnapshot,
+            _engine.UserControlledTeam,
+            FeedbackModes[_feedbackModeIndex] == MatchFeedbackMode.Dry ? 0f : 1f,
+            deltaSeconds,
+            gamePad.IsConnected);
         _previousKeyboard = keyboard;
         _previousGamePad = gamePad;
         base.Update(gameTime);
@@ -115,7 +183,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             $"Tick {snapshot.Tick}   FPS {_framesPerSecond:0}   Ball {ballOwner}";
         var secondaryStatus =
             $"{active.Name}  C:{active.Attributes.EffectiveBallControl} S:{active.Attributes.EffectiveSpeed}   " +
-            "Move: Arrows/WASD or left stick   Action: Space/A   R/Start: resume   F1: reload tuning   F11: fullscreen";
+            "Move/aftertouch: Arrows/WASD or left stick   Tap Space/A: pass   Hold: shoot/tackle   R/Start: resume";
         var notice = _runtimeSeconds <= _noticeUntilSeconds ? _notice : null;
 
         _renderer.Draw(
@@ -124,7 +192,11 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             primaryStatus,
             secondaryStatus,
             notice,
-            (float)gameTime.ElapsedGameTime.TotalSeconds);
+            (float)gameTime.ElapsedGameTime.TotalSeconds,
+            new MatchPresentationSettings(
+                FeedbackModes[_feedbackModeIndex],
+                _cameraEffectsEnabled,
+                _showDebugHud));
         base.Draw(gameTime);
     }
 
@@ -132,6 +204,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     {
         _renderer?.Dispose();
         _renderer = null;
+        _feedbackPlayer?.Dispose();
+        _feedbackPlayer = null;
         base.UnloadContent();
     }
 
@@ -139,6 +213,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     {
         _previousKeyboard = Keyboard.GetState();
         _previousGamePad = GamePad.GetState(PlayerIndex.One);
+        _inputBuffer.Reset(ReadInput(_previousKeyboard, _previousGamePad));
         base.OnActivated(sender, args);
     }
 
@@ -193,6 +268,18 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         var actionDown = keyboard.IsKeyDown(Keys.Space)
             || gamePad.Buttons.A == ButtonState.Pressed;
         return new PlayerInput(move, actionDown);
+    }
+
+    private PlayerInput ReadDemoInput(float deltaSeconds)
+    {
+        _demoElapsedSeconds += deltaSeconds;
+        var actionDown = _demoAction switch
+        {
+            MatchDemoAction.Pass => _demoElapsedSeconds is >= DemoActionStartSeconds and < DemoPassReleaseSeconds,
+            MatchDemoAction.Shot => _demoElapsedSeconds is >= DemoActionStartSeconds and < DemoShotReleaseSeconds,
+            _ => false
+        };
+        return new PlayerInput(NumericsVector2.Zero, actionDown);
     }
 
     private void ReloadTuning()

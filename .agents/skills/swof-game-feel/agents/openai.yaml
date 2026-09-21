@@ -1,0 +1,4 @@
+interface:
+  display_name: "SWOF Game Feel"
+  short_description: "Tune responsive readable futsal presentation"
+  default_prompt: "Use $swof-game-feel to diagnose and improve this runtime game-feel issue."
