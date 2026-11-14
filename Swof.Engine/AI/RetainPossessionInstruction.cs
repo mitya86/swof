@@ -117,6 +117,10 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
                 continue;
             }
 
+            // A carrier turns a quarter at a time. Reversing at speed swings the ball right round
+            // the body, which the dribble model answers with a mistouch about six ticks later.
+            // Only when nowhere else is left does it turn right round.
+            var reversal = Vector2.Dot(direction, context.Player.Facing.ToUnitVector()) < -0.01f ? 1f : 0f;
             var opponentClearance = MinimumPointClearance(target, opponents, UsefulOpponentClearance);
             var teammateSpacing = MinimumPointClearance(target, teammates, UsefulTeammateSpacing);
             var forwardProgress = Vector2.Dot(direction, new Vector2(attackDirection, 0f));
@@ -124,6 +128,7 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
                 + Math.Clamp(boundaryClearance / BoundaryClearanceScale, 0f, 1f) * 0.25f
                 + Math.Clamp(teammateSpacing / UsefulTeammateSpacing, 0f, 1f) * 0.13f
                 + (forwardProgress + 1f) * 0.05f
+                - reversal
                 // A small leaning that changes twice a second, so a player in the same spot
                 // does not always turn the same way and a match does not repeat itself.
                 + (DecisionNoise.Roll(context.Match, context.Player.Id, purpose: 100 + index, holdTicks: 30) - 0.5f)
