@@ -485,6 +485,7 @@ public sealed class MatchEngine
             Description: "Half-time."));
         // Home takes the opening kickoff, so Away starts the second half.
         ResetForKickoff(TeamSide.Away);
+        // ponytail: the interval is three restart pauses; give it its own tuning field once there is a half-time screen.
         State.RestartTicksRemaining = Tuning.RestartDelayTicks * 3;
     }
 
@@ -1846,6 +1847,11 @@ public sealed class MatchEngine
         _playerActionStates.Clear();
         _shotTeamWhileActionHeld = null;
         _shotActionPlayerId = null;
+        // Half-time can interrupt any action, so nothing from the old passage of play may leak through.
+        _ballCollectionCooldownTicks = 0;
+        _releasedByPlayerId = null;
+        _releasedByCollectionBlockTicks = 0;
+        _goalkeeperPossessionTicks = 0;
         foreach (var candidate in State.Players)
         {
             candidate.Position = candidate.KickoffPosition;

@@ -99,7 +99,8 @@ var tests = new (string Name, Action Test)[]
     ("unattended match keeps resuming after forced outs", UnattendedMatchKeepsResumingAfterForcedOuts),
     ("sliding player takes a restart on their feet", SlidingPlayerTakesRestartOnTheirFeet),
     ("goal resets every player to kickoff positions", GoalResetsEveryPlayerToKickoffPositions),
-    ("match plays two halves and then stays finished", MatchPlaysTwoHalvesAndThenStaysFinished)
+    ("match plays two halves and then stays finished", MatchPlaysTwoHalvesAndThenStaysFinished),
+    ("half-time interrupts live play cleanly", HalfTimeInterruptsLivePlayCleanly)
 };
 
 // Optional first argument: run only scenarios whose name contains it.
@@ -2658,6 +2659,43 @@ static void MatchPlaysTwoHalvesAndThenStaysFinished()
     Assert(state.IsMatchOver && state.IsBallOutOfPlay, "A finished match should stay finished.");
     Assert(state.ClockSeconds == clockAtFullTime, "The clock should not run after full time.");
     Assert(engine.CurrentSnapshot.IsMatchOver && engine.CurrentSnapshot.Period == 2, "The snapshot should report the result state.");
+}
+
+static void HalfTimeInterruptsLivePlayCleanly()
+{
+    var first = RunShortMatchWithLiveAi();
+    Assert(first == RunShortMatchWithLiveAi(), "A full short match should replay identically.");
+}
+
+static string RunShortMatchWithLiveAi()
+{
+    // Five-second halves end in the middle of passes, dribbles and held shots.
+    var engine = MatchEngine.CreateDefault(PhysicsTuning.Default with { HalfLengthSeconds = 5f });
+    var computerPlayers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    var state = engine.State;
+    var sawHalfTime = false;
+    for (var tick = 0; tick < 2000 && !state.IsMatchOver; tick++)
+    {
+        var angle = tick * 0.05f;
+        var move = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+        engine.StepTick(new PlayerInput(move, tick % 90 < (tick % 180 < 90 ? 3 : 20)), computerPlayers);
+        if (!sawHalfTime && state.LastEvent.Type == MatchEventType.HalfTime)
+        {
+            sawHalfTime = true;
+            var taker = state.Players.Single(player => player.HasPossession);
+            Assert(taker.Team == TeamSide.Away && state.Ball.PossessorId == taker.Id, "Away should hold the ball at half-time.");
+            Assert(state.Ball.Position == Vector2.Zero && state.Ball.Height == 0f, "The ball should be on the centre spot.");
+            Assert(
+                state.Players.Where(player => player.Id != taker.Id).All(player => player.Position == player.KickoffPosition),
+                "Everyone else should be back at their kickoff position.");
+        }
+    }
+
+    Assert(sawHalfTime, "The match should reach half-time.");
+    Assert(state.IsMatchOver && state.Period == 2, "The match should reach full time.");
+    Assert(state.Players.Count(player => player.HasPossession) <= 1, "At most one player may hold the ball at full time.");
+    return $"t{state.Tick} {state.HomeScore}-{state.AwayScore} {state.ClockSeconds:R} "
+        + string.Join(";", state.Players.Select(player => $"{player.Id}:{player.Position:R}"));
 }
 
 static void StepMany(MatchEngine engine, PlayerInput input, int count)
