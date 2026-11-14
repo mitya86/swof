@@ -117,6 +117,7 @@ var tests = new (string Name, Action Test)[]
     ("computer corner taker carries the ball into the court", ComputerCornerTakerCarriesBallIntoCourt),
     ("goalkeeper smothers a ball dribbled straight at it", GoalkeeperSmothersBallDribbledStraightAtIt),
     ("adjacent opponents do not swap the ball every tick", AdjacentOpponentsDoNotSwapBallEveryTick),
+    ("a pass goes past an opponent standing beside its line", PassGoesPastOpponentBesideItsLine),
     ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
 };
 
@@ -1028,6 +1029,38 @@ static void QuickTapPerformsPass()
         Near(engine.State.Ball.Velocity.Length(), engine.Tuning.PassSpeedPerTick),
         "Quick tap should use pass speed.");
     Assert(engine.State.Ball.Velocity.X > 0f, "Pass should travel toward teammate in the facing cone.");
+}
+
+static void PassGoesPastOpponentBesideItsLine()
+{
+    // Beside the ball as it is struck, as a presser stands: within possession distance, off the line.
+    Assert(FirstToTakePass(new Vector2(2f, 2.3f)) == 2, "A pass should go past an opponent standing 2.3 m to the side of its line.");
+    Assert(FirstToTakePass(new Vector2(6f, 0.5f)) != 2, "An opponent standing on the line should still take the pass.");
+
+    static int? FirstToTakePass(Vector2 opponentOffset)
+    {
+        var engine = MatchEngine.CreateDefault();
+        var passer = engine.State.ActivePlayer;
+        var teammate = engine.State.Players.Single(player => player.Id == 2);
+        var opponent = engine.State.Players.First(player => player.Team == TeamSide.Away && player.Role == PlayerRole.Outfield);
+        foreach (var other in engine.State.Players.Where(player => player.Role == PlayerRole.Outfield))
+        {
+            other.Position = new Vector2(-15f, -8f);
+        }
+
+        passer.Position = new Vector2(-8f, 0f);
+        teammate.Position = passer.Position + new Vector2(14f, 0f);
+        opponent.Position = passer.Position + opponentOffset;
+        engine.State.Ball.Position = passer.Position + passer.Facing.ToUnitVector() * engine.Tuning.DribbleLeadDistance;
+
+        StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), engine.Tuning.TapPassMaxTicks);
+        for (var tick = 0; tick < 120 && (engine.State.Ball.PossessorId ?? passer.Id) == passer.Id; tick++)
+        {
+            engine.StepTick(PlayerInput.Empty);
+        }
+
+        return engine.State.Ball.PossessorId == passer.Id ? null : engine.State.Ball.PossessorId;
+    }
 }
 
 static void PassOutsideIntendedDirectionStaysUntargeted()

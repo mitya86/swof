@@ -64,6 +64,12 @@ public sealed record PhysicsTuning
     public float BallBounceEnergyRetention { get; init; } = 0.42f;
     public float BallMinBounceVelocityPerTick { get; init; } = 0.035f;
     public float PossessionDistance { get; init; } = 1.5f;
+
+    /// <summary>Ball speed relative to a player, in metres a tick, above which that player must be near the ball's line and ahead of it to collect it.</summary>
+    public float FastBallSpeedPerTick { get; init; } = 7f / 60f;
+
+    /// <summary>How far to the side of a fast ball's line, beyond body and ball, a player can still collect it.</summary>
+    public float FastBallCollectionReach { get; init; } = 0.5f;
     public float DribbleLeadDistance { get; init; } = 1.15f;
     public float DribbleMinLeadDistance { get; init; } = 0.7f;
     public float DribbleMaxLeadDistance { get; init; } = 1.1f;
