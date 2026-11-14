@@ -27,6 +27,7 @@ public sealed class MatchEngine
     private TeamSide? _shotTeamWhileActionHeld;
     private int? _shotActionPlayerId;
     private int _goalkeeperPossessionTicks;
+    private int _ticksSinceBallReleased;
     private TeamSide? _lastPossessionTeam;
     private float _accumulatedSeconds;
 
@@ -585,6 +586,7 @@ public sealed class MatchEngine
     private void MoveGoalkeepers()
     {
         var field = State.Field;
+        _ticksSinceBallReleased = State.Ball.IsPossessed ? int.MaxValue / 2 : _ticksSinceBallReleased + 1;
         foreach (var goalkeeper in State.Players.Where(player => player.IsGoalkeeper))
         {
             if (!OpponentMovementEnabled && goalkeeper.Team != UserControlledTeam)
@@ -600,26 +602,15 @@ public sealed class MatchEngine
             }
 
             var attributes = goalkeeper.GoalkeeperAttributes ?? GoalkeeperAttributes.Default;
-            var distanceFromGoal = goalkeeper.Team == TeamSide.Home
-                ? State.Ball.Position.X - field.Left
-                : field.Right - State.Ball.Position.X;
-            var threat01 = 1f - Math.Clamp(distanceFromGoal / 35f, 0f, 1f);
-            var advance = Lerp(
-                Tuning.GoalkeeperGoalLineOffset,
-                Tuning.GoalkeeperMaxAdvanceDistance,
-                threat01 * (0.75f + attributes.Positioning01 * 0.25f));
-            var targetX = goalkeeper.Team == TeamSide.Home
-                ? field.Left + advance
-                : field.Right - advance;
-            var lateralFollow = 0.65f + attributes.Positioning01 * 0.3f;
-            var targetY = Math.Clamp(
-                State.Ball.Position.Y * lateralFollow,
-                field.GoalTop - Tuning.GoalkeeperLateralPadding,
-                field.GoalBottom + Tuning.GoalkeeperLateralPadding);
-            var target = new Vector2(targetX, targetY);
-            var desiredDirection = SafeNormalize(target - goalkeeper.Position, goalkeeper.Facing.ToUnitVector());
-            var desiredVelocity = desiredDirection * Tuning.GoalkeeperMaxSpeedPerTick;
+            var target = GoalkeeperGuardPosition(goalkeeper, attributes);
             var response = Tuning.GoalkeeperAccelerationPerTick * Lerp(0.8f, 1.2f, attributes.Reflexes01);
+
+            // A struck ball is read late: the goalkeeper holds its ground for a reaction time before moving.
+            var reactionTicks = Tuning.GoalkeeperReactionTicks * Lerp(1.25f, 0.75f, attributes.Reflexes01);
+            var desiredVelocity = _ticksSinceBallReleased < reactionTicks
+                ? Vector2.Zero
+                : SafeNormalize(target - goalkeeper.Position, goalkeeper.Facing.ToUnitVector())
+                    * Tuning.GoalkeeperMaxSpeedPerTick;
             goalkeeper.Velocity = Approach(goalkeeper.Velocity, desiredVelocity, response);
 
             if (Vector2.DistanceSquared(goalkeeper.Position, target) <= goalkeeper.Velocity.LengthSquared())
@@ -640,6 +631,58 @@ public sealed class MatchEngine
 
             ResolveGoalkeeperZone(goalkeeper);
         }
+    }
+
+    /// <summary>
+    /// Places the goalkeeper on the line from the goal centre to the ball: out toward the edge of its
+    /// reach while the ball is far away, back near its line as the ball comes within shooting range.
+    /// </summary>
+    private Vector2 GoalkeeperGuardPosition(PlayerState goalkeeper, GoalkeeperAttributes attributes)
+    {
+        var field = State.Field;
+        var isHome = goalkeeper.Team == TeamSide.Home;
+        var goalCentre = new Vector2(isHome ? field.Left : field.Right, 0f);
+        var outward = isHome ? Vector2.UnitX : -Vector2.UnitX;
+        if (!State.Ball.IsPossessed
+            && State.Ball.Velocity.Length() < Tuning.GoalkeeperClaimBallSpeedPerTick
+            && IsInsideOwnPenaltyArea(goalkeeper.Team, State.Ball.Position))
+        {
+            return State.Ball.Position;
+        }
+
+        // A loose ball travelling at this goal is a shot to save: step across to the nearest point of its path.
+        var ballSpeedTowardGoal = -Vector2.Dot(State.Ball.Velocity, outward);
+        if (!State.Ball.IsPossessed && ballSpeedTowardGoal > Tuning.GoalkeeperClaimBallSpeedPerTick)
+        {
+            var ticksToGoalLine = MathF.Abs(State.Ball.Position.X - goalCentre.X) / ballSpeedTowardGoal;
+            var crossing = State.Ball.Position + State.Ball.Velocity * ticksToGoalLine;
+            if (MathF.Abs(crossing.Y) <= field.GoalWidth * 0.5f + Tuning.GoalkeeperLateralPadding)
+            {
+                return ClosestPointOnSegment(goalkeeper.Position, State.Ball.Position, crossing);
+            }
+        }
+
+        var toBall = State.Ball.Position - goalCentre;
+        var ballDistance = toBall.Length();
+        var advance01 = Math.Clamp(
+            (ballDistance - Tuning.GoalkeeperRetreatBallDistance)
+                / MathF.Max(0.01f, Tuning.GoalkeeperAdvanceBallDistance - Tuning.GoalkeeperRetreatBallDistance),
+            0f,
+            1f);
+        var advance = Lerp(
+            Tuning.GoalkeeperGoalLineOffset,
+            Tuning.GoalkeeperMaxAdvanceDistance,
+            advance01 * (0.75f + attributes.Positioning01 * 0.25f));
+        var offset = SafeNormalize(toBall, outward) * advance;
+
+        // Even with the ball on the byline the goalkeeper stays a step off its line, at the near post.
+        var depth = MathF.Max(Tuning.GoalkeeperGoalLineOffset * 0.5f, Vector2.Dot(offset, outward));
+        return new Vector2(
+            goalCentre.X + outward.X * depth,
+            Math.Clamp(
+                offset.Y,
+                field.GoalTop - Tuning.GoalkeeperLateralPadding,
+                field.GoalBottom + Tuning.GoalkeeperLateralPadding));
     }
 
     private bool TryAutoDistributeGoalkeeper()
@@ -1095,6 +1138,7 @@ public sealed class MatchEngine
         _ballCollectionCooldownTicks = collectionCooldownTicks;
         _releasedByPlayerId = player.Id;
         _releasedByCollectionBlockTicks = Tuning.KickCollectionCooldownTicks;
+        _ticksSinceBallReleased = 0;
         _aftertouchPlayerId = enableAftertouch ? player.Id : null;
         _aftertouchTicksRemaining = enableAftertouch ? Tuning.AftertouchWindowTicks : 0;
         _aftertouchCurveApplied = false;
@@ -1266,9 +1310,8 @@ public sealed class MatchEngine
             }
 
             var attributes = goalkeeper.GoalkeeperAttributes ?? GoalkeeperAttributes.Default;
-            var skillReach = Tuning.GoalkeeperCatchReach
+            var catchDistance = Tuning.GoalkeeperCatchReach
                 * Lerp(0.75f, 1.1f, (attributes.Handling01 + attributes.Reflexes01) * 0.5f);
-            var catchDistance = goalkeeper.Radius + State.Ball.Radius + skillReach;
             if (Vector2.DistanceSquared(goalkeeper.Position, catchPoint) > catchDistance * catchDistance)
             {
                 continue;

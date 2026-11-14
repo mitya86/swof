@@ -2,7 +2,7 @@ namespace Swof.Engine;
 
 public sealed record PhysicsTuning
 {
-    public const int CurrentProfileVersion = 2;
+    public const int CurrentProfileVersion = 3;
 
     public static PhysicsTuning Default { get; } = new();
 
@@ -27,12 +27,20 @@ public sealed record PhysicsTuning
     public float GoalkeeperAccelerationPerTick { get; init; } = 75f / (60f * 60f);
     /// <summary>Resting distance between a goalkeeper and the defended goal line.</summary>
     public float GoalkeeperGoalLineOffset { get; init; } = 1.4f;
-    /// <summary>Furthest distance a goalkeeper AI may advance from its goal line.</summary>
-    public float GoalkeeperMaxAdvanceDistance { get; init; } = 10f;
+    /// <summary>Furthest distance a goalkeeper AI may advance from its goal line. Kept inside the penalty area, where it can use its hands.</summary>
+    public float GoalkeeperMaxAdvanceDistance { get; init; } = 4.5f;
+    /// <summary>Ball distance from goal at which the goalkeeper has fully retreated to its resting depth.</summary>
+    public float GoalkeeperRetreatBallDistance { get; init; } = 6f;
+    /// <summary>Ball distance from goal at which the goalkeeper stands at its furthest advance.</summary>
+    public float GoalkeeperAdvanceBallDistance { get; init; } = 20f;
     /// <summary>Extra lateral tracking range beyond each goal post.</summary>
-    public float GoalkeeperLateralPadding { get; init; } = 5f;
-    /// <summary>Additional planar reach used for deterministic catches and saves.</summary>
-    public float GoalkeeperCatchReach { get; init; } = 0.9f;
+    public float GoalkeeperLateralPadding { get; init; } = 1f;
+    /// <summary>Distance from the goalkeeper's centre to the ball's path within which a shot is caught.</summary>
+    public float GoalkeeperCatchReach { get; init; } = 0.8f;
+    /// <summary>A loose ball slower than this inside the goalkeeper's own area is one it walks out and claims.</summary>
+    public float GoalkeeperClaimBallSpeedPerTick { get; init; } = 7f / 60f;
+    /// <summary>Ticks after a pass or shot is struck before the goalkeeper starts moving to it.</summary>
+    public int GoalkeeperReactionTicks { get; init; } = 12;
     /// <summary>Highest ball a standing or diving goalkeeper may catch.</summary>
     public float GoalkeeperCatchMaxHeight { get; init; } = 2.25f;
     /// <summary>Rendered ball height while held by a goalkeeper.</summary>
@@ -122,7 +130,7 @@ public sealed record PhysicsTuning
     /// <summary>Minimum shot-facing alignment with goal center before goal-lane aiming applies.</summary>
     public float ShotGoalAimMinAlignmentCosine { get; init; } = 0.64f;
     /// <summary>Distance kept between an assisted shot target and either goal post.</summary>
-    public float ShotGoalAimPostMargin { get; init; } = 0.55f;
+    public float ShotGoalAimPostMargin { get; init; } = 0.25f;
     public BallCurveMode BallCurveMode { get; init; } = BallCurveMode.SpinPhysics;
     public int AftertouchWindowTicks { get; init; } = 12;
     public int AftertouchHeightInputTicks { get; init; } = 6;

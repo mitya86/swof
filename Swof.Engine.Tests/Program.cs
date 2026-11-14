@@ -104,7 +104,9 @@ var tests = new (string Name, Action Test)[]
     ("computer carrier shoots from range and leaves the shot alone", ComputerCarrierShootsFromRangeAndLeavesTheShotAlone),
     ("computer carrier does not shoot from distance or through a defender", ComputerCarrierDoesNotShootFromDistanceOrThroughDefender),
     ("computer presser slides at a carrier within reach", ComputerPresserSlidesAtCarrierWithinReach),
-    ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt)
+    ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt),
+    ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
+    ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance)
 };
 
 // Optional first argument: run only scenarios whose name contains it.
@@ -423,7 +425,7 @@ static PlayerState CatchBallWithHomeGoalkeeper(MatchEngine engine)
     var goalkeeper = engine.State.Players.Single(player =>
         player.Team == TeamSide.Home && player.Role == PlayerRole.Goalkeeper);
     ClearPossession(engine);
-    engine.State.Ball.Position = goalkeeper.Position + new Vector2(2f, 0f);
+    engine.State.Ball.Position = goalkeeper.Position + new Vector2(0.5f, 0f);
     engine.State.Ball.Height = 0f;
     engine.StepTick(PlayerInput.Empty);
     Assert(engine.State.Ball.PossessorId == goalkeeper.Id, "Test setup should result in a home goalkeeper catch.");
@@ -2866,6 +2868,92 @@ static void ReleasingButtonWithoutBallDoesNotStealIt()
 
     Assert(thief.HasPossession && !holder.HasPossession, "Letting go of the button must not win the ball back.");
     Assert(!holder.IsSliding, "Letting go of the button must not start a slide.");
+}
+
+static void GoalkeeperGuardsFromInsideOwnArea()
+{
+    foreach (var ballOffset in new[] { new Vector2(7f, 6f), new Vector2(3.5f, -5.7f), new Vector2(1f, 8.9f), new Vector2(18f, 0f), new Vector2(30f, -7f) })
+    {
+        var engine = MatchEngine.CreateDefault();
+        var state = engine.State;
+        var goalkeeper = state.Players.Single(player => player.Team == TeamSide.Home && player.IsGoalkeeper);
+        var carrier = state.Players.Single(player => player.Id == 10);
+        carrier.Position = new Vector2(state.Field.Left + ballOffset.X, ballOffset.Y);
+        GivePossession(engine, carrier);
+
+        StepMany(engine, PlayerInput.Empty, 240);
+
+        Assert(
+            state.Field.ContainsInPenaltyArea(TeamSide.Home, goalkeeper.Position),
+            $"With the ball at {ballOffset} the goalkeeper should stay where it can use its hands, not at {goalkeeper.Position}.");
+        Assert(
+            MathF.Abs(goalkeeper.Position.Y) <= MathF.Abs(carrier.Position.Y) + 0.01f
+                && MathF.Sign(goalkeeper.Position.Y) * MathF.Sign(carrier.Position.Y) >= 0f,
+            $"With the ball at {ballOffset} the goalkeeper should stand between the ball and the goal centre.");
+    }
+}
+
+static void SetGoalkeeperIsBeatenFromRangeButNotFromDistance()
+{
+    // Unopposed standing shots at a goalkeeper who has had time to set, from a grid of positions.
+    // The bounds are a balance contract: goals must be possible, and never free from long range.
+    var goals = 0;
+    var shots = 0;
+    foreach (var distance in new[] { 5f, 7f, 9f, 11f, 14f, 18f })
+    {
+        foreach (var lateral in new[] { 0f, 2f, 4f, 6f })
+        {
+            var scored = StandingShotScores(distance, lateral);
+            shots++;
+            goals += scored ? 1 : 0;
+            Assert(!(scored && distance >= 18f), $"A shot from {distance} m should not beat a set goalkeeper.");
+            Assert(!(scored && lateral == 0f && distance >= 7f), $"A shot straight at a set goalkeeper from {distance} m should be saved.");
+        }
+    }
+
+    Assert(
+        goals >= 4 && goals <= 12,
+        $"Expected a set goalkeeper to concede 4 to 12 of {shots} unopposed shots, got {goals}.");
+}
+
+static bool StandingShotScores(float distanceFromGoalLine, float lateralOffset)
+{
+    var engine = MatchEngine.CreateDefault();
+    var state = engine.State;
+    foreach (var other in state.Players.Where(player => player.Role == PlayerRole.Outfield && player.Id != 10))
+    {
+        other.Position = new Vector2(state.Field.Right - 2f, other.Id - 5f);
+    }
+
+    var shooter = state.Players.Single(player => player.Id == 10);
+    shooter.Position = new Vector2(state.Field.Left + distanceFromGoalLine, lateralOffset);
+    shooter.Facing = Azimuth.West;
+    GivePossession(engine, shooter);
+    for (var tick = 0; tick < 90; tick++)
+    {
+        engine.StepTick(PlayerControlFrame.Empty);
+    }
+
+    Assert(shooter.HasPossession, "The shooter should still have the ball once the goalkeeper has set.");
+    var goalkeeper = state.Players.Single(player => player.Team == TeamSide.Home && player.IsGoalkeeper);
+    var aim = new Vector2(state.Field.Left, goalkeeper.Position.Y > 0f ? -1.4f : 1.4f);
+    var move = Vector2.Normalize(aim - shooter.Position);
+    for (var tick = 0; tick < 200; tick++)
+    {
+        var input = tick < engine.Tuning.TapPassMaxTicks + 3 ? new PlayerInput(move, ActionDown: true) : PlayerInput.Empty;
+        engine.StepTick(PlayerControlFrame.ForPlayer(shooter.Id, input));
+        if (state.AwayScore > 0)
+        {
+            return true;
+        }
+
+        if (state.IsBallOutOfPlay || state.Ball.PossessorId is int possessorId && possessorId != shooter.Id)
+        {
+            return false;
+        }
+    }
+
+    return false;
 }
 
 static void StepMany(MatchEngine engine, PlayerInput input, int count)
