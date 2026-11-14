@@ -34,6 +34,10 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
     private const float MaximumPassDistance = 18f;
     private const float MinimumSafeLaneClearance = 3f;
     private const float MinimumSafeReceiverClearance = 3f;
+    // An opponent's body reaches this far across a pass leaving the passer's feet...
+    private const float LaneBodyReach = 1.5f;
+    // ...and it covers this much more ground for every metre the ball has to travel to pass it.
+    private const float LaneReachPerMetre = 0.25f;
 
     /// <inheritdoc />
     public bool TryRecognize(PlayerDecisionContext context, out PossessionOpportunity match)
@@ -173,7 +177,7 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
             var score = laneScore * 0.42f
                 + receiverScore * 0.34f
                 + distanceScore * 0.16f
-                + (forwardProgress + 1f) * 0.04f;
+                + (forwardProgress + 1f) * 0.2f;
             var candidate = new PassOption(teammate.Id, direction, score);
             if (best is null || candidate.Score > best.Value.Score)
             {
@@ -209,7 +213,32 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
             return UsefulOpponentClearance;
         }
 
-        return players.Min(player => DistanceToSegment(player.Position, start, end));
+        // An opponent beside or behind the passer is not in the way of a pass going away from it,
+        // however close it stands; measured by plain distance, a pressed carrier never had a pass.
+        // The result keeps the old scale: MinimumSafeLaneClearance means "just out of reach".
+        var lane = end - start;
+        var length = lane.Length();
+        if (length <= 0.0001f)
+        {
+            return players.Min(player => Vector2.Distance(player.Position, start));
+        }
+
+        var direction = lane / length;
+        var clearance = UsefulOpponentClearance;
+        foreach (var player in players)
+        {
+            var along = Vector2.Dot(player.Position - start, direction);
+            if (along <= 0f)
+            {
+                continue;
+            }
+
+            var reach = MathF.Min(MinimumSafeLaneClearance, LaneBodyReach + LaneReachPerMetre * MathF.Min(along, length));
+            var distance = DistanceToSegment(player.Position, start, end);
+            clearance = MathF.Min(clearance, distance - reach + MinimumSafeLaneClearance);
+        }
+
+        return clearance;
     }
 
     private static float MinimumPointClearance(
@@ -249,7 +278,7 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
 /// </remarks>
 public sealed class RetainPossessionInstruction : IPlayerInstruction
 {
-    internal const int MinimumPassDelayTicks = 12;
+    internal const int MinimumPassDelayTicks = 30;
     internal const int NormalPassDelayTicks = 48;
     internal const int CarryCommitmentTicks = 10;
     internal const float PressureDistance = 3.25f;
