@@ -10,6 +10,7 @@ public sealed class MatchEngine
 
     private readonly Dictionary<int, PlayerActionInputState> _playerActionStates = new();
     private int _ballCollectionCooldownTicks;
+    private int? _passReceiverId;
     private int? _releasedByPlayerId;
     private int _releasedByCollectionBlockTicks;
     private int _aftertouchTicksRemaining;
@@ -307,6 +308,12 @@ public sealed class MatchEngine
         }
 
         _ballCollectionCooldownTicks = Math.Max(0, _ballCollectionCooldownTicks - 1);
+        if (State.Ball.IsPossessed || State.IsBallOutOfPlay)
+        {
+            // The pass is over once anyone has the ball or it has left the court.
+            _passReceiverId = null;
+        }
+
         _newPossessionProtectionTicks = Math.Max(0, _newPossessionProtectionTicks - 1);
         _releasedByCollectionBlockTicks = Math.Max(0, _releasedByCollectionBlockTicks - 1);
         if (_releasedByCollectionBlockTicks == 0)
@@ -1118,6 +1125,7 @@ public sealed class MatchEngine
             State.Ball.Position,
             direction,
             0.62f);
+        _passReceiverId = target?.Id;
         player.ActionCharge01 = 0f;
         player.KickAnimation01 = 1f;
         player.Velocity = Vector2.Zero;
@@ -1450,6 +1458,7 @@ public sealed class MatchEngine
                 Distance = Vector2.Distance(player.Position, State.Ball.Position)
             })
             .Where(candidate => candidate.Distance <= candidate.Player.Radius + State.Ball.Radius + Tuning.PossessionDistance)
+            .Where(candidate => CanReachFastBall(candidate.Player))
             .OrderBy(candidate => candidate.Distance)
             .FirstOrDefault()
             ?.Player;
@@ -1461,6 +1470,27 @@ public sealed class MatchEngine
 
         collector.HasPossession = true;
         BeginControlledPossession(collector);
+    }
+
+    /// <summary>
+    /// A ball that is slow as the player sees it is taken anywhere within possession distance. A fast one,
+    /// a pass or a shot, is taken only by a player near its line whom it has not yet gone past.
+    /// The teammate a pass was played to is spared this: it takes the pass as it always did.
+    /// </summary>
+    private bool CanReachFastBall(PlayerState player)
+    {
+        var approach = State.Ball.Velocity - player.Velocity;
+        var speed = approach.Length();
+        if (speed <= Tuning.FastBallSpeedPerTick || player.Id == _passReceiverId)
+        {
+            return true;
+        }
+
+        var direction = approach / speed;
+        var toPlayer = player.Position - State.Ball.Position;
+        var distanceFromLine = MathF.Abs(toPlayer.X * direction.Y - toPlayer.Y * direction.X);
+        return Vector2.Dot(toPlayer, direction) >= 0f
+            && distanceFromLine <= player.Radius + State.Ball.Radius + Tuning.FastBallCollectionReach;
     }
 
     private void ApplyAftertouchInput(Vector2 move)

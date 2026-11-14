@@ -117,6 +117,7 @@ var tests = new (string Name, Action Test)[]
     ("computer corner taker carries the ball into the court", ComputerCornerTakerCarriesBallIntoCourt),
     ("goalkeeper smothers a ball dribbled straight at it", GoalkeeperSmothersBallDribbledStraightAtIt),
     ("adjacent opponents do not swap the ball every tick", AdjacentOpponentsDoNotSwapBallEveryTick),
+    ("a pass goes past an opponent standing beside its line", PassGoesPastOpponentBesideItsLine),
     ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
 };
 
@@ -1028,6 +1029,58 @@ static void QuickTapPerformsPass()
         Near(engine.State.Ball.Velocity.Length(), engine.Tuning.PassSpeedPerTick),
         "Quick tap should use pass speed.");
     Assert(engine.State.Ball.Velocity.X > 0f, "Pass should travel toward teammate in the facing cone.");
+}
+
+static void PassGoesPastOpponentBesideItsLine()
+{
+    const int Teammate = 2;
+    const int Nobody = 0;
+    // Beside the ball as it is struck, as a presser stands: within possession distance, off the line.
+    var beside = new Vector2(2f, 2.3f);
+    Assert(
+        FirstToTakePass(PhysicsTuning.Default, beside, out _) == Teammate,
+        "A pass should go past an opponent standing 2.3 m to the side of its line.");
+    // With a reach wide enough to cover that opponent, the ball has still gone past it when it may first be taken.
+    Assert(
+        FirstToTakePass(PhysicsTuning.Default with { FastBallCollectionReach = 2f }, beside, out _) == Teammate,
+        "A pass that has gone past an opponent should not be taken by it.");
+    var taker = FirstToTakePass(PhysicsTuning.Default, new Vector2(6f, 0.5f), out var opponentId);
+    Assert(taker == opponentId, "An opponent standing on the line should still take the pass.");
+    // Walked 2.5 m off the line, the teammate the pass was played to still takes it.
+    Assert(
+        FirstToTakePass(PhysicsTuning.Default, new Vector2(-10f, 5f), out _, receiverStep: new Vector2(0f, 2.5f)) == Teammate,
+        "The teammate a pass was played to should take it from further off its line than anyone else.");
+    Assert(
+        FirstToTakePass(PhysicsTuning.Default, new Vector2(-10f, 5f), out _, receiverStep: new Vector2(0f, 3.5f)) != Teammate,
+        "A teammate further away than possession distance should not take the pass; if it does, the last check proves nothing.");
+
+    static int FirstToTakePass(PhysicsTuning tuning, Vector2 opponentOffset, out int opponentId, Vector2 receiverStep = default)
+    {
+        var engine = MatchEngine.CreateDefault(tuning);
+        var passer = engine.State.ActivePlayer;
+        var teammate = engine.State.Players.Single(player => player.Id == Teammate);
+        var opponent = engine.State.Players.First(player => player.Team == TeamSide.Away && player.Role == PlayerRole.Outfield);
+        opponentId = opponent.Id;
+        foreach (var other in engine.State.Players.Where(player => player.Role == PlayerRole.Outfield))
+        {
+            other.Position = new Vector2(-15f, -8f);
+        }
+
+        passer.Position = new Vector2(-8f, 0f);
+        teammate.Position = passer.Position + new Vector2(14f, 0f);
+        opponent.Position = passer.Position + opponentOffset;
+        engine.State.Ball.Position = passer.Position + passer.Facing.ToUnitVector() * engine.Tuning.DribbleLeadDistance;
+
+        StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), engine.Tuning.TapPassMaxTicks);
+        engine.StepTick(PlayerInput.Empty);
+        teammate.Position += receiverStep;
+        for (var tick = 0; tick < 120 && engine.State.Ball.PossessorId is null && !engine.State.IsBallOutOfPlay; tick++)
+        {
+            engine.StepTick(PlayerInput.Empty);
+        }
+
+        return engine.State.Ball.PossessorId ?? Nobody;
+    }
 }
 
 static void PassOutsideIntendedDirectionStaysUntargeted()
