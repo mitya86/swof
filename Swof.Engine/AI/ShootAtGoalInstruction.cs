@@ -16,6 +16,8 @@ public sealed class ShootingChancePattern : IPlayerPattern<ShootingChance>
     // Squarer than 60 degrees off straight the goal mouth is too narrow to aim at.
     private const float MinimumGoalFacingCosine = 0.5f;
     private const float AimOffsetFromGoalCentre = 0.9f;
+    private const float PoorFinisherAimDrift = 1.4f;
+    private const float GoodFinisherAimDrift = 0.2f;
     private const float BlockedLaneClearance = 0.9f;
 
     /// <inheritdoc />
@@ -43,9 +45,13 @@ public sealed class ShootingChancePattern : IPlayerPattern<ShootingChance>
 
         var goalkeeper = context.Match.Players.FirstOrDefault(candidate =>
             candidate.Team != player.Team && candidate.Role == PlayerRole.Goalkeeper);
-        var aimY = goalkeeper is null
-            ? 0f
-            : goalkeeper.Position.Y > 0f ? -AimOffsetFromGoalCentre : AimOffsetFromGoalCentre;
+        // The shot is meant for the side the goalkeeper has left open, but drifts back toward
+        // the middle by an amount that differs each time and shrinks with the shooter's finishing.
+        var finishing01 = player.Attributes.EffectiveFinishing / 10f;
+        var drift = DecisionNoise.Roll(context.Match, player.Id, purpose: 1)
+            * (PoorFinisherAimDrift + (GoodFinisherAimDrift - PoorFinisherAimDrift) * finishing01);
+        var openSide = goalkeeper is null ? 0f : goalkeeper.Position.Y > 0f ? -1f : 1f;
+        var aimY = openSide * (AimOffsetFromGoalCentre - drift);
         var aimPoint = new Vector2(goalX, aimY);
         var isBlocked = context.Match.Players.Any(candidate =>
             candidate.Team != player.Team

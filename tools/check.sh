@@ -3,7 +3,8 @@
 #   fast     behavior scenarios + whitespace check (default)
 #   full     fast + MonoGame host build + formatting verification
 #   matches  100 unattended computer-versus-computer matches (about a minute);
-#            tools/check.sh matches <count> <firstSeed> replays chosen seeds
+#            tools/check.sh matches <count> <firstSeed> replays chosen seeds;
+#            add "equal" to give every outfielder the same attributes
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

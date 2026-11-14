@@ -22,6 +22,12 @@ public sealed class MatchState
         Officials = officials ?? Array.Empty<OfficialState>();
     }
 
+    /// <summary>
+    /// Chooses the small differences in computer decisions. Zero is as valid as any other value;
+    /// a replay or a networked match must carry the same seed.
+    /// </summary>
+    public int Seed { get; init; }
+
     public FieldDimensions Field { get; }
     public IReadOnlyList<PlayerState> Players { get; }
     public IReadOnlyList<OfficialState> Officials { get; }

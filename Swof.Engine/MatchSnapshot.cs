@@ -16,6 +16,9 @@ public sealed record MatchSnapshot(
     MatchEvent LastEvent,
     IReadOnlyList<GameplayFeedbackEvent> FeedbackEvents)
 {
+    /// <summary>The match seed, for computer decisions that vary from match to match.</summary>
+    public int Seed { get; init; }
+
     public PlayerSnapshot ActivePlayer => Players.Single(player => player.Id == ActivePlayerId);
 
     public static MatchSnapshot FromState(MatchState state)
@@ -34,7 +37,10 @@ public sealed record MatchSnapshot(
             state.Period,
             state.IsMatchOver,
             state.LastEvent,
-            state.FeedbackEvents.ToArray());
+            state.FeedbackEvents.ToArray())
+        {
+            Seed = state.Seed
+        };
     }
 
     public static MatchSnapshot Interpolate(MatchSnapshot from, MatchSnapshot to, float alpha)

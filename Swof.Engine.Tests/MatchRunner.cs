@@ -3,7 +3,9 @@ using Swof.Engine.AI;
 
 /// <summary>
 /// Plays whole computer-versus-computer matches with nobody watching.
-/// Usage: <c>dotnet run --project Swof.Engine.Tests -- matches [count] [firstSeed]</c>.
+/// Usage: <c>dotnet run --project Swof.Engine.Tests -- matches [count] [firstSeed] [equal]</c>.
+/// With <c>equal</c> every outfielder has the same attributes, so the scores show the game
+/// rather than a mismatch.
 /// </summary>
 internal static class MatchRunner
 {
@@ -27,10 +29,11 @@ internal static class MatchRunner
         string GoalTicks);
 
     /// <summary>
-    /// A match is fully deterministic, so the seed only chooses the eight outfielders'
-    /// attributes. Goalkeepers stay fixed so that shot numbers compare across seeds.
+    /// The seed chooses the eight outfielders' attributes (unless the squads are equal) and the
+    /// small differences in computer decisions. Goalkeepers stay fixed so that shot numbers
+    /// compare across seeds.
     /// </summary>
-    internal static MatchResult Play(int seed, float halfLengthSeconds = 0f)
+    internal static MatchResult Play(int seed, float halfLengthSeconds = 0f, bool equalSquads = false)
     {
         var random = new Random(seed);
         // 4 to 15 is the range the default squads already use.
@@ -41,7 +44,12 @@ internal static class MatchRunner
         var tuning = halfLengthSeconds > 0f
             ? PhysicsTuning.Default with { HalfLengthSeconds = halfLengthSeconds }
             : PhysicsTuning.Default;
-        var engine = MatchEngine.CreateDefault(tuning, outfieldAttributes: squad);
+        if (equalSquads)
+        {
+            Array.Fill(squad, PlayerAttributes.DefaultOutfield);
+        }
+
+        var engine = MatchEngine.CreateDefault(tuning, outfieldAttributes: squad, seed: seed);
         var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
         var state = engine.State;
         var nobody = new Dictionary<int, PlayerInput>();
@@ -156,9 +164,9 @@ internal static class MatchRunner
     }
 
     /// <summary>Plays <paramref name="count"/> matches and returns how many broke.</summary>
-    internal static int Run(int count, int firstSeed)
+    internal static int Run(int count, int firstSeed, bool equalSquads)
     {
-        var results = Enumerable.Range(firstSeed, count).Select(seed => Play(seed)).ToArray();
+        var results = Enumerable.Range(firstSeed, count).Select(seed => Play(seed, equalSquads: equalSquads)).ToArray();
         foreach (var r in results)
         {
             Console.WriteLine(

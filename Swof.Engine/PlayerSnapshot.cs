@@ -17,6 +17,9 @@ public sealed record PlayerSnapshot(
     float ActionCharge01,
     float KickAnimation01)
 {
+    /// <summary>What the player is good at, for computer decisions that depend on skill.</summary>
+    public PlayerAttributes Attributes { get; init; } = PlayerAttributes.DefaultOutfield;
+
     public static PlayerSnapshot FromState(PlayerState player)
     {
         return new PlayerSnapshot(
@@ -32,7 +35,10 @@ public sealed record PlayerSnapshot(
             player.HasPossession,
             player.Radius,
             player.ActionCharge01,
-            player.KickAnimation01);
+            player.KickAnimation01)
+        {
+            Attributes = player.Attributes
+        };
     }
 
     public static PlayerSnapshot Interpolate(PlayerSnapshot from, PlayerSnapshot to, float alpha)
