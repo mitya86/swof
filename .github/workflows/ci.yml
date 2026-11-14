@@ -22,6 +22,8 @@ jobs:
         with:
           global-json-file: global.json
       - run: tools/check.sh fast
+      # Every match must reach full time without stalling; scores are reported, not judged.
+      - run: tools/check.sh matches
 
   build-windows:
     # Only Windows can build the whole solution, because it includes the WPF tuning

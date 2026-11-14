@@ -106,8 +106,21 @@ var tests = new (string Name, Action Test)[]
     ("computer presser slides at a carrier within reach", ComputerPresserSlidesAtCarrierWithinReach),
     ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
-    ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance)
+    ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
+    ("kickoff taker stands over the ball and keeps it", KickoffTakerStandsOverTheBallAndKeepsIt),
+    ("ball carried over the touchline is out against the carrier", BallCarriedOverTouchlineIsOutAgainstCarrier),
+    ("computer corner taker carries the ball into the court", ComputerCornerTakerCarriesBallIntoCourt),
+    ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
 };
+
+// "matches [count] [firstSeed]" plays unattended matches instead of the scenarios.
+if (args.FirstOrDefault() == "matches")
+{
+    var count = args.Length > 1 ? int.Parse(args[1]) : 100;
+    var firstSeed = args.Length > 2 ? int.Parse(args[2]) : 1;
+    Environment.ExitCode = MatchRunner.Run(count, firstSeed) == 0 ? 0 : 1;
+    return;
+}
 
 // Optional first argument: run only scenarios whose name contains it.
 var filter = args.FirstOrDefault();
@@ -743,7 +756,8 @@ static void StraightDribbleKeepsBallUnderControl()
 
     var maxDistance = 0f;
 
-    for (var i = 0; i < 240; i++)
+    // 120 ticks stops short of the far goal line, where a carried ball now goes out of play.
+    for (var i = 0; i < 120; i++)
     {
         engine.StepTick(new PlayerInput(Vector2.UnitX, ActionDown: false));
         maxDistance = MathF.Max(
@@ -2631,6 +2645,80 @@ static void GoalResetsEveryPlayerToKickoffPositions()
 
     StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks);
     Assert(!state.IsBallOutOfPlay, "Play should resume from the kickoff on its own.");
+}
+
+static void KickoffTakerStandsOverTheBallAndKeepsIt()
+{
+    var engine = MatchEngine.CreateDefault();
+    ClearPossession(engine);
+    engine.State.Ball.Position = new Vector2(engine.State.Field.Right + 1f, 0f);
+    engine.StepTick(PlayerInput.Empty);
+
+    var state = engine.State;
+    var taker = state.Players.Single(player => player.HasPossession);
+    Assert(taker.FutsalRole == FutsalOutfieldRole.Pivo, "The forward-most outfielder should take the kickoff.");
+    Assert(state.Ball.Position == Vector2.Zero, "The kickoff is taken from the centre spot.");
+    Assert(
+        Vector2.Distance(taker.Position, state.Ball.Position) <= engine.Tuning.DribbleLeadDistance + 0.001f,
+        "The taker should stand over the ball, not metres behind it.");
+
+    StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + 10);
+    Assert(taker.HasPossession, "The taker should still have the ball once play resumes.");
+}
+
+static void BallCarriedOverTouchlineIsOutAgainstCarrier()
+{
+    var engine = MatchEngine.CreateDefault();
+    var state = engine.State;
+    var carrier = state.ActivePlayer;
+    Assert(carrier.HasPossession && carrier.Team == TeamSide.Home, "The Home active player should start with the ball.");
+    foreach (var other in state.Players.Where(player => player.Id != carrier.Id && player.Role == PlayerRole.Outfield))
+    {
+        other.Position = new Vector2(other.Position.X, state.Field.Bottom - other.Radius);
+    }
+
+    for (var tick = 0; tick < 120 && !state.IsBallOutOfPlay; tick++)
+    {
+        engine.StepTick(new PlayerInput(-Vector2.UnitY, ActionDown: false));
+    }
+
+    Assert(state.LastEvent.Type == MatchEventType.TouchlineOut, "Dribbling the ball over the touchline should stop play.");
+    Assert(state.LastEvent.Team == TeamSide.Away, "The kick-in goes against the player who carried it out.");
+}
+
+static void ComputerCornerTakerCarriesBallIntoCourt()
+{
+    var engine = MatchEngine.CreateDefault();
+    var state = engine.State;
+    ClearPossession(engine);
+    state.LastTouchTeam = TeamSide.Home;
+    state.Ball.Position = new Vector2(state.Field.Left - 1f, -8f);
+    engine.StepTick(PlayerInput.Empty);
+    Assert(state.LastEvent.Restart == RestartKind.Corner && state.LastEvent.Team == TeamSide.Away, "Away should have a corner.");
+
+    engine.ResumeFromRestart();
+    // Every opponent stands inside the court, so the emptiest space is beyond the lines.
+    var taker = state.Players.Single(player => player.HasPossession);
+    foreach (var opponent in state.Players.Where(player => player.Team == TeamSide.Home && player.Role == PlayerRole.Outfield))
+    {
+        opponent.Position = taker.Position + new Vector2(3.5f, 3.5f);
+    }
+
+    var recognized = new SafePossessionPattern().TryRecognize(
+        new PlayerDecisionContext(MatchSnapshot.FromState(state), taker.Id),
+        out var opportunity);
+    Assert(recognized, "The corner taker should be weighing where to carry the ball.");
+    Assert(
+        opportunity.CarryDirection.X >= 0f && opportunity.CarryDirection.Y >= 0f,
+        $"The corner taker should carry into the court, not {opportunity.CarryDirection}.");
+}
+
+static void UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds()
+{
+    var first = MatchRunner.Play(seed: 3, halfLengthSeconds: 10f);
+    Assert(first.Fault is null, $"A short unattended match should reach full time: {first.Fault}");
+    Assert(first == MatchRunner.Play(seed: 3, halfLengthSeconds: 10f), "The same seed should play the same match.");
+    Assert(first != MatchRunner.Play(seed: 4, halfLengthSeconds: 10f), "Another seed should play a different match.");
 }
 
 static void MatchPlaysTwoHalvesAndThenStaysFinished()
