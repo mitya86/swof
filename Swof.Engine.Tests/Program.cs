@@ -21,6 +21,7 @@ var tests = new (string Name, Action Test)[]
     ("computer goalkeeper selects a defender and distributes without stealing team control", ComputerGoalkeeperSelectsDefenderAndDistributes),
     ("match with no user team treats both goalkeepers alike", MatchWithNoUserTeamTreatsBothGoalkeepersAlike),
     ("pressed carrier in its own half does not carry toward its own goal", PressedCarrierInOwnHalfDoesNotCarryTowardOwnGoal),
+    ("computer carrier turns a quarter at a time", ComputerCarrierTurnsAQuarterAtATime),
     ("pressed carrier can pass away from the presser but not through it", PressedCarrierCanPassAwayFromPresserButNotThroughIt),
     ("active player can dribble the ball", ActivePlayerCanDribble),
     ("holding beyond the tap window commits a shot before release", HeldActionCommitsShotBeforeRelease),
@@ -482,6 +483,8 @@ static void PressedCarrierInOwnHalfDoesNotCarryTowardOwnGoal()
         var state = engine.State;
         var carrier = state.Players.Single(player => player.Id == 2);
         carrier.Position = new Vector2(carrierX, 0f);
+        // Side on, so that forward and back are both a quarter turn away.
+        carrier.Facing = Azimuth.South;
         foreach (var other in state.Players.Where(player => player.Id != carrier.Id))
         {
             other.Position = new Vector2(other.Team == TeamSide.Home ? -17f : 17f, other.Id - 5f);
@@ -496,6 +499,32 @@ static void PressedCarrierInOwnHalfDoesNotCarryTowardOwnGoal()
             "The carrier should be weighing where to go.");
         return opportunity.CarryDirection.X;
     }
+}
+
+static void ComputerCarrierTurnsAQuarterAtATime()
+{
+    // Away's left ala has just run back toward its own goal to collect the ball, with the whole
+    // court behind it. Turning right round at speed swings the ball round the body, and over
+    // 100 matches that cost computer carriers the ball 198 times a match.
+    var engine = MatchEngine.CreateDefault(userControlledTeam: null);
+    var state = engine.State;
+    var carrier = state.Players.Single(player => player.Id == 5);
+    foreach (var other in state.Players.Where(player => player.Id != carrier.Id && !player.IsGoalkeeper))
+    {
+        other.Position = new Vector2(other.Team == TeamSide.Home ? -17f : 17f, other.Id - 5f);
+    }
+
+    carrier.Position = new Vector2(3f, 5f);
+    carrier.Facing = Azimuth.East;
+    GivePossession(engine, carrier);
+    Assert(
+        new SafePossessionPattern().TryRecognize(
+            new PlayerDecisionContext(MatchSnapshot.FromState(state), carrier.Id),
+            out var opportunity),
+        "The carrier should be weighing where to go.");
+    Assert(
+        Vector2.Dot(opportunity.CarryDirection, carrier.Facing.ToUnitVector()) >= -0.01f,
+        $"The carrier should not turn right round in one go, but chose {opportunity.CarryDirection}.");
 }
 
 static void MatchWithNoUserTeamTreatsBothGoalkeepersAlike()
