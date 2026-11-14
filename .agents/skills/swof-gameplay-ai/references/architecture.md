@@ -57,7 +57,7 @@ Use SWOS as a behavioral reference for immediacy, one-button grammar, facing, an
 ## Common Failure Patterns
 
 - **AI appears inactive:** inspect `ActivePlayerId`, reserved human inputs, camera framing, and marker visibility before rewriting phase logic.
-- **Default tuning changes have no effect:** inspect `%LOCALAPPDATA%\SWOF\physics-tuning.json` and `PhysicsTuning.CurrentProfileVersion`.
+- **Default tuning changes have no effect:** inspect `SWOF/physics-tuning.json` under the OS local application-data folder (`%LOCALAPPDATA%` on Windows) and `PhysicsTuning.CurrentProfileVersion`.
 - **A pass changes the wrong user/player:** distinguish target selection, ball possession, active-player ownership, and multiplayer controller rotation.
 - **Every defender converges:** add deterministic role assignment before adjusting steering constants.
 - **Difficulty feels unfair:** find physical or information advantages and move the distinction into perception/decision timing.

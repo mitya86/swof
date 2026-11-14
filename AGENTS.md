@@ -129,6 +129,8 @@ bd prime                # Refresh Beads context
 
 ## SWOF Knowledge Routing
 
+C# standards live in `Swof.Engine.Tests/AGENTS.md` and apply to the whole repository. Run `tools/check.sh` (any OS) to validate changes.
+
 Use the repo-local skills before changing their owning surfaces:
 
 - `$swof-gameplay-ai` for futsal AI, tactics, coach/difficulty design, possession phases, control handoff, goalkeeper ownership, or multiplayer controller assignment.

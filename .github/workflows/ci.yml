@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  scenarios:
+    # The engine and its scenario runner are plain net10.0, so the cheapest runner is the gate.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: tools/check.sh fast
+
+  build-windows:
+    # Only Windows can build the whole solution, because it includes the WPF tuning
+    # host. The MonoGame host is also built here rather than on Linux: its spritefont
+    # names Arial, and a Linux content build has not been tried.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet build Swof.sln --nologo

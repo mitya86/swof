@@ -9,7 +9,17 @@ Run the smallest credible gate set for the change, then separate source failures
 
 ## Choose A Gate Set
 
-Read [quality-gates.md](references/quality-gates.md), then use the bundled command from the repository root:
+Read [quality-gates.md](references/quality-gates.md), then run a gate from the repository root.
+
+On any OS (this is what CI runs):
+
+```bash
+tools/check.sh                # fast: behavior scenarios + git diff --check
+tools/check.sh fast "tackle"  # only scenarios whose name contains the filter
+tools/check.sh full           # fast + MonoGame host build + format verification
+```
+
+On Windows, the PowerShell script additionally builds the whole solution (including the WPF host) and has the startup smoke mode:
 
 ```powershell
 .\.agents\skills\swof-validation\scripts\Invoke-SwofChecks.ps1 -Mode Fast
@@ -30,7 +40,7 @@ Read [quality-gates.md](references/quality-gates.md), then use the bundled comma
 - `NU1900` can be unreachable vulnerability metadata; report it, but distinguish a warning from a compiler failure.
 - Missing `mgcb` after `--no-restore` means the local MonoGame tool may need `dotnet tool restore --tool-manifest Swof.Game\.config\dotnet-tools.json`.
 - A build or eight-second smoke cannot prove that motion is smooth, tempo is readable, or touch feels good. Mark those as awaiting play confirmation.
-- If changed defaults appear ignored, inspect the loaded `%LOCALAPPDATA%\SWOF\physics-tuning.json` profile and `PhysicsTuning.CurrentProfileVersion`.
+- If changed defaults appear ignored, inspect the loaded profile, `SWOF/physics-tuning.json` under the OS local application-data folder (`%LOCALAPPDATA%` on Windows), and `PhysicsTuning.CurrentProfileVersion`.
 
 ## Handoff Evidence
 

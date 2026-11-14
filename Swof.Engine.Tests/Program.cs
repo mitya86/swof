@@ -89,11 +89,24 @@ var tests = new (string Name, Action Test)[]
     ("control frame moves multiple outfielders in one tick", ControlFrameMovesMultipleOutfielders),
     ("control frame tracks action edges independently per player", ControlFrameTracksIndependentActionEdges),
     ("live computer controller preserves human input and moves eligible AI", LiveComputerControllerPreservesHumanInputAndMovesAi),
-    ("team-scoped AI moves teammates while opponents remain still", TeamScopedAiMovesTeammatesWhileOpponentsRemainStill)
+    ("team-scoped AI moves teammates while opponents remain still", TeamScopedAiMovesTeammatesWhileOpponentsRemainStill),
+    ("scripted match with live AI replays to an identical state", ScriptedMatchWithLiveAiReplaysIdentically)
 };
 
+// Optional first argument: run only scenarios whose name contains it.
+var filter = args.FirstOrDefault();
+var selected = tests
+    .Where(test => filter is null || test.Name.Contains(filter, StringComparison.OrdinalIgnoreCase))
+    .ToArray();
+if (selected.Length == 0)
+{
+    // A filter that matches nothing must not look like a green run.
+    Console.WriteLine($"FAIL no scenario name contains '{filter}'");
+    Environment.ExitCode = 1;
+}
+
 var failed = 0;
-foreach (var (name, test) in tests)
+foreach (var (name, test) in selected)
 {
     try
     {
@@ -2346,6 +2359,45 @@ static void MoveOtherHomeOutfieldersBehindPasser(MatchEngine engine, int intende
         teammate.Position = passer.Position + new Vector2(-8f - index * 2f, index - 1f);
         index++;
     }
+}
+
+static void ScriptedMatchWithLiveAiReplaysIdentically()
+{
+    var first = RunScriptedMatch(ticks: 1200);
+    var second = RunScriptedMatch(ticks: 1200);
+
+    Assert(first == second, $"Same inputs should replay to the same state.\nfirst:  {first}\nsecond: {second}");
+}
+
+// ponytail: compares two runs in one process, so it catches hidden state and
+// randomness but not cross-CPU float drift. Pin a golden fingerprint once CI
+// logs show Linux, Windows and macOS agree.
+static string RunScriptedMatch(int ticks)
+{
+    var engine = MatchEngine.CreateDefault();
+    var computerPlayers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    for (var tick = 0; tick < ticks; tick++)
+    {
+        if (engine.State.IsBallOutOfPlay)
+        {
+            engine.ResumeFromRestart();
+        }
+
+        // Circle the stick and alternate taps with long holds. With default
+        // tuning this changes possession about 70 times in 1200 ticks; the ball
+        // does not leave play, so restarts and goals are not covered yet.
+        var angle = tick * 0.05f;
+        var move = new Vector2(MathF.Cos(angle), MathF.Sin(angle));
+        var actionDown = tick % 90 < (tick % 180 < 90 ? 3 : 20);
+        engine.StepTick(new PlayerInput(move, actionDown), computerPlayers);
+    }
+
+    var state = engine.State;
+    var players = string.Join(
+        ";",
+        state.Players.Select(player => $"{player.Id}:{player.Position:R}/{player.Velocity:R}"));
+    return $"t{state.Tick} {state.HomeScore}-{state.AwayScore} "
+        + $"ball {state.Ball.Position:R}/{state.Ball.Velocity:R}/{state.Ball.Height:R} {players}";
 }
 
 static void StepMany(MatchEngine engine, PlayerInput input, int count)

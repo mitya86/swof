@@ -60,25 +60,41 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
+Requires the .NET 10 SDK (`global.json`). `tools/check.sh` finds it on PATH or through `mise exec dotnet@10`.
 
 ```bash
-# Example:
-# npm install
-# npm test
+tools/check.sh                 # fast gate: all behavior scenarios + whitespace check
+tools/check.sh fast "tackle"   # only scenarios whose name contains "tackle"
+tools/check.sh full            # fast + MonoGame host build + dotnet format verification
+dotnet run --project Swof.Game/Swof.Game.csproj   # play it
 ```
+
+If bare `dotnet` fails (a mise shim with no version set), prefix it: `mise exec dotnet@10 -- dotnet ...`.
+
+- `Swof.Engine.Tests` is an executable scenario runner, not a test-framework project. `dotnet test` builds it without running anything, so never use `dotnet test` as evidence.
+- `Swof.sln` includes the WPF host and only builds on Windows. On macOS/Linux build the projects individually.
+- CI (`.github/workflows/ci.yml`) runs the fast gate on Linux and builds the full solution on Windows.
+- A green gate says nothing about game feel. Motion, tempo and touch need hands-on play.
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+- `Swof.Engine`: dependency-free deterministic 60 Hz match simulation. `MatchEngine.StepTick` is authoritative; hosts render interpolated immutable snapshots. `Swof.Engine/AI` drives computer players through the same one-button `PlayerInput` a human uses.
+- `Swof.Game`: the primary host (MonoGame DesktopGL). Keyboard and gamepad only; there is no touch input yet.
+- `Swof.Windows`: legacy WPF host kept for its live physics-tuning grid. Do not add features to its renderer.
+- `Swof.Engine.Tests`: the scenario runner described above.
+
+What does not exist yet, despite appearing in docs as design: match rules beyond goal and ball-out detection, restarts awarded to a team, halves and full time, AI shooting and tackling, tactics selection, menus, touch, multiplayer.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- C# standards live in `Swof.Engine.Tests/AGENTS.md` and apply to the whole repository.
+- Keep game logic in `Swof.Engine`; hosts only read input, step the engine and draw.
+- Gameplay numbers belong in `PhysicsTuning`, not inline constants.
+- New engine behavior needs a scenario in `Swof.Engine.Tests/Program.cs`.
 
 ## SWOF Knowledge Routing
 
-Use the repo-local skills before changing their owning surfaces:
+Use the repo-local skills before changing their owning surfaces. They live in `.agents/skills`; `.claude/skills` is a symlink to it so Claude Code loads them by name (`$name` is the Codex spelling):
 
 - `$swof-gameplay-ai` for futsal AI, tactics, coach/difficulty design, possession phases, control handoff, goalkeeper ownership, or multiplayer controller assignment.
 - `$swof-game-feel` for responsiveness, controls, match tempo, camera/pitch scale, MonoGame rendering, player feedback, or touchscreen readiness.

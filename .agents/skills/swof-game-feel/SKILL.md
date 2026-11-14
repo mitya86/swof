@@ -16,7 +16,7 @@ Treat game feel as the complete perception-action loop, not a graphics polish la
 
 ## Preserve The Presentation Contract
 
-- Keep `MatchEngine.StepTick` authoritative at 60 Hz. Let `MatchEngine.Step(deltaSeconds, input)` accumulate host time and cap extreme frame deltas.
+- Keep `MatchEngine.StepTick` authoritative at 60 Hz. Let `MatchEngine.Step(deltaSeconds, input)` accumulate host time. The engine does not cap frame deltas; each host must (`SwofGame.Update` does).
 - Render `GetRenderSnapshot()` interpolation without mutating simulation state.
 - Keep world positions and camera transforms floating-point. Pixel art can be point-sampled while moving subpixel-smoothly.
 - Build or prepare shared render targets before the gameplay `SpriteBatch.Begin`; never nest `Begin` calls.
