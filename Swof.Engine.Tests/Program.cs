@@ -21,6 +21,7 @@ var tests = new (string Name, Action Test)[]
     ("computer goalkeeper selects a defender and distributes without stealing team control", ComputerGoalkeeperSelectsDefenderAndDistributes),
     ("match with no user team treats both goalkeepers alike", MatchWithNoUserTeamTreatsBothGoalkeepersAlike),
     ("pressed carrier in its own half does not carry toward its own goal", PressedCarrierInOwnHalfDoesNotCarryTowardOwnGoal),
+    ("pressed carrier can pass away from the presser but not through it", PressedCarrierCanPassAwayFromPresserButNotThroughIt),
     ("active player can dribble the ball", ActivePlayerCanDribble),
     ("holding beyond the tap window commits a shot before release", HeldActionCommitsShotBeforeRelease),
     ("goal is detected and scored", GoalIsDetectedAndScored),
@@ -438,6 +439,35 @@ static void ComputerGoalkeeperSelectsDefenderAndDistributes()
     Assert(
         engine.State.ActivePlayerId == selectedDefenderId,
         "Computer distribution should retain the selected user-team defender while the ball travels.");
+}
+
+static void PressedCarrierCanPassAwayFromPresserButNotThroughIt()
+{
+    Assert(PassTarget(teammateOffset: new Vector2(0f, 8f)) == 3, "A teammate square of a pressed carrier should be a pass.");
+    Assert(PassTarget(teammateOffset: new Vector2(8f, 0f)) != 3, "A teammate behind the presser should not be the pass.");
+
+    // The presser shadows the carrier from 1.9 m, straight ahead of it.
+    static int? PassTarget(Vector2 teammateOffset)
+    {
+        var engine = MatchEngine.CreateDefault();
+        var state = engine.State;
+        var carrier = state.Players.Single(player => player.Id == 2);
+        carrier.Position = new Vector2(0f, -4f);
+        foreach (var other in state.Players.Where(player => player.Id != carrier.Id))
+        {
+            other.Position = new Vector2(other.Team == TeamSide.Home ? -17f : 17f, other.Id - 5f);
+        }
+
+        state.Players.Single(player => player.Id == 10).Position = carrier.Position + new Vector2(1.9f, 0f);
+        state.Players.Single(player => player.Id == 3).Position = carrier.Position + teammateOffset;
+        GivePossession(engine, carrier);
+        Assert(
+            new SafePossessionPattern().TryRecognize(
+                new PlayerDecisionContext(MatchSnapshot.FromState(state), carrier.Id),
+                out var opportunity),
+            "The carrier should be weighing where to go.");
+        return opportunity.PassTargetId;
+    }
 }
 
 static void PressedCarrierInOwnHalfDoesNotCarryTowardOwnGoal()
