@@ -20,6 +20,7 @@ var tests = new (string Name, Action Test)[]
     ("user aims but cannot move goalkeeper during distribution", UserAimsButCannotMoveGoalkeeperDuringDistribution),
     ("computer goalkeeper selects a defender and distributes without stealing team control", ComputerGoalkeeperSelectsDefenderAndDistributes),
     ("match with no user team treats both goalkeepers alike", MatchWithNoUserTeamTreatsBothGoalkeepersAlike),
+    ("pressed carrier in its own half does not carry toward its own goal", PressedCarrierInOwnHalfDoesNotCarryTowardOwnGoal),
     ("active player can dribble the ball", ActivePlayerCanDribble),
     ("holding beyond the tap window commits a shot before release", HeldActionCommitsShotBeforeRelease),
     ("goal is detected and scored", GoalIsDetectedAndScored),
@@ -436,6 +437,34 @@ static void ComputerGoalkeeperSelectsDefenderAndDistributes()
     Assert(
         engine.State.ActivePlayerId == selectedDefenderId,
         "Computer distribution should retain the selected user-team defender while the ball travels.");
+}
+
+static void PressedCarrierInOwnHalfDoesNotCarryTowardOwnGoal()
+{
+    Assert(CarryX(carrierX: -6f) >= 0f, "In its own half a pressed carrier should go sideways or forward.");
+    Assert(CarryX(carrierX: 6f) < 0f, "In the opposing half a pressed carrier may still turn back.");
+
+    // Home attacks toward positive X; one presser stands straight ahead of the carrier.
+    static float CarryX(float carrierX)
+    {
+        var engine = MatchEngine.CreateDefault();
+        var state = engine.State;
+        var carrier = state.Players.Single(player => player.Id == 2);
+        carrier.Position = new Vector2(carrierX, 0f);
+        foreach (var other in state.Players.Where(player => player.Id != carrier.Id))
+        {
+            other.Position = new Vector2(other.Team == TeamSide.Home ? -17f : 17f, other.Id - 5f);
+        }
+
+        state.Players.Single(player => player.Id == 10).Position = carrier.Position + new Vector2(2.5f, 0f);
+        GivePossession(engine, carrier);
+        Assert(
+            new SafePossessionPattern().TryRecognize(
+                new PlayerDecisionContext(MatchSnapshot.FromState(state), carrier.Id),
+                out var opportunity),
+            "The carrier should be weighing where to go.");
+        return opportunity.CarryDirection.X;
+    }
 }
 
 static void MatchWithNoUserTeamTreatsBothGoalkeepersAlike()

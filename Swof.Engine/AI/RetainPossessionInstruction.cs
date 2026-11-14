@@ -105,6 +105,14 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
                 continue;
             }
 
+            // In its own half a carrier does not turn toward its own goal. Running from a presser
+            // that way took whole teams back to their goal line, where they lost the ball.
+            // ponytail: a flat rule; a pressed carrier with no way forward needs a clearance instead.
+            if (direction.X * attackDirection < 0f && context.Player.Position.X * attackDirection < 0f)
+            {
+                continue;
+            }
+
             var opponentClearance = MinimumPointClearance(target, opponents, UsefulOpponentClearance);
             var teammateSpacing = MinimumPointClearance(target, teammates, UsefulTeammateSpacing);
             var forwardProgress = Vector2.Dot(direction, new Vector2(attackDirection, 0f));
