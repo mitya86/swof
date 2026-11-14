@@ -97,8 +97,8 @@ public sealed record PhysicsTuning
     public float StationaryPossessionClampFactor { get; init; } = 0.92f;
     public float PassiveContestDistance { get; init; } = 0.72f;
     public float PassiveContestCleanWinMargin { get; init; } = 0.1f;
-    // Between equal players the carrier keeps the ball from a challenger beside or behind it and
-    // loses it to one it runs into. At 0 standing near the ball was enough to take it every time.
+    // Between equal players, standing or slow, the carrier keeps the ball from a challenger beside
+    // or behind it and loses it to one it runs into; a sprinting carrier's exposed ball outweighs this. At 0 standing near the ball was enough to take it every time.
     public float PassiveContestPossessorAdvantage { get; init; } = 0.1f;
     public float PassiveContestKnockLooseSpeedPerTick { get; init; } = 0.22f;
     /// <summary>
