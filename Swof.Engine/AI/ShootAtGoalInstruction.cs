@@ -13,7 +13,8 @@ public readonly record struct ShootingChance(Vector2 AimDirection, float Distanc
 public sealed class ShootingChancePattern : IPlayerPattern<ShootingChance>
 {
     internal const float MaximumShotDistance = 12f;
-    private const float MinimumDistanceFromGoalLine = 1f;
+    // Squarer than 60 degrees off straight the goal mouth is too narrow to aim at.
+    private const float MinimumGoalFacingCosine = 0.5f;
     private const float AimOffsetFromGoalCentre = 0.9f;
     private const float BlockedLaneClearance = 0.9f;
 
@@ -35,7 +36,7 @@ public sealed class ShootingChancePattern : IPlayerPattern<ShootingChance>
         var goalX = player.Team == TeamSide.Home ? field.Right : field.Left;
         var distance = Vector2.Distance(player.Position, new Vector2(goalX, 0f));
         if (distance > MaximumShotDistance
-            || MathF.Abs(goalX - player.Position.X) < MinimumDistanceFromGoalLine)
+            || MathF.Abs(goalX - player.Position.X) < distance * MinimumGoalFacingCosine)
         {
             return false;
         }
@@ -74,6 +75,7 @@ public sealed class ShootAtGoalInstruction : IPlayerInstruction
     private readonly IPlayerPattern<ShootingChance> _pattern;
     private Vector2 _aimDirection;
     private bool _holding;
+    private bool _holdConfirmed;
     private int _followThroughTicksRemaining;
 
     /// <summary>Creates the instruction with its independently replaceable shooting recognizer.</summary>
@@ -92,6 +94,7 @@ public sealed class ShootAtGoalInstruction : IPlayerInstruction
         if (context.Match.IsBallOutOfPlay)
         {
             _holding = false;
+            _holdConfirmed = false;
             _followThroughTicksRemaining = 0;
             return null;
         }
@@ -99,12 +102,19 @@ public sealed class ShootAtGoalInstruction : IPlayerInstruction
         if (!player.HasPossession)
         {
             // A kick animation tells a released shot apart from being robbed during the wind-up.
-            if (_holding && player.KickAnimation01 > 0f)
+            // Only a hold this instruction actually carried counts: a proposed shot can lose to a pass.
+            if (_holdConfirmed && player.KickAnimation01 > 0f)
             {
                 _followThroughTicksRemaining = FollowThroughTicks;
             }
 
             _holding = false;
+            _holdConfirmed = false;
+            if (context.Match.Ball.PossessorId is not null)
+            {
+                _followThroughTicksRemaining = 0;
+            }
+
             if (_followThroughTicksRemaining <= 0)
             {
                 return null;
@@ -120,10 +130,12 @@ public sealed class ShootAtGoalInstruction : IPlayerInstruction
         // tap pass, so an in-progress hold outranks every other possession choice until the shot leaves.
         if (_holding && player.ActionCharge01 > 0f)
         {
+            _holdConfirmed = true;
             return Committed(_aimDirection, actionDown: true);
         }
 
         _holding = false;
+        _holdConfirmed = false;
         if (!_pattern.TryRecognize(context, out var chance))
         {
             return null;

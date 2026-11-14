@@ -20,6 +20,7 @@ git diff --check HEAD
 
 if [ "$mode" = full ]; then
     "${dotnet[@]}" build Swof.Game/Swof.Game.csproj --nologo -v q
+    "${dotnet[@]}" format Swof.Engine/Swof.Engine.csproj --verify-no-changes
     "${dotnet[@]}" format Swof.Game/Swof.Game.csproj --verify-no-changes
     "${dotnet[@]}" format Swof.Engine.Tests/Swof.Engine.Tests.csproj --verify-no-changes
 fi

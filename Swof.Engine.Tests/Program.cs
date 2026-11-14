@@ -215,6 +215,7 @@ static void LegacyTuningProfileFallsBackToCurrentDefaults()
               "PlayerMaxSpeedPerTick": 0.3,
               "PassSpeedPerTick": 0.4,
               "SlideTravelTicks": 26,
+              "TackleDistance": 2.2,
               "SlideRecoveryTicks": 60
             }
             """);
@@ -2704,12 +2705,13 @@ static string RunShortMatchWithLiveAi()
 
 static (MatchEngine Engine, ComputerPlayerController Computers, PlayerState Shooter) CreateShootingChance(
     float distanceFromGoalLine,
-    Vector2? blockerOffset = null)
+    Vector2? blockerOffset = null,
+    float lateralOffset = 2f)
 {
     var setup = MatchEngine.CreateDefault();
     var state = setup.State;
     var shooter = state.Players.Single(player => player.Id == 10);
-    shooter.Position = new Vector2(state.Field.Left + distanceFromGoalLine, 2f);
+    shooter.Position = new Vector2(state.Field.Left + distanceFromGoalLine, lateralOffset);
     foreach (var defender in state.Players.Where(player => player.Team == TeamSide.Home && player.Role == PlayerRole.Outfield))
     {
         defender.Position = new Vector2(state.Field.Right - 3f, defender.Id - 5f);
@@ -2785,6 +2787,12 @@ static void ComputerCarrierDoesNotShootFromDistanceOrThroughDefender()
     Assert(
         blockedComputers.LastDecisions[blockedShooter.Id].Kind != PlayerInstructionKind.ShootAtGoal,
         "A carrier with a defender in the shooting lane should not shoot.");
+
+    var (wideEngine, wideComputers, wideShooter) = CreateShootingChance(distanceFromGoalLine: 1.2f, lateralOffset: 8.5f);
+    wideEngine.StepTick(PlayerInput.Empty, wideComputers);
+    Assert(
+        wideComputers.LastDecisions[wideShooter.Id].Kind != PlayerInstructionKind.ShootAtGoal,
+        "A carrier near the corner should not shoot across the face of goal.");
 }
 
 static void ComputerPresserSlidesAtCarrierWithinReach()
