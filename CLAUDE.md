@@ -77,7 +77,7 @@ If bare `dotnet` fails (a mise shim with no version set), prefix it: `mise exec 
 - `Swof.Engine.Tests` is an executable scenario runner, not a test-framework project. `dotnet test` builds it without running anything, so never use `dotnet test` as evidence.
 - `Swof.sln` includes the WPF host and only builds on Windows. On macOS/Linux build the projects individually.
 - CI (`.github/workflows/ci.yml`) runs the fast gate on Linux and builds the full solution on Windows.
-- `matches` fails only when a match does not reach full time, stalls, or loses a player or the ball. The scores it prints are measurements, not a pass mark. A seed chooses the eight outfielders' attributes and the small differences in computer decisions (`DecisionNoise`); the same seed always replays the same match, and physics has no randomness.
+- `matches` fails only when a match does not reach full time, stalls, or loses a player or the ball. The scores it prints are measurements, not a pass mark. They come from matches with no user team (`userControlledTeam: null`), where neither side is treated as the person's; the first ten seeds are replayed with Home as the user team only to check they finish. A seed chooses the eight outfielders' attributes and the small differences in computer decisions (`DecisionNoise`); the same seed always replays the same match, and physics has no randomness.
 - A green gate says nothing about game feel. Motion, tempo and touch need hands-on play.
 
 ## Architecture Overview

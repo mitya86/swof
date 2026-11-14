@@ -26,14 +26,25 @@ internal static class MatchRunner
         int Stoppages,
         float KeeperShare,
         long LongestSamePossessorTicks,
-        string GoalTicks);
+        string GoalTicks,
+        int HomeShotsFirstHalf,
+        int HomeShotsSecondHalf,
+        int AwayShotsFirstHalf,
+        int AwayShotsSecondHalf,
+        int HomeGoalsFirstHalf,
+        int AwayGoalsFirstHalf,
+        TeamSide? FirstGoalBy);
 
     /// <summary>
     /// The seed chooses the eight outfielders' attributes (unless the squads are equal) and the
     /// small differences in computer decisions. Goalkeepers stay fixed so that shot numbers
     /// compare across seeds.
     /// </summary>
-    internal static MatchResult Play(int seed, float halfLengthSeconds = 0f, bool equalSquads = false)
+    internal static MatchResult Play(
+        int seed,
+        float halfLengthSeconds = 0f,
+        bool equalSquads = false,
+        TeamSide? userControlledTeam = null)
     {
         var random = new Random(seed);
         // 4 to 15 is the range the default squads already use.
@@ -49,7 +60,7 @@ internal static class MatchRunner
             Array.Fill(squad, PlayerAttributes.DefaultOutfield);
         }
 
-        var engine = MatchEngine.CreateDefault(tuning, outfieldAttributes: squad, seed: seed);
+        var engine = MatchEngine.CreateDefault(tuning, outfieldAttributes: squad, seed: seed, userControlledTeam: userControlledTeam);
         var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
         var state = engine.State;
         var nobody = new Dictionary<int, PlayerInput>();
@@ -63,6 +74,11 @@ internal static class MatchRunner
         var sliding = new HashSet<int>();
         var wasOut = false;
         var goalTicks = new List<long>();
+        // Indexed [team, half]: the two teams are meant to be mirror images, so a lasting
+        // difference between these says where one of them is favoured.
+        var shotsBy = new int[2, 2];
+        int homeGoalsFirstHalf = 0, awayGoalsFirstHalf = 0, lastHome = 0;
+        TeamSide? firstGoalBy = null;
         string? fault = null;
 
         while (!state.IsMatchOver && fault is null)
@@ -74,6 +90,11 @@ internal static class MatchRunner
             {
                 lastFeedback = feedback.Sequence;
                 shots += feedback.Type == GameplayFeedbackType.ShotContact ? 1 : 0;
+                if (feedback.Type == GameplayFeedbackType.ShotContact && feedback.Team is { } team)
+                {
+                    shotsBy[team == TeamSide.Home ? 0 : 1, Math.Min(state.Period, 2) - 1]++;
+                }
+
                 passes += feedback.Type == GameplayFeedbackType.PassContact ? 1 : 0;
             }
 
@@ -134,6 +155,13 @@ internal static class MatchRunner
             {
                 lastScore = state.HomeScore + state.AwayScore;
                 goalTicks.Add(state.Tick);
+                firstGoalBy ??= state.HomeScore > lastHome ? TeamSide.Home : TeamSide.Away;
+                lastHome = state.HomeScore;
+                if (state.Period == 1)
+                {
+                    homeGoalsFirstHalf = state.HomeScore;
+                    awayGoalsFirstHalf = state.AwayScore;
+                }
             }
 
             if (sameFor > StallTicks)
@@ -160,7 +188,14 @@ internal static class MatchRunner
             stoppages,
             keeperTicks / (float)Math.Max(1, state.Tick),
             longestSame,
-            string.Join(',', goalTicks));
+            string.Join(',', goalTicks),
+            shotsBy[0, 0],
+            shotsBy[0, 1],
+            shotsBy[1, 0],
+            shotsBy[1, 1],
+            homeGoalsFirstHalf,
+            awayGoalsFirstHalf,
+            firstGoalBy);
     }
 
     /// <summary>Plays <paramref name="count"/> matches and returns how many broke.</summary>
@@ -192,8 +227,28 @@ internal static class MatchRunner
         var away = results.Count(r => r.AwayScore > r.HomeScore);
         Console.WriteLine($"{distinct} different matches of {count}; home wins {home}, draws {count - home - away}, away wins {away}");
 
-        var broken = results.Count(r => r.Fault is not null);
-        Console.WriteLine(broken == 0 ? $"All {count} matches reached full time." : $"{broken} of {count} matches broke.");
+        Console.WriteLine(
+            $"first half   home {results.Sum(r => r.HomeGoalsFirstHalf)} goals from {results.Sum(r => r.HomeShotsFirstHalf)} shots, " +
+            $"away {results.Sum(r => r.AwayGoalsFirstHalf)} from {results.Sum(r => r.AwayShotsFirstHalf)}");
+        Console.WriteLine(
+            $"second half  home {results.Sum(r => r.HomeScore - r.HomeGoalsFirstHalf)} goals from {results.Sum(r => r.HomeShotsSecondHalf)} shots, " +
+            $"away {results.Sum(r => r.AwayScore - r.AwayGoalsFirstHalf)} from {results.Sum(r => r.AwayShotsSecondHalf)}");
+        Console.WriteLine(
+            $"first goal   home {results.Count(r => r.FirstGoalBy == TeamSide.Home)}, away {results.Count(r => r.FirstGoalBy == TeamSide.Away)}");
+
+        // Every real match has Home as the person's team, which switches the active player and
+        // makes Home's goalkeeper wait. Those paths must still finish a match, so a few seeds
+        // are replayed that way; they lean toward Away and stay out of the figures above.
+        var withUserTeam = Enumerable.Range(firstSeed, Math.Min(count, 10))
+            .Select(seed => Play(seed, equalSquads: equalSquads, userControlledTeam: TeamSide.Home))
+            .ToArray();
+        foreach (var r in withUserTeam.Where(r => r.Fault is not null))
+        {
+            Console.WriteLine($"FAIL seed {r.Seed,4} with Home as the user team  {r.Fault}");
+        }
+
+        var broken = results.Concat(withUserTeam).Count(r => r.Fault is not null);
+        Console.WriteLine(broken == 0 ? $"All {count} matches reached full time, and {withUserTeam.Length} more with Home as the user team." : $"{broken} of {count + withUserTeam.Length} matches broke.");
         return broken;
     }
 

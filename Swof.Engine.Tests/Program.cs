@@ -19,6 +19,7 @@ var tests = new (string Name, Action Test)[]
     ("goalkeeper does not catch a ball above reachable height", GoalkeeperDoesNotCatchHighBall),
     ("user aims but cannot move goalkeeper during distribution", UserAimsButCannotMoveGoalkeeperDuringDistribution),
     ("computer goalkeeper selects a defender and distributes without stealing team control", ComputerGoalkeeperSelectsDefenderAndDistributes),
+    ("match with no user team treats both goalkeepers alike", MatchWithNoUserTeamTreatsBothGoalkeepersAlike),
     ("active player can dribble the ball", ActivePlayerCanDribble),
     ("holding beyond the tap window commits a shot before release", HeldActionCommitsShotBeforeRelease),
     ("goal is detected and scored", GoalIsDetectedAndScored),
@@ -435,6 +436,32 @@ static void ComputerGoalkeeperSelectsDefenderAndDistributes()
     Assert(
         engine.State.ActivePlayerId == selectedDefenderId,
         "Computer distribution should retain the selected user-team defender while the ball travels.");
+}
+
+static void MatchWithNoUserTeamTreatsBothGoalkeepersAlike()
+{
+    // Home's keeper would otherwise wait four seconds for a person who is not there.
+    foreach (var team in new[] { TeamSide.Home, TeamSide.Away })
+    {
+        var engine = MatchEngine.CreateDefault(userControlledTeam: null);
+        var goalkeeper = engine.State.Players.Single(player =>
+            player.Team == team && player.Role == PlayerRole.Goalkeeper);
+        var towardGoal = team == TeamSide.Home ? -1f : 1f;
+        ClearPossession(engine);
+        engine.State.Ball.Position = goalkeeper.Position - new Vector2(6f * towardGoal, 0f);
+        engine.State.Ball.Velocity = new Vector2(6f * towardGoal, 0f);
+        engine.State.Ball.Height = 0.5f;
+        engine.StepTick(PlayerControlFrame.Empty);
+        Assert(engine.State.Ball.PossessorId == goalkeeper.Id, $"The {team} keeper should catch the shot.");
+
+        for (var tick = 0; tick < engine.Tuning.GoalkeeperAiDistributionDelayTicks; tick++)
+        {
+            engine.StepTick(PlayerControlFrame.Empty);
+        }
+
+        Assert(engine.State.Ball.PossessorId is null, $"The {team} keeper should distribute after the computer delay.");
+        Assert(engine.State.ActivePlayerId == 0, "Nobody should be the active player.");
+    }
 }
 
 static PlayerState CatchBallWithHomeGoalkeeper(MatchEngine engine)
@@ -1275,7 +1302,7 @@ static void HomeAiCollectorBecomesHumanControlledPlayer()
         opponentMovementEnabled: false);
     var computerPlayers = ComputerPlayerController.CreateForTeam(
         engine.CurrentSnapshot,
-        engine.UserControlledTeam);
+        engine.UserControlledTeam!.Value);
 
     engine.StepTick(PlayerInput.Empty, computerPlayers);
 
@@ -1316,7 +1343,7 @@ static void HomeAiCollectorBecomesHumanControlledPlayer()
         opponentMovementEnabled: false);
     var homeComputerPlayers = ComputerPlayerController.CreateForTeam(
         awayEngine.CurrentSnapshot,
-        awayEngine.UserControlledTeam);
+        awayEngine.UserControlledTeam!.Value);
 
     awayEngine.StepTick(PlayerInput.Empty, homeComputerPlayers);
 
@@ -2011,7 +2038,7 @@ static void LiveHomeAiTeammatesMoveToPassingOptions()
     var engine = MatchEngine.CreateDefault(opponentMovementEnabled: false);
     var computerPlayers = ComputerPlayerController.CreateForTeam(
         engine.CurrentSnapshot,
-        engine.UserControlledTeam);
+        engine.UserControlledTeam!.Value);
     var teammates = engine.State.Players
         .Where(player => player.Team == TeamSide.Home
             && player.Role == PlayerRole.Outfield
@@ -2327,7 +2354,7 @@ static void TeamScopedAiMovesTeammatesWhileOpponentsRemainStill()
         opponentMovementEnabled: false);
     var computerPlayers = ComputerPlayerController.CreateForTeam(
         engine.CurrentSnapshot,
-        engine.UserControlledTeam);
+        engine.UserControlledTeam!.Value);
     var homeAiPositionBefore = homeAiPlayer.Position;
     var awayOutfielderPositionBefore = awayOutfielder.Position;
     var awayGoalkeeperPositionBefore = awayGoalkeeper.Position;

@@ -156,7 +156,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         _engine.Step(deltaSeconds, _inputBuffer, _computerPlayers);
         _feedbackPlayer?.Update(
             _engine.CurrentSnapshot,
-            _engine.UserControlledTeam,
+            _engine.UserControlledTeam ?? TeamSide.Home,
             FeedbackModes[_feedbackModeIndex] == MatchFeedbackMode.Dry ? 0f : 1f,
             deltaSeconds,
             gamePad.IsConnected);
