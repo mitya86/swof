@@ -22,8 +22,11 @@ jobs:
         with:
           global-json-file: global.json
       - run: tools/check.sh fast
-      # Every match must reach full time without stalling; scores are reported, not judged.
+      # Every match must reach full time without stalling, and the figures over all of them
+      # must meet the pass marks in MatchRunner.
       - run: tools/check.sh matches
+      # Identical squads add the marks for balance between the two teams.
+      - run: tools/check.sh matches 100 1 equal
 
   build-windows:
     # Only Windows can build the whole solution, because it includes the WPF tuning
