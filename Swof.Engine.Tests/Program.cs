@@ -110,6 +110,7 @@ var tests = new (string Name, Action Test)[]
     ("kickoff taker stands over the ball and keeps it", KickoffTakerStandsOverTheBallAndKeepsIt),
     ("ball carried over the touchline is out against the carrier", BallCarriedOverTouchlineIsOutAgainstCarrier),
     ("computer corner taker carries the ball into the court", ComputerCornerTakerCarriesBallIntoCourt),
+    ("goalkeeper smothers a ball dribbled straight at it", GoalkeeperSmothersBallDribbledStraightAtIt),
     ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
 };
 
@@ -756,7 +757,7 @@ static void StraightDribbleKeepsBallUnderControl()
 
     var maxDistance = 0f;
 
-    // 120 ticks stops short of the far goal line, where a carried ball now goes out of play.
+    // 120 ticks stops short of the far goal, where carrying the ball over the line ends the run.
     for (var i = 0; i < 120; i++)
     {
         engine.StepTick(new PlayerInput(Vector2.UnitX, ActionDown: false));
@@ -2711,6 +2712,30 @@ static void ComputerCornerTakerCarriesBallIntoCourt()
     Assert(
         opportunity.CarryDirection.X >= 0f && opportunity.CarryDirection.Y >= 0f,
         $"The corner taker should carry into the court, not {opportunity.CarryDirection}.");
+}
+
+static void GoalkeeperSmothersBallDribbledStraightAtIt()
+{
+    var engine = MatchEngine.CreateDefault();
+    var state = engine.State;
+    var carrier = state.ActivePlayer;
+    foreach (var other in state.Players.Where(player => player.Role == PlayerRole.Outfield && player.Id != carrier.Id))
+    {
+        other.Position = new Vector2(other.Position.X, state.Field.Bottom - other.Radius);
+    }
+
+    carrier.Position = new Vector2(8f, 1f);
+    state.Ball.Position = new Vector2(9f, 1f);
+    var goalkeeper = state.Players.Single(player => player.IsGoalkeeper && player.Team == TeamSide.Away);
+
+    // The button is never pressed: the carrier just runs at the goal.
+    for (var tick = 0; tick < 80 && !goalkeeper.HasPossession && state.LastEvent.Type == MatchEventType.None; tick++)
+    {
+        engine.StepTick(new PlayerInput(Vector2.UnitX, ActionDown: false));
+    }
+
+    Assert(state.HomeScore == 0, "Walking the ball at a set goalkeeper should not score.");
+    Assert(goalkeeper.HasPossession, "The goalkeeper should take a ball dribbled into it.");
 }
 
 static void UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds()

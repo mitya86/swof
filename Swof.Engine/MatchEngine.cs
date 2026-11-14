@@ -327,6 +327,10 @@ public sealed class MatchEngine
         if (possessor is not null)
         {
             ControlBall(possessor);
+            if (possessor.HasPossession && !possessor.IsGoalkeeper)
+            {
+                TryGoalkeeperCatch(State.Ball.Position);
+            }
         }
         else if (!releasedBallThisTick)
         {
@@ -1305,13 +1309,19 @@ public sealed class MatchEngine
 
     private bool TryGoalkeeperCatch(Vector2 previousBallPosition)
     {
-        if (State.Ball.IsPossessed || State.Ball.Height > Tuning.GoalkeeperCatchMaxHeight)
+        // A ball at an outfielder's feet can be smothered by the opposing goalkeeper;
+        // otherwise a dribbler could walk it past a set goalkeeper into the goal.
+        var carrier = State.Ball.IsPossessed
+            ? State.Players.First(player => player.Id == State.Ball.PossessorId)
+            : null;
+        if (State.Ball.Height > Tuning.GoalkeeperCatchMaxHeight
+            || (carrier is not null && State.Ball.ControlKind != BallControlKind.Feet))
         {
             return false;
         }
 
         foreach (var goalkeeper in State.Players
-            .Where(player => player.IsGoalkeeper)
+            .Where(player => player.IsGoalkeeper && player.Team != carrier?.Team)
             .OrderBy(player => Vector2.DistanceSquared(player.Position, State.Ball.Position)))
         {
             if (goalkeeper.Id == _releasedByPlayerId && _releasedByCollectionBlockTicks > 0)
@@ -1331,6 +1341,12 @@ public sealed class MatchEngine
             var attributes = goalkeeper.GoalkeeperAttributes ?? GoalkeeperAttributes.Default;
             var catchDistance = Tuning.GoalkeeperCatchReach
                 * Lerp(0.75f, 1.1f, (attributes.Handling01 + attributes.Reflexes01) * 0.5f);
+            if (carrier is not null)
+            {
+                // A dribbled ball is taken once it runs into the goalkeeper's body.
+                catchDistance = MathF.Max(catchDistance, goalkeeper.Radius);
+            }
+
             if (Vector2.DistanceSquared(goalkeeper.Position, catchPoint) > catchDistance * catchDistance)
             {
                 continue;
