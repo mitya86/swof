@@ -12,6 +12,7 @@ internal static class MatchRunner
     // Measured over 100 seeds: the same player (or nobody) never keeps the ball longer than
     // 5 s, the half-time pause included. Four times that is a dead match, not a slow one.
     private const int StallTicks = 20 * 60;
+    private const int SoonAfterKickoffTicks = 10 * 60;
 
     internal sealed record MatchResult(
         int Seed,
@@ -33,7 +34,12 @@ internal static class MatchRunner
         int AwayShotsSecondHalf,
         int HomeGoalsFirstHalf,
         int AwayGoalsFirstHalf,
-        TeamSide? FirstGoalBy);
+        TeamSide? FirstGoalBy,
+        int ShotsSoonAfterKickoffByTaker,
+        int ShotsSoonAfterKickoffByOpponent,
+        int Possessions,
+        float ForwardMetres,
+        int LostInOwnThird);
 
     /// <summary>
     /// The seed chooses the eight outfielders' attributes (unless the squads are equal) and the
@@ -79,6 +85,16 @@ internal static class MatchRunner
         var shotsBy = new int[2, 2];
         int homeGoalsFirstHalf = 0, awayGoalsFirstHalf = 0, lastHome = 0;
         TeamSide? firstGoalBy = null;
+        // Taking a kickoff after conceding should not be a handicap: if the team that just
+        // scored gets most of the next shots, one goal leads to another.
+        TeamSide? kickoffTaker = null;
+        long kickoffTick = 0;
+        int shotsByTaker = 0, shotsByOpponent = 0;
+        // A possession runs from a team gaining the ball to the other team gaining it. How far
+        // toward the opposing goal the ball got in that time says whether teams attack or retreat.
+        TeamSide? holders = null;
+        float gainedAtX = 0f, lastHeldX = 0f, forwardMetres = 0f;
+        int possessions = 0, lostInOwnThird = 0;
         string? fault = null;
 
         while (!state.IsMatchOver && fault is null)
@@ -92,6 +108,12 @@ internal static class MatchRunner
                 shots += feedback.Type == GameplayFeedbackType.ShotContact ? 1 : 0;
                 if (feedback.Type == GameplayFeedbackType.ShotContact && feedback.Team is { } team)
                 {
+                    if (kickoffTaker is not null && state.Tick - kickoffTick < SoonAfterKickoffTicks)
+                    {
+                        shotsByTaker += team == kickoffTaker ? 1 : 0;
+                        shotsByOpponent += team == kickoffTaker ? 0 : 1;
+                    }
+
                     shotsBy[team == TeamSide.Home ? 0 : 1, Math.Min(state.Period, 2) - 1]++;
                 }
 
@@ -147,6 +169,25 @@ internal static class MatchRunner
                 keeperTicks++;
             }
 
+            if (possessor is not null)
+            {
+                if (possessor.Team != holders)
+                {
+                    if (holders is { } losers)
+                    {
+                        var attack = losers == TeamSide.Home ? 1f : -1f;
+                        possessions++;
+                        forwardMetres += (lastHeldX - gainedAtX) * attack;
+                        lostInOwnThird += lastHeldX * attack < -state.Field.Length / 6f ? 1 : 0;
+                    }
+
+                    holders = possessor.Team;
+                    gainedAtX = state.Ball.Position.X;
+                }
+
+                lastHeldX = state.Ball.Position.X;
+            }
+
             sameFor = possessor?.Id == lastPossessor ? sameFor + 1 : 0;
             lastPossessor = possessor?.Id;
             longestSame = Math.Max(longestSame, sameFor);
@@ -155,7 +196,10 @@ internal static class MatchRunner
             {
                 lastScore = state.HomeScore + state.AwayScore;
                 goalTicks.Add(state.Tick);
-                firstGoalBy ??= state.HomeScore > lastHome ? TeamSide.Home : TeamSide.Away;
+                var scorer = state.HomeScore > lastHome ? TeamSide.Home : TeamSide.Away;
+                firstGoalBy ??= scorer;
+                kickoffTaker = scorer == TeamSide.Home ? TeamSide.Away : TeamSide.Home;
+                kickoffTick = state.Tick;
                 lastHome = state.HomeScore;
                 if (state.Period == 1)
                 {
@@ -195,7 +239,12 @@ internal static class MatchRunner
             shotsBy[1, 1],
             homeGoalsFirstHalf,
             awayGoalsFirstHalf,
-            firstGoalBy);
+            firstGoalBy,
+            shotsByTaker,
+            shotsByOpponent,
+            possessions,
+            forwardMetres,
+            lostInOwnThird);
     }
 
     /// <summary>Plays <paramref name="count"/> matches and returns how many broke.</summary>
@@ -220,6 +269,9 @@ internal static class MatchRunner
         Spread("passes", r => r.Passes);
         Spread("slides", r => r.Slides);
         Spread("stoppages", r => r.Stoppages);
+        Spread("possessions", r => r.Possessions);
+        Spread("forward m / possession", r => r.ForwardMetres / Math.Max(1, r.Possessions));
+        Spread("lost in own third", r => r.LostInOwnThird);
         Spread("keeper share %", r => r.KeeperShare * 100f);
         Spread("longest possessor s", r => r.LongestSamePossessorTicks / 60f);
         var distinct = results.Select(r => $"{r.HomeScore}-{r.AwayScore}:{r.GoalTicks}:{r.Shots}:{r.Passes}:{r.Slides}").Distinct().Count();
@@ -235,6 +287,9 @@ internal static class MatchRunner
             $"away {results.Sum(r => r.AwayScore - r.AwayGoalsFirstHalf)} from {results.Sum(r => r.AwayShotsSecondHalf)}");
         Console.WriteLine(
             $"first goal   home {results.Count(r => r.FirstGoalBy == TeamSide.Home)}, away {results.Count(r => r.FirstGoalBy == TeamSide.Away)}");
+
+        Console.WriteLine(
+            $"10 s after a goal  kickoff taker {results.Sum(r => r.ShotsSoonAfterKickoffByTaker)} shots, team that scored {results.Sum(r => r.ShotsSoonAfterKickoffByOpponent)}");
 
         // Every real match has Home as the person's team, which switches the active player and
         // makes Home's goalkeeper wait. Those paths must still finish a match, so a few seeds
