@@ -154,7 +154,7 @@ internal sealed class MatchRenderer : IDisposable
             var restartLabel = snapshot.LastEvent.Type switch
             {
                 MatchEventType.HalfTime => "HALF-TIME",
-                MatchEventType.FullTime => $"FULL TIME  HOME {snapshot.HomeScore} - {snapshot.AwayScore} AWAY",
+                MatchEventType.FullTime => $"FULL TIME  HOME {snapshot.HomeScore} - {snapshot.AwayScore} AWAY  -  R OR START: NEW MATCH",
                 MatchEventType.GoalScored => "GOAL",
                 _ => snapshot.LastEvent.Restart switch
                 {

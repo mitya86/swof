@@ -18,6 +18,7 @@ internal sealed class MatchFeedbackPresentation
     private readonly List<FeedbackBurst> _bursts = new();
     private readonly List<BallTrailSample> _ballTrail = new();
     private long _lastObservedSequence;
+    private long _lastObservedTick;
     private long _ballEffectSequence;
     private BallEffectKind _activeBallEffect;
     private BallEffectKind _trailEffect;
@@ -29,6 +30,13 @@ internal sealed class MatchFeedbackPresentation
         AgeBursts(frameSeconds);
         AgeTrail(frameSeconds, mode);
 
+        // A new match numbers its feedback from the start again.
+        if (snapshot.Tick < _lastObservedTick)
+        {
+            _lastObservedSequence = 0;
+        }
+
+        _lastObservedTick = snapshot.Tick;
         foreach (var feedbackEvent in snapshot.FeedbackEvents)
         {
             if (feedbackEvent.Sequence <= _lastObservedSequence)

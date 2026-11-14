@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -15,8 +16,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private const float DemoShotReleaseSeconds = 1.28f;
 
     private readonly GraphicsDeviceManager _graphics;
-    private readonly MatchEngine _engine;
-    private readonly ComputerPlayerController _computerPlayers;
+    private MatchEngine _engine;
+    private ComputerPlayerController _computerPlayers;
     private readonly PlayerInputBuffer _inputBuffer = new();
     private readonly MatchDemoAction _demoAction;
     private MatchRenderer? _renderer;
@@ -42,13 +43,18 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         MatchFeedbackMode.Arcade
     ];
 
+    [MemberNotNull(nameof(_engine), nameof(_computerPlayers))]
+    private void StartMatch()
+    {
+        // A different seed each match, so the computer players do not replay the same one.
+        _engine = MatchEngine.CreateDefault(PhysicsTuningStore.LoadOrDefault(), seed: Environment.TickCount);
+        _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
+    }
+
     public SwofGame(SwofGameLaunchOptions? launchOptions = null)
     {
         launchOptions ??= SwofGameLaunchOptions.Default;
-        var tuning = PhysicsTuningStore.LoadOrDefault();
-        // A different seed each launch, so the computer players do not replay the same match.
-        _engine = MatchEngine.CreateDefault(tuning, seed: Environment.TickCount);
-        _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
+        StartMatch();
         _demoAction = launchOptions.DemoAction;
         _feedbackModeIndex = Array.IndexOf(FeedbackModes, launchOptions.FeedbackMode);
         if (_feedbackModeIndex < 0)
@@ -145,7 +151,14 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
 
         if (IsNewKeyPress(Keys.R, keyboard) || IsNewButtonPress(Buttons.Start, gamePad))
         {
-            _engine.ResumeFromRestart();
+            if (_engine.CurrentSnapshot.IsMatchOver)
+            {
+                StartMatch();
+            }
+            else
+            {
+                _engine.ResumeFromRestart();
+            }
         }
 
         var deltaSeconds = Math.Min((float)gameTime.ElapsedGameTime.TotalSeconds, MaxFrameDeltaSeconds);
