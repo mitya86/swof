@@ -22,6 +22,7 @@ internal sealed class MatchRenderer : IDisposable
     private static readonly Color ActiveColor = new(255, 230, 80);
     private static readonly Color HudColor = new(16, 18, 22, 235);
     private static readonly Color ShadowColor = new(0, 0, 0, 105);
+    private static readonly Color TouchColor = new(255, 255, 255, 110);
     private static readonly Color PlayerShadowColor = new(0, 0, 0, 82);
     private static readonly Color HomeGoalkeeperTint = new(145, 255, 175);
     private static readonly Color AwayGoalkeeperTint = new(255, 220, 130);
@@ -57,7 +58,8 @@ internal sealed class MatchRenderer : IDisposable
         string secondaryStatus,
         string? notice,
         float elapsedSeconds,
-        MatchPresentationSettings settings)
+        MatchPresentationSettings settings,
+        TouchControls? touchControls = null)
     {
         var bounds = _graphicsDevice.Viewport.Bounds;
         var hudHeight = settings.ShowDebugHud ? DebugHudHeight : CleanHudHeight;
@@ -179,6 +181,20 @@ internal sealed class MatchRenderer : IDisposable
                     (int)size.Y + 20),
                 new Color(10, 12, 16, 225));
             _primitives.Batch.DrawString(font, restartText, position, ActiveColor);
+        }
+
+        if (touchControls?.StickOrigin is NumericsVector2 stickOrigin)
+        {
+            _primitives.DrawRing(new Vector2(stickOrigin.X, stickOrigin.Y), touchControls.StickRadius, TouchColor);
+            _primitives.FillCircle(
+                new Vector2(touchControls.StickKnob.X, touchControls.StickKnob.Y),
+                touchControls.StickRadius * 0.4f,
+                TouchColor);
+        }
+
+        if (touchControls?.ActionPoint is NumericsVector2 actionPoint)
+        {
+            _primitives.DrawRing(new Vector2(actionPoint.X, actionPoint.Y), touchControls.StickRadius * 0.7f, TouchColor);
         }
 
         _primitives.Batch.End();

@@ -113,6 +113,8 @@ var tests = new (string Name, Action Test)[]
     ("computer carrier does not shoot from distance or through a defender", ComputerCarrierDoesNotShootFromDistanceOrThroughDefender),
     ("computer presser slides at a carrier within reach", ComputerPresserSlidesAtCarrierWithinReach),
     ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt),
+    ("touches give a stick and one button", TouchesGiveStickAndOneButton),
+    ("a short touch passes and a held touch shoots", ShortTouchPassesAndHeldTouchShoots),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
     ("kickoff taker stands over the ball and keeps it", KickoffTakerStandsOverTheBallAndKeepsIt),
@@ -3433,6 +3435,71 @@ static bool StandingShotScores(float distanceFromGoalLine, float lateralOffset)
     }
 
     return false;
+}
+
+static void TouchesGiveStickAndOneButton()
+{
+    var screen = new Vector2(1000f, 500f);
+    var radius = 500f * TouchControls.StickRadiusFraction;
+    var start = new Vector2(200f, 300f);
+    var controls = new TouchControls();
+
+    var input = controls.Read([new TouchPoint(1, start)], screen);
+    Assert(input == PlayerInput.Empty, "A touch that has not moved should give no input.");
+    Assert(controls.StickOrigin == start, "The stick should be centred where the touch started.");
+
+    input = controls.Read([new TouchPoint(1, start + new Vector2(5f, 0f))], screen);
+    Assert(input.Move == Vector2.Zero, "A drag inside the dead zone should not move the player.");
+
+    input = controls.Read([new TouchPoint(1, start + new Vector2(0f, -30f))], screen);
+    Assert(input.Move == new Vector2(0f, -1f) && !input.ActionDown, "A drag up should push the stick up only.");
+
+    input = controls.Read([new TouchPoint(1, start + new Vector2(400f, 0f))], screen);
+    Assert(input.Move == Vector2.UnitX, "A stick touch dragged across the middle should still be the stick.");
+    Assert(!input.ActionDown, "A stick touch dragged onto the button side should not press the button.");
+    Assert(controls.StickKnob == start + new Vector2(radius, 0f), "The knob should stop at the stick radius.");
+
+    input = controls.Read([new TouchPoint(1, start + new Vector2(400f, 0f)), new TouchPoint(2, new Vector2(800f, 300f))], screen);
+    Assert(input.Move == Vector2.UnitX && input.ActionDown, "Stick and button should work together.");
+
+    input = controls.Read([new TouchPoint(1, start + new Vector2(400f, 0f)), new TouchPoint(2, new Vector2(100f, 300f))], screen);
+    Assert(input.ActionDown, "A button touch dragged onto the stick side should still hold the button.");
+
+    input = controls.Read([new TouchPoint(1, start + new Vector2(400f, 0f)), new TouchPoint(3, new Vector2(50f, 50f))], screen);
+    Assert(input.Move == Vector2.UnitX && !input.ActionDown, "Releasing the button should keep the stick's push.");
+    Assert(controls.StickOrigin == start, "A second touch on the stick side should not move the stick.");
+
+    input = controls.Read([], screen);
+    Assert(input == PlayerInput.Empty && controls.StickOrigin is null, "Lifting every touch should release everything.");
+
+    input = controls.Read([new TouchPoint(4, new Vector2(900f, 100f))], screen);
+    Assert(input.Move == Vector2.Zero && input.ActionDown, "A touch on the right half should press the button only.");
+    controls.Reset();
+    input = controls.Read([], screen);
+    Assert(!input.ActionDown, "A reset should release the button.");
+}
+
+static void ShortTouchPassesAndHeldTouchShoots()
+{
+    var screen = new Vector2(1000f, 500f);
+    TouchPoint[] button = [new TouchPoint(1, new Vector2(800f, 300f))];
+
+    foreach (var (heldTicks, expected) in new[] { (3, GameplayFeedbackType.PassContact), (40, GameplayFeedbackType.ShotContact) })
+    {
+        var engine = MatchEngine.CreateDefault();
+        var controls = new TouchControls();
+        var buffer = new PlayerInputBuffer();
+        var kinds = new List<GameplayFeedbackType>();
+        for (var tick = 0; tick < heldTicks + 30; tick++)
+        {
+            buffer.Capture(controls.Read(tick < heldTicks ? button : [], screen));
+            engine.StepTick(buffer.ConsumeForTick());
+            kinds.AddRange(engine.CurrentSnapshot.FeedbackEvents.Select(feedback => feedback.Type));
+        }
+
+        var other = expected == GameplayFeedbackType.PassContact ? GameplayFeedbackType.ShotContact : GameplayFeedbackType.PassContact;
+        Assert(kinds.Contains(expected) && !kinds.Contains(other), $"A touch held {heldTicks} ticks should give a {expected} only.");
+    }
 }
 
 static void StepMany(MatchEngine engine, PlayerInput input, int count)

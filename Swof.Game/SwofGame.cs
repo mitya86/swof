@@ -19,6 +19,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private MatchEngine _engine;
     private ComputerPlayerController _computerPlayers;
     private readonly PlayerInputBuffer _inputBuffer = new();
+    private readonly TouchControls _touchControls = new();
     private readonly MatchDemoAction _demoAction;
     private MatchRenderer? _renderer;
     private MatchFeedbackPlayer? _feedbackPlayer;
@@ -165,6 +166,11 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         var input = _demoAction == MatchDemoAction.None
             ? IsActive ? ReadInput(keyboard, gamePad) : PlayerInput.Empty
             : ReadDemoInput(deltaSeconds);
+        if (_demoAction == MatchDemoAction.None)
+        {
+            input = AddTouchInput(input);
+        }
+
         _inputBuffer.Capture(input);
         _engine.Step(deltaSeconds, _inputBuffer, _computerPlayers);
         _feedbackPlayer?.Update(
@@ -197,7 +203,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             $"Tick {snapshot.Tick}   FPS {_framesPerSecond:0}   Ball {ballOwner}";
         var secondaryStatus =
             $"{active.Name}  C:{active.Attributes.EffectiveBallControl} S:{active.Attributes.EffectiveSpeed}   " +
-            "Move/aftertouch: Arrows/WASD or left stick   Tap Space/A: pass   Hold: shoot/tackle   R/Start: resume";
+            "Move/aftertouch: Arrows/WASD, left stick or drag on the left half   Tap Space/A or the right half: pass   Hold: shoot/tackle   R/Start: resume";
         var notice = _runtimeSeconds <= _noticeUntilSeconds ? _notice : null;
 
         _renderer.Draw(
@@ -210,7 +216,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             new MatchPresentationSettings(
                 FeedbackModes[_feedbackModeIndex],
                 _cameraEffectsEnabled,
-                _showDebugHud));
+                _showDebugHud),
+            _touchControls);
         base.Draw(gameTime);
     }
 
@@ -228,7 +235,23 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         _previousKeyboard = Keyboard.GetState();
         _previousGamePad = GamePad.GetState(PlayerIndex.One);
         _inputBuffer.Reset(ReadInput(_previousKeyboard, _previousGamePad));
+        _touchControls.Reset();
         base.OnActivated(sender, args);
+    }
+
+    // ponytail: the left mouse button stands in for one finger, so stick and button cannot be held together
+    // with the mouse alone (use it with the keyboard). Read TouchPanel here once there is a touch device to try.
+    private PlayerInput AddTouchInput(PlayerInput input)
+    {
+        var mouse = Mouse.GetState();
+        var bounds = GraphicsDevice.Viewport.Bounds;
+        TouchPoint[] touches = IsActive
+            && mouse.LeftButton == ButtonState.Pressed
+            && bounds.Contains(mouse.Position)
+                ? [new TouchPoint(0, new NumericsVector2(mouse.X, mouse.Y))]
+                : [];
+        var touch = _touchControls.Read(touches, new NumericsVector2(bounds.Width, bounds.Height));
+        return new PlayerInput(input.Move + touch.Move, input.ActionDown || touch.ActionDown);
     }
 
     private PlayerInput ReadInput(KeyboardState keyboard, GamePadState gamePad)
