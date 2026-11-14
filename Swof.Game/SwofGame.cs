@@ -46,7 +46,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     {
         launchOptions ??= SwofGameLaunchOptions.Default;
         var tuning = PhysicsTuningStore.LoadOrDefault();
-        _engine = MatchEngine.CreateDefault(tuning);
+        // A different seed each launch, so the computer players do not replay the same match.
+        _engine = MatchEngine.CreateDefault(tuning, seed: Environment.TickCount);
         _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
         _demoAction = launchOptions.DemoAction;
         _feedbackModeIndex = Array.IndexOf(FeedbackModes, launchOptions.FeedbackMode);

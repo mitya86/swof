@@ -25,6 +25,7 @@ public readonly record struct PossessionOpportunity(
 public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity>
 {
     private const float CarryLookAhead = 3f;
+    private const float CarryIndecision = 0.08f;
     private const float BoundaryClearanceScale = 3f;
     private const float UsefulOpponentClearance = 6f;
     private const float UsefulTeammateSpacing = 4f;
@@ -86,8 +87,9 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
         var bestDirection = directions[0];
         var bestScore = float.NegativeInfinity;
 
-        foreach (var direction in directions)
+        for (var index = 0; index < directions.Length; index++)
         {
+            var direction = directions[index];
             var unclampedTarget = context.Player.Position + direction * CarryLookAhead;
             var target = new Vector2(
                 Math.Clamp(unclampedTarget.X, field.Left + context.Player.Radius, field.Right - context.Player.Radius),
@@ -109,7 +111,11 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
             var score = Math.Clamp(opponentClearance / UsefulOpponentClearance, 0f, 1f) * 0.52f
                 + Math.Clamp(boundaryClearance / BoundaryClearanceScale, 0f, 1f) * 0.25f
                 + Math.Clamp(teammateSpacing / UsefulTeammateSpacing, 0f, 1f) * 0.13f
-                + (forwardProgress + 1f) * 0.05f;
+                + (forwardProgress + 1f) * 0.05f
+                // A small leaning that changes twice a second, so a player in the same spot
+                // does not always turn the same way and a match does not repeat itself.
+                + (DecisionNoise.Roll(context.Match, context.Player.Id, purpose: 100 + index, holdTicks: 30) - 0.5f)
+                    * CarryIndecision;
 
             if (score > bestScore)
             {

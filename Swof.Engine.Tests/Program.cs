@@ -115,12 +115,12 @@ var tests = new (string Name, Action Test)[]
     ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
 };
 
-// "matches [count] [firstSeed]" plays unattended matches instead of the scenarios.
+// "matches [count] [firstSeed] [equal]" plays unattended matches instead of the scenarios.
 if (args.FirstOrDefault() == "matches")
 {
     var count = args.Length > 1 ? int.Parse(args[1]) : 100;
     var firstSeed = args.Length > 2 ? int.Parse(args[2]) : 1;
-    Environment.ExitCode = MatchRunner.Run(count, firstSeed) == 0 ? 0 : 1;
+    Environment.ExitCode = MatchRunner.Run(count, firstSeed, equalSquads: args.Contains("equal")) == 0 ? 0 : 1;
     return;
 }
 
@@ -2796,6 +2796,11 @@ static void UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds()
     Assert(first.Fault is null, $"A short unattended match should reach full time: {first.Fault}");
     Assert(first == MatchRunner.Play(seed: 3, halfLengthSeconds: 10f), "The same seed should play the same match.");
     Assert(first != MatchRunner.Play(seed: 4, halfLengthSeconds: 10f), "Another seed should play a different match.");
+
+    // With identical squads only the computer players' decisions can differ.
+    var equalFirst = MatchRunner.Play(seed: 3, halfLengthSeconds: 10f, equalSquads: true);
+    Assert(equalFirst == MatchRunner.Play(seed: 3, halfLengthSeconds: 10f, equalSquads: true), "Equal squads with the same seed should play the same match.");
+    Assert(equalFirst != MatchRunner.Play(seed: 4, halfLengthSeconds: 10f, equalSquads: true), "Equal squads with another seed should play a different match.");
 }
 
 static void MatchPlaysTwoHalvesAndThenStaysFinished()

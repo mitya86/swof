@@ -67,7 +67,8 @@ public sealed class MatchEngine
     public static MatchEngine CreateDefault(
         PhysicsTuning? tuning = null,
         bool opponentMovementEnabled = true,
-        IReadOnlyList<PlayerAttributes>? outfieldAttributes = null)
+        IReadOnlyList<PlayerAttributes>? outfieldAttributes = null,
+        int seed = 0)
     {
         tuning ??= PhysicsTuning.Default;
         var field = FieldDimensions.Default;
@@ -118,7 +119,7 @@ public sealed class MatchEngine
         };
 
         return new MatchEngine(
-            new MatchState(field, players, ball, activePlayerId: 1),
+            new MatchState(field, players, ball, activePlayerId: 1) { Seed = seed },
             tuning,
             opponentMovementEnabled: opponentMovementEnabled);
     }

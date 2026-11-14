@@ -12,6 +12,7 @@ Read this reference before changing SWOF AI, tactics, control assignment, or mul
 - A computer shot is the same held button a human uses. The hold is returned in the `Urgent` band until the ball leaves, and the stick stays neutral through the aftertouch window, so computer players never bend or lift a shot.
 - The presser shadows a carrier within reach for a third of a second, then presses once to slide. There is no other tackle: releasing the button without the ball does nothing, for humans and computer players alike.
 - AI output and assigned human input meet in `PlayerControlFrame`; `MatchEngine` consumes one deterministic frame per tick.
+- Chance comes only from `DecisionNoise.Roll(match, playerId, purpose, holdTicks)`, a hash of the match seed (`MatchState.Seed`), tick and player. Use it for computer error (so far: carry direction leans differently twice a second). Never use `System.Random` in the engine, and never put chance in physics.
 - The user controls an outfielder selected by possession/defensive handoff. The goalkeeper becomes user-controlled only while holding the ball for distribution.
 - Defensive handoff selects a deterministic nearby goal-side outfielder. AI teammates then cover and mark while the human slot remains reserved.
 
