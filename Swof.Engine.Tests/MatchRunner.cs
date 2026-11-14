@@ -304,7 +304,48 @@ internal static class MatchRunner
 
         var broken = results.Concat(withUserTeam).Count(r => r.Fault is not null);
         Console.WriteLine(broken == 0 ? $"All {count} matches reached full time, and {withUserTeam.Length} more with Home as the user team." : $"{broken} of {count + withUserTeam.Length} matches broke.");
-        return broken;
+        return broken + FailedMarks(results, equalSquads);
+    }
+
+    /// <summary>
+    /// Pass marks for the game as a whole, over at least 100 matches. They are wide: they catch a
+    /// change that breaks the shape of a match or the balance between the two teams, not one that
+    /// moves a figure a little. Balance is only judged with identical squads.
+    /// </summary>
+    private static int FailedMarks(MatchResult[] results, bool equalSquads)
+    {
+        if (results.Length < 100)
+        {
+            return 0;
+        }
+
+        var goals = results.Average(r => r.HomeScore + r.AwayScore);
+        var shots = results.Average(r => r.Shots);
+        var possessions = results.Average(r => r.Possessions);
+        var forward = results.Average(r => r.ForwardMetres / Math.Max(1, r.Possessions));
+        var winGap = Math.Abs(results.Count(r => r.HomeScore > r.AwayScore) - results.Count(r => r.AwayScore > r.HomeScore)) * 100 / results.Length;
+        var byTaker = results.Sum(r => r.ShotsSoonAfterKickoffByTaker);
+        var byScorer = results.Sum(r => r.ShotsSoonAfterKickoffByOpponent);
+        List<(string Mark, string Was, bool Met)> marks =
+        [
+            ("3 to 9 goals a match", $"{goals:0.0}", goals is >= 3 and <= 9),
+            ("15 to 35 shots a match", $"{shots:0.0}", shots is >= 15 and <= 35),
+            ("at most 200 possessions a match", $"{possessions:0.0}", possessions <= 200),
+            ("the ball goes forward at least 3.5 m a possession", $"{forward:0.0}", forward >= 3.5f),
+        ];
+        if (equalSquads)
+        {
+            marks.Add(("neither team wins 25 more matches in 100 than the other", $"{winGap}", winGap <= 25));
+            marks.Add(("after a goal the team that scored does not take twice the shots of the team kicking off", $"{byScorer} to {byTaker}", byScorer <= byTaker * 2));
+        }
+
+        foreach (var (mark, was, _) in marks.Where(m => !m.Met))
+        {
+            Console.WriteLine($"MARK MISSED: {mark} (was {was})");
+        }
+
+        Console.WriteLine($"{marks.Count(m => m.Met)} of {marks.Count} pass marks met.");
+        return marks.Count(m => !m.Met);
     }
 
     private static bool InBounds(System.Numerics.Vector2 position, FieldDimensions field) =>
