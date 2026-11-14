@@ -111,6 +111,7 @@ var tests = new (string Name, Action Test)[]
     ("ball carried over the touchline is out against the carrier", BallCarriedOverTouchlineIsOutAgainstCarrier),
     ("computer corner taker carries the ball into the court", ComputerCornerTakerCarriesBallIntoCourt),
     ("goalkeeper smothers a ball dribbled straight at it", GoalkeeperSmothersBallDribbledStraightAtIt),
+    ("adjacent opponents do not swap the ball every tick", AdjacentOpponentsDoNotSwapBallEveryTick),
     ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
 };
 
@@ -1483,6 +1484,9 @@ static void SlidingTackleCanKnockBallLoose()
 
     Assert(!carrier.HasPossession, "Sliding contact should dispossess the ball carrier.");
     Assert(engine.State.Ball.PossessorId is null, "Sliding tackle should knock the ball loose.");
+
+    StepMany(engine, PlayerInput.Empty, 6);
+    Assert(!carrier.HasPossession, "A tackled player should not pick the ball straight back up.");
 }
 
 static void HoldingAfterContactCannotAccelerateShot()
@@ -2736,6 +2740,54 @@ static void GoalkeeperSmothersBallDribbledStraightAtIt()
 
     Assert(state.HomeScore == 0, "Walking the ball at a set goalkeeper should not score.");
     Assert(goalkeeper.HasPossession, "The goalkeeper should take a ball dribbled into it.");
+}
+
+static void AdjacentOpponentsDoNotSwapBallEveryTick()
+{
+    Assert(CountPossessionSwaps(PhysicsTuning.Default) <= 2, "Two players standing together should not trade the ball back and forth.");
+    // The same pair with the protection switched off shows what it prevents.
+    Assert(
+        CountPossessionSwaps(PhysicsTuning.Default with { NewPossessionProtectionTicks = 0 }) > 10,
+        "Without protection this pair should trade the ball constantly; if not, the scenario proves nothing.");
+
+    static int CountPossessionSwaps(PhysicsTuning tuning)
+    {
+        // Strong tacklers with weak control: each wins the ball cleanly from the other.
+        var attributes = new PlayerAttributes(8, 8, 8, Tackling: 15, BallControl: 4, 8, 8);
+        PlayerState Create(int id, TeamSide team, Vector2 position, Azimuth facing) => new(id, "Player", team, position)
+        {
+            Facing = facing,
+            Attributes = attributes,
+            Radius = tuning.PlayerRadius,
+            MaxSpeedPerTick = tuning.PlayerMaxSpeedPerTick,
+            AccelerationPerTick = tuning.PlayerAccelerationPerTick,
+            FrictionPerTick = tuning.PlayerFrictionPerTick
+        };
+        var home = Create(1, TeamSide.Home, Vector2.Zero, Azimuth.East);
+        var away = Create(2, TeamSide.Away, new Vector2(2f, 0f), Azimuth.West);
+        away.HasPossession = true;
+        var ball = new BallState
+        {
+            Radius = tuning.BallRadius,
+            Position = away.Position + away.Facing.ToUnitVector() * tuning.DribbleLeadDistance,
+            PossessorId = away.Id
+        };
+        var engine = new MatchEngine(new MatchState(FieldDimensions.Default, new[] { home, away }, ball, activePlayerId: home.Id), tuning);
+
+        var swaps = 0;
+        var holder = engine.State.Ball.PossessorId;
+        for (var tick = 0; tick < 60; tick++)
+        {
+            engine.StepTick(PlayerInput.Empty);
+            if (engine.State.Ball.PossessorId is int current && current != holder)
+            {
+                swaps++;
+                holder = current;
+            }
+        }
+
+        return swaps;
+    }
 }
 
 static void UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds()

@@ -15,6 +15,7 @@ public sealed class MatchEngine
     private int _aftertouchTicksRemaining;
     private int? _aftertouchPlayerId;
     private int _dribbleSecureTicksRemaining;
+    private int _newPossessionProtectionTicks;
     private float _dribbleRisk;
     private float _dribbleSustain01;
     private Vector2 _previousDribbleMoveDirection = Vector2.Zero;
@@ -301,6 +302,7 @@ public sealed class MatchEngine
         }
 
         _ballCollectionCooldownTicks = Math.Max(0, _ballCollectionCooldownTicks - 1);
+        _newPossessionProtectionTicks = Math.Max(0, _newPossessionProtectionTicks - 1);
         _releasedByCollectionBlockTicks = Math.Max(0, _releasedByCollectionBlockTicks - 1);
         if (_releasedByCollectionBlockTicks == 0)
         {
@@ -994,8 +996,15 @@ public sealed class MatchEngine
 
     private void TryPassiveRepossession(PlayerState possessor)
     {
+        if (_newPossessionProtectionTicks > 0)
+        {
+            return;
+        }
+
         var challenger = State.Players
             .Where(player => player.Team != possessor.Team && player.Role == PlayerRole.Outfield)
+            // A player on the ground wins the ball with the slide itself, not by lying beside it.
+            .Where(player => !player.IsSliding && !player.IsRecoveringFromSlide)
             .Select(player => new
             {
                 Player = player,
@@ -1067,6 +1076,8 @@ public sealed class MatchEngine
         State.Ball.Velocity = direction * Tuning.PassiveContestKnockLooseSpeedPerTick + challenger.Velocity * 0.25f;
         State.LastTouchTeam = challenger.Team;
         _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, 2);
+        _releasedByPlayerId = possessor.Id;
+        _releasedByCollectionBlockTicks = Math.Max(_releasedByCollectionBlockTicks, Tuning.DispossessedCollectionBlockTicks);
         _aftertouchTicksRemaining = 0;
         _aftertouchPlayerId = null;
         State.Ball.CurveSpinZ = 0f;
@@ -1574,6 +1585,7 @@ public sealed class MatchEngine
         State.Ball.CurveSpinZ = 0f;
         _aftertouchTicksRemaining = 0;
         _aftertouchPlayerId = null;
+        _newPossessionProtectionTicks = Tuning.NewPossessionProtectionTicks;
         _dribbleSecureTicksRemaining = Tuning.DribbleSecureTicksAfterTouch;
         _dribbleRisk = 0f;
         _dribbleSustain01 = 0f;
@@ -1958,6 +1970,7 @@ public sealed class MatchEngine
         State.Ball.ControlKind = BallControlKind.Feet;
         _aftertouchTicksRemaining = 0;
         _aftertouchPlayerId = null;
+        _newPossessionProtectionTicks = Tuning.NewPossessionProtectionTicks;
         _dribbleSecureTicksRemaining = Tuning.DribbleSecureTicksAfterTouch;
         _dribbleRisk = 0f;
         _dribbleSustain01 = 0f;
