@@ -14,6 +14,7 @@ internal sealed class MatchFeedbackPlayer : IDisposable
     private readonly SoundEffect _control;
     private readonly SoundEffect _catch;
     private long _lastObservedSequence;
+    private long _lastObservedTick;
     private float _vibrationSeconds;
     private float _vibrationStrength;
 
@@ -39,6 +40,13 @@ internal sealed class MatchFeedbackPlayer : IDisposable
             _vibrationStrength = 0f;
         }
 
+        // A new match numbers its feedback from the start again.
+        if (snapshot.Tick < _lastObservedTick)
+        {
+            _lastObservedSequence = 0;
+        }
+
+        _lastObservedTick = snapshot.Tick;
         foreach (var feedbackEvent in snapshot.FeedbackEvents)
         {
             if (feedbackEvent.Sequence <= _lastObservedSequence)
