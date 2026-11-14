@@ -203,7 +203,7 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
         return players.Min(player => Vector2.Distance(point, player.Position));
     }
 
-    private static float DistanceToSegment(Vector2 point, Vector2 start, Vector2 end)
+    internal static float DistanceToSegment(Vector2 point, Vector2 start, Vector2 end)
     {
         var segment = end - start;
         var lengthSquared = segment.LengthSquared();

@@ -100,7 +100,11 @@ var tests = new (string Name, Action Test)[]
     ("sliding player takes a restart on their feet", SlidingPlayerTakesRestartOnTheirFeet),
     ("goal resets every player to kickoff positions", GoalResetsEveryPlayerToKickoffPositions),
     ("match plays two halves and then stays finished", MatchPlaysTwoHalvesAndThenStaysFinished),
-    ("half-time interrupts live play cleanly", HalfTimeInterruptsLivePlayCleanly)
+    ("half-time interrupts live play cleanly", HalfTimeInterruptsLivePlayCleanly),
+    ("computer carrier shoots from range and leaves the shot alone", ComputerCarrierShootsFromRangeAndLeavesTheShotAlone),
+    ("computer carrier does not shoot from distance or through a defender", ComputerCarrierDoesNotShootFromDistanceOrThroughDefender),
+    ("computer presser slides at a carrier within reach", ComputerPresserSlidesAtCarrierWithinReach),
+    ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt)
 };
 
 // Optional first argument: run only scenarios whose name contains it.
@@ -211,6 +215,7 @@ static void LegacyTuningProfileFallsBackToCurrentDefaults()
               "PlayerMaxSpeedPerTick": 0.3,
               "PassSpeedPerTick": 0.4,
               "SlideTravelTicks": 26,
+              "TackleDistance": 2.2,
               "SlideRecoveryTicks": 60
             }
             """);
@@ -2696,6 +2701,171 @@ static string RunShortMatchWithLiveAi()
     Assert(state.Players.Count(player => player.HasPossession) <= 1, "At most one player may hold the ball at full time.");
     return $"t{state.Tick} {state.HomeScore}-{state.AwayScore} {state.ClockSeconds:R} "
         + string.Join(";", state.Players.Select(player => $"{player.Id}:{player.Position:R}"));
+}
+
+static (MatchEngine Engine, ComputerPlayerController Computers, PlayerState Shooter) CreateShootingChance(
+    float distanceFromGoalLine,
+    Vector2? blockerOffset = null,
+    float lateralOffset = 2f)
+{
+    var setup = MatchEngine.CreateDefault();
+    var state = setup.State;
+    var shooter = state.Players.Single(player => player.Id == 10);
+    shooter.Position = new Vector2(state.Field.Left + distanceFromGoalLine, lateralOffset);
+    foreach (var defender in state.Players.Where(player => player.Team == TeamSide.Home && player.Role == PlayerRole.Outfield))
+    {
+        defender.Position = new Vector2(state.Field.Right - 3f, defender.Id - 5f);
+    }
+
+    if (blockerOffset is Vector2 offset)
+    {
+        state.Players.Single(player => player.Id == 1).Position = shooter.Position + offset;
+    }
+
+    GivePossession(setup, shooter);
+
+    // A new engine over the edited state starts from a fresh snapshot, which is what the brains read.
+    var engine = new MatchEngine(setup.State, setup.Tuning);
+    return (engine, ComputerPlayerController.CreateDefault(engine.CurrentSnapshot), shooter);
+}
+
+static void ComputerCarrierShootsFromRangeAndLeavesTheShotAlone()
+{
+    var (engine, computers, shooter) = CreateShootingChance(distanceFromGoalLine: 8f);
+    var state = engine.State;
+
+    engine.StepTick(PlayerInput.Empty, computers);
+    Assert(
+        computers.LastDecisions[shooter.Id].Kind == PlayerInstructionKind.ShootAtGoal,
+        $"Expected a shot, got {computers.LastDecisions[shooter.Id].Kind}.");
+
+    var guard = 0;
+    while (shooter.HasPossession && guard++ < engine.Tuning.TapPassMaxTicks + 4)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        Assert(
+            !shooter.HasPossession || computers.LastDecisions[shooter.Id].Input.ActionDown,
+            "The button should stay down until the shot leaves.");
+    }
+
+    Assert(state.Ball.PossessorId is null, "The held button should release a shot.");
+    Assert(
+        state.Ball.Velocity.Length() > engine.Tuning.PassSpeedPerTick * 1.3f && state.Ball.Velocity.X < 0f,
+        "The ball should leave at shot pace toward the Home goal.");
+    Assert(
+        MathF.Abs(ProjectedYAtX(state.Ball, state.Field.Left)) < state.Field.GoalWidth * 0.5f,
+        "The shot should be on target.");
+
+    for (var tick = 0; tick < ShootAtGoalInstruction.FollowThroughTicks; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        if (state.Ball.IsPossessed || state.IsBallOutOfPlay)
+        {
+            break;
+        }
+
+        var decision = computers.LastDecisions[shooter.Id];
+        Assert(
+            decision.Kind == PlayerInstructionKind.ShootAtGoal && decision.Input.Move == Vector2.Zero && !decision.Input.ActionDown,
+            "The shooter should keep the stick neutral while the shot can still be bent.");
+        Assert(state.Ball.CurveSpinZ == 0f, "A computer shot should not pick up accidental curve.");
+    }
+}
+
+static void ComputerCarrierDoesNotShootFromDistanceOrThroughDefender()
+{
+    var (farEngine, farComputers, farShooter) = CreateShootingChance(distanceFromGoalLine: 16f);
+    farEngine.StepTick(PlayerInput.Empty, farComputers);
+    Assert(
+        farComputers.LastDecisions[farShooter.Id].Kind != PlayerInstructionKind.ShootAtGoal,
+        "A carrier outside shooting range should not shoot.");
+
+    var (blockedEngine, blockedComputers, blockedShooter) = CreateShootingChance(
+        distanceFromGoalLine: 8f,
+        blockerOffset: new Vector2(-2.5f, -0.6f));
+    blockedEngine.StepTick(PlayerInput.Empty, blockedComputers);
+    Assert(
+        blockedComputers.LastDecisions[blockedShooter.Id].Kind != PlayerInstructionKind.ShootAtGoal,
+        "A carrier with a defender in the shooting lane should not shoot.");
+
+    var (wideEngine, wideComputers, wideShooter) = CreateShootingChance(distanceFromGoalLine: 1.2f, lateralOffset: 8.5f);
+    wideEngine.StepTick(PlayerInput.Empty, wideComputers);
+    Assert(
+        wideComputers.LastDecisions[wideShooter.Id].Kind != PlayerInstructionKind.ShootAtGoal,
+        "A carrier near the corner should not shoot across the face of goal.");
+}
+
+static void ComputerPresserSlidesAtCarrierWithinReach()
+{
+    var (farEngine, farComputers, farPresser) = CreatePressingDuel(presserDistance: 5f);
+    farEngine.StepTick(PlayerInput.Empty, farComputers);
+    Assert(
+        farComputers.LastDecisions[farPresser.Id].Kind == PlayerInstructionKind.PressureBallCarrier
+            && !farComputers.LastDecisions[farPresser.Id].Input.ActionDown,
+        "A presser out of reach should close down without sliding.");
+    Assert(!farPresser.IsSliding, "A presser out of reach should stay on their feet.");
+
+    var (engine, computers, presser) = CreatePressingDuel(presserDistance: PressureBallCarrierInstruction.TackleRange - 0.2f);
+    for (var tick = 0; tick < PressureBallCarrierInstruction.JockeyTicksBeforeTackle; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        Assert(!presser.IsSliding, "The presser should shadow the carrier before committing to a slide.");
+    }
+
+    engine.StepTick(PlayerInput.Empty, computers);
+    Assert(
+        computers.LastDecisions[presser.Id].Kind == PlayerInstructionKind.PressureBallCarrier
+            && computers.LastDecisions[presser.Id].Input.ActionDown,
+        "A presser who has shadowed a carrier within reach should press the button.");
+    Assert(presser.IsSliding, "The press should start a slide, the same tackle a human has.");
+
+    // The stick-and-button grammar has no other tackle, and one press must not become a string of slides.
+    for (var tick = 0; tick < 60; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        Assert(
+            !computers.LastDecisions[presser.Id].Input.ActionDown
+                || computers.LastDecisions[presser.Id].Kind != PlayerInstructionKind.PressureBallCarrier,
+            "The presser should not slide again straight away.");
+    }
+}
+
+static (MatchEngine Engine, ComputerPlayerController Computers, PlayerState Presser) CreatePressingDuel(float presserDistance)
+{
+    var setup = MatchEngine.CreateDefault();
+    var state = setup.State;
+    var carrier = state.Players.Single(player => player.Id == state.ActivePlayerId);
+    var presser = state.Players.Single(player => player.Id == 10);
+    foreach (var other in state.Players.Where(player => player.Team == TeamSide.Away && player.Role == PlayerRole.Outfield && player.Id != presser.Id))
+    {
+        other.Position = new Vector2(state.Field.Right - 3f, other.Id - 5f);
+    }
+
+    carrier.Position = Vector2.Zero;
+    carrier.Facing = Azimuth.West;
+    GivePossession(setup, carrier);
+    presser.Position = new Vector2(presserDistance, 0f);
+    presser.Facing = Azimuth.West;
+    var engine = new MatchEngine(setup.State, setup.Tuning);
+    return (engine, ComputerPlayerController.CreateDefault(engine.CurrentSnapshot), presser);
+}
+
+static void ReleasingButtonWithoutBallDoesNotStealIt()
+{
+    var engine = MatchEngine.CreateDefault();
+    var state = engine.State;
+    var holder = state.Players.Single(player => player.HasPossession);
+    var thief = state.Players.Single(player => player.Id == 10);
+
+    StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), 3);
+    Assert(holder.HasPossession, "The holder should still be winding up.");
+
+    thief.Position = holder.Position + new Vector2(1.5f, 0f);
+    GivePossession(engine, thief);
+    engine.StepTick(PlayerInput.Empty);
+
+    Assert(thief.HasPossession && !holder.HasPossession, "Letting go of the button must not win the ball back.");
+    Assert(!holder.IsSliding, "Letting go of the button must not start a slide.");
 }
 
 static void StepMany(MatchEngine engine, PlayerInput input, int count)
