@@ -4,7 +4,7 @@ public enum RestartKind
 {
     None,
     Kickoff,
-    ThrowIn,
-    GoalKick,
+    KickIn,
+    GoalClearance,
     Corner
 }

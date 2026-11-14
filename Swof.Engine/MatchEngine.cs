@@ -44,6 +44,7 @@ public sealed class MatchEngine
             ? State.Players.FirstOrDefault(player => player.Id == possessorId)
             : null;
         _lastPossessionTeam = initialPossessor?.Team;
+        State.LastTouchTeam ??= initialPossessor?.Team;
         if (initialPossessor is not null && initialPossessor.Team != UserControlledTeam)
         {
             SelectUserDefenderForOpponentPossession(initialPossessor.Position, forceSwitch: true);
@@ -255,12 +256,21 @@ public sealed class MatchEngine
     private void SimulateTick(PlayerControlFrame frame)
     {
         State.Tick++;
-        State.ClockSeconds += Tuning.TickSeconds;
 
         if (State.IsBallOutOfPlay)
         {
+            // Futsal uses a stopped clock, so match time does not advance here.
+            HoldActionsDuringStoppage(frame);
+            State.RestartTicksRemaining--;
+            if (State.RestartTicksRemaining <= 0)
+            {
+                ResumeFromRestart();
+            }
+
             return;
         }
+
+        State.ClockSeconds += Tuning.TickSeconds;
 
         State.LastEvent = MatchEvent.None;
         foreach (var player in State.Players)
@@ -448,7 +458,29 @@ public sealed class MatchEngine
         }
 
         State.IsBallOutOfPlay = false;
+        State.RestartTicksRemaining = 0;
         State.LastEvent = MatchEvent.None;
+    }
+
+    /// <summary>
+    /// Keeps a button that is held through a stoppage from reading as a fresh press when play resumes,
+    /// which would fire an unintended pass, shot or slide on the first live tick.
+    /// </summary>
+    private void HoldActionsDuringStoppage(PlayerControlFrame frame)
+    {
+        foreach (var playerId in frame.PlayerIds)
+        {
+            if (!_playerActionStates.TryGetValue(playerId, out var actionState))
+            {
+                actionState = new PlayerActionInputState();
+                _playerActionStates.Add(playerId, actionState);
+            }
+
+            var actionDown = frame.GetInputOrEmpty(playerId).ActionDown;
+            actionState.PreviousActionDown = actionDown;
+            actionState.ActionCommittedThisHold = actionDown;
+            actionState.ActionHeldTicks = 0;
+        }
     }
 
     private void MoveControlledPlayer(PlayerState player, Vector2 move)
@@ -926,6 +958,7 @@ public sealed class MatchEngine
         State.Ball.PossessorId = null;
         State.Ball.ControlKind = BallControlKind.None;
         State.Ball.Velocity = direction * Tuning.PassiveContestKnockLooseSpeedPerTick + challenger.Velocity * 0.25f;
+        State.LastTouchTeam = challenger.Team;
         _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, 2);
         _aftertouchTicksRemaining = 0;
         _aftertouchPlayerId = null;
@@ -1261,6 +1294,7 @@ public sealed class MatchEngine
         _dribbleRisk = 0f;
         _dribbleSustain01 = 0f;
         _lastPossessionTeam = goalkeeper.Team;
+        State.LastTouchTeam = goalkeeper.Team;
 
         if (previousPossessorId != goalkeeper.Id)
         {
@@ -1426,6 +1460,7 @@ public sealed class MatchEngine
         }
 
         State.Ball.Velocity = slideDirection * Tuning.SlideLooseBallDeflectSpeedPerTick;
+        State.LastTouchTeam = slider.Team;
         _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, 2);
     }
 
@@ -1457,6 +1492,7 @@ public sealed class MatchEngine
         _previousDribbleMoveDirection = Vector2.Zero;
         _previousDribbleSideDistance = 0f;
         _lastDribbleTurn01 = 0f;
+        State.LastTouchTeam = player.Team;
 
         UpdateUserControlForPossession(player);
 
@@ -1616,12 +1652,15 @@ public sealed class MatchEngine
 
         if (ball.Position.Y < field.Top || ball.Position.Y > field.Bottom)
         {
+            var kickInTeam = TeamAwardedAgainstLastTouch(ball.Position);
+            var kickInSpot = ClampToField(ball.Position);
             StopForRestart(new MatchEvent(
                 MatchEventType.TouchlineOut,
-                RestartKind.ThrowIn,
-                Team: null,
-                Position: ClampToField(ball.Position),
-                Description: "Ball crossed the touchline."));
+                RestartKind.KickIn,
+                kickInTeam,
+                kickInSpot,
+                Description: $"Kick-in to {kickInTeam}."));
+            PlaceRestartTaker(kickInTeam, kickInSpot, new Vector2(0f, -MathF.Sign(kickInSpot.Y)));
             return;
         }
 
@@ -1656,13 +1695,88 @@ public sealed class MatchEngine
                 return;
             }
 
+            var defendingTeam = ball.Position.X < field.Left ? TeamSide.Home : TeamSide.Away;
+            if (State.LastTouchTeam == defendingTeam)
+            {
+                var cornerTeam = Opponent(defendingTeam);
+                var cornerSpot = new Vector2(
+                    ball.Position.X < field.Left ? field.Left : field.Right,
+                    ball.Position.Y < 0f ? field.Top : field.Bottom);
+                StopForRestart(new MatchEvent(
+                    MatchEventType.GoalLineOut,
+                    RestartKind.Corner,
+                    cornerTeam,
+                    cornerSpot,
+                    Description: $"Corner to {cornerTeam}."));
+                PlaceRestartTaker(
+                    cornerTeam,
+                    cornerSpot,
+                    new Vector2(-MathF.Sign(cornerSpot.X), -MathF.Sign(cornerSpot.Y)));
+                return;
+            }
+
             StopForRestart(new MatchEvent(
                 MatchEventType.GoalLineOut,
-                RestartKind.GoalKick,
-                Team: null,
-                Position: ClampToField(ball.Position),
-                Description: "Ball crossed the goal line."));
+                RestartKind.GoalClearance,
+                defendingTeam,
+                ClampToField(ball.Position),
+                Description: $"Goal clearance to {defendingTeam}."));
+            BeginGoalkeeperHandsPossession(State.Players.First(player =>
+                player.Team == defendingTeam && player.IsGoalkeeper));
         }
+    }
+
+    private static TeamSide Opponent(TeamSide team)
+    {
+        return team == TeamSide.Home ? TeamSide.Away : TeamSide.Home;
+    }
+
+    private TeamSide TeamAwardedAgainstLastTouch(Vector2 ballPosition)
+    {
+        // With no recorded touch (hand-built states), give the ball to the team defending that half.
+        return State.LastTouchTeam is TeamSide lastTouch
+            ? Opponent(lastTouch)
+            : ballPosition.X < 0f ? TeamSide.Home : TeamSide.Away;
+    }
+
+    /// <summary>
+    /// Sets up a kick-in or corner: the awarded team's nearest outfielder gets the ball at the spot,
+    /// facing into the court, and opponents are moved back to the required distance.
+    /// </summary>
+    // ponytail: the taker is teleported, players stand still during the stoppage, and the taker may
+    // dribble the ball in rather than having to kick it. Near a corner the court edge can leave a
+    // moved opponent closer than the required distance. Walk-to-ball, repositioning runs and the
+    // four-second count are the upgrade path once restarts have been playtested.
+    private void PlaceRestartTaker(TeamSide team, Vector2 spot, Vector2 inward)
+    {
+        var taker = State.Players
+            .Where(player => player.Team == team && player.Role == PlayerRole.Outfield)
+            .OrderBy(player => Vector2.DistanceSquared(player.Position, spot))
+            .ThenBy(player => player.Id)
+            .First();
+        taker.Position = spot;
+        taker.Velocity = Vector2.Zero;
+        taker.Facing = Azimuth.FromVector(inward).Quantized(8);
+        // The nearest player may have been mid-tackle when the ball went out.
+        taker.SlideTicksRemaining = 0;
+        taker.SlideRecoveryTicksRemaining = 0;
+
+        foreach (var opponent in State.Players.Where(player =>
+                     player.Team != team && player.Role == PlayerRole.Outfield))
+        {
+            var offset = opponent.Position - spot;
+            if (offset.Length() >= Tuning.RestartOpponentDistance)
+            {
+                continue;
+            }
+
+            opponent.Position = ClampToField(
+                spot + SafeNormalize(offset, inward) * Tuning.RestartOpponentDistance);
+            opponent.Velocity = Vector2.Zero;
+        }
+
+        taker.HasPossession = true;
+        BeginControlledPossession(taker);
     }
 
     private void StopForRestart(MatchEvent matchEvent)
@@ -1685,6 +1799,7 @@ public sealed class MatchEngine
         _shotActionPlayerId = null;
 
         State.IsBallOutOfPlay = true;
+        State.RestartTicksRemaining = Tuning.RestartDelayTicks;
         State.LastEvent = matchEvent;
     }
 
@@ -1730,6 +1845,7 @@ public sealed class MatchEngine
         _previousDribbleSideDistance = 0f;
         _lastDribbleTurn01 = 0f;
         _lastPossessionTeam = kickoffTeam;
+        State.LastTouchTeam = kickoffTeam;
     }
 
     private Vector2 ClampToField(Vector2 position)

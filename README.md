@@ -14,7 +14,7 @@ This repository starts a clean .NET 5v5 futsal engine inspired by one-button arc
 - Arrow keys, WASD, D-pad, or left stick: move the active outfield player. When the goalkeeper holds the ball, aim distribution without moving the keeper.
 - Space or gamepad A: tap for a targeted pass, hold beyond the tap window to shoot, or tackle when out of possession.
 - Direction immediately after shot contact: bend sideways, drive forward, or loft backward relative to the shot.
-- R or gamepad Start: resume after an out-of-play event.
+- R or gamepad Start: skip the short pause before a restart. Play resumes on its own after about a second.
 - F1: reload the persisted physics-tuning profile.
 - F2: cycle between dry, connected, and arcade action feedback for direct comparison.
 - F3: toggle the compact match HUD and full diagnostic HUD.
@@ -38,7 +38,7 @@ options play one deterministic input sequence and do not alter normal controls.
 - One active user-controlled player, with goalkeeper control limited to held-ball distribution.
 - Possession, dribbling, loose ball movement, kicking, and simple tackling.
 - Goal detection.
-- Touchline and goal-line out detection.
+- Kick-ins, corners and goal clearances awarded against the team that last touched the ball, resuming automatically. The taker is placed on the spot and opponents are moved back 5 m; the match clock stops while the ball is out.
 
 ## Simulation And Rendering
 

@@ -90,7 +90,14 @@ var tests = new (string Name, Action Test)[]
     ("control frame tracks action edges independently per player", ControlFrameTracksIndependentActionEdges),
     ("live computer controller preserves human input and moves eligible AI", LiveComputerControllerPreservesHumanInputAndMovesAi),
     ("team-scoped AI moves teammates while opponents remain still", TeamScopedAiMovesTeammatesWhileOpponentsRemainStill),
-    ("scripted match with live AI replays to an identical state", ScriptedMatchWithLiveAiReplaysIdentically)
+    ("scripted match with live AI replays to an identical state", ScriptedMatchWithLiveAiReplaysIdentically),
+    ("kick-in is awarded against the team that last touched the ball", KickInIsAwardedAgainstLastTouch),
+    ("goal-line exit is a corner or a goal clearance by last touch", GoalLineExitIsCornerOrGoalClearance),
+    ("stopped play resumes on its own with the clock held", StoppedPlayResumesOnItsOwnWithClockHeld),
+    ("opponents are moved back from a kick-in", OpponentsAreMovedBackFromKickIn),
+    ("button held through a stoppage does not kick on resume", ButtonHeldThroughStoppageDoesNotKickOnResume),
+    ("unattended match keeps resuming after forced outs", UnattendedMatchKeepsResumingAfterForcedOuts),
+    ("sliding player takes a restart on their feet", SlidingPlayerTakesRestartOnTheirFeet)
 };
 
 // Optional first argument: run only scenarios whose name contains it.
@@ -2378,11 +2385,6 @@ static string RunScriptedMatch(int ticks)
     var computerPlayers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
     for (var tick = 0; tick < ticks; tick++)
     {
-        if (engine.State.IsBallOutOfPlay)
-        {
-            engine.ResumeFromRestart();
-        }
-
         // Circle the stick and alternate taps with long holds. With default
         // tuning this changes possession about 70 times in 1200 ticks; the ball
         // does not leave play, so restarts and goals are not covered yet.
@@ -2398,6 +2400,198 @@ static string RunScriptedMatch(int ticks)
         state.Players.Select(player => $"{player.Id}:{player.Position:R}/{player.Velocity:R}"));
     return $"t{state.Tick} {state.HomeScore}-{state.AwayScore} "
         + $"ball {state.Ball.Position:R}/{state.Ball.Velocity:R}/{state.Ball.Height:R} {players}";
+}
+
+static MatchEngine PutBallOut(TeamSide lastTouch, Vector2 ballPosition)
+{
+    var engine = MatchEngine.CreateDefault();
+    ClearPossession(engine);
+    engine.State.LastTouchTeam = lastTouch;
+    engine.State.Ball.Position = ballPosition;
+    engine.StepTick(PlayerInput.Empty);
+    return engine;
+}
+
+static void KickInIsAwardedAgainstLastTouch()
+{
+    foreach (var lastTouch in new[] { TeamSide.Home, TeamSide.Away })
+    {
+        var awarded = lastTouch == TeamSide.Home ? TeamSide.Away : TeamSide.Home;
+        var engine = PutBallOut(lastTouch, new Vector2(3f, FieldDimensions.Default.Top - 1f));
+        var state = engine.State;
+        var taker = state.Players.Single(player => player.HasPossession);
+
+        Assert(state.IsBallOutOfPlay, "Touchline exit should stop play.");
+        Assert(state.LastEvent.Restart == RestartKind.KickIn, $"Expected a kick-in, got {state.LastEvent.Restart}.");
+        Assert(state.LastEvent.Team == awarded, $"Kick-in after a {lastTouch} touch should go to {awarded}.");
+        Assert(taker.Team == awarded && taker.Role == PlayerRole.Outfield, "An awarded outfielder should take it.");
+        Assert(state.Ball.PossessorId == taker.Id, "Ball possession should match the taker.");
+        Assert(Near(taker.Position.Y, state.Field.Top) && Near(taker.Position.X, 3f), "Taker should stand where the ball left.");
+        Assert(state.Ball.Position.Y > state.Field.Top, "The ball should be placed inside the court.");
+        if (awarded == TeamSide.Home)
+        {
+            Assert(state.ActivePlayerId == taker.Id, "The user should control their own team's taker.");
+        }
+    }
+}
+
+static void GoalLineExitIsCornerOrGoalClearance()
+{
+    var field = FieldDimensions.Default;
+    foreach (var defending in new[] { TeamSide.Home, TeamSide.Away })
+    {
+        var attacking = defending == TeamSide.Home ? TeamSide.Away : TeamSide.Home;
+        var lineX = defending == TeamSide.Home ? field.Left : field.Right;
+        var beyond = new Vector2(lineX + MathF.Sign(lineX), 6f);
+
+        var corner = PutBallOut(lastTouch: defending, beyond).State;
+        var cornerTaker = corner.Players.Single(player => player.HasPossession);
+        Assert(corner.LastEvent.Restart == RestartKind.Corner, $"Defender's touch should give a corner, got {corner.LastEvent.Restart}.");
+        Assert(corner.LastEvent.Team == attacking && cornerTaker.Team == attacking, "The corner should go to the attackers.");
+        Assert(
+            Near(cornerTaker.Position.X, lineX) && Near(cornerTaker.Position.Y, field.Bottom),
+            "The corner should be taken from the nearer corner.");
+
+        var clearance = PutBallOut(lastTouch: attacking, beyond).State;
+        var keeper = clearance.Players.Single(player => player.HasPossession);
+        Assert(clearance.LastEvent.Restart == RestartKind.GoalClearance, $"Attacker's touch should give a goal clearance, got {clearance.LastEvent.Restart}.");
+        Assert(clearance.LastEvent.Team == defending, "The goal clearance should go to the defending team.");
+        Assert(keeper.IsGoalkeeper && keeper.Team == defending, "The defending goalkeeper should hold the ball.");
+        Assert(clearance.Ball.ControlKind == BallControlKind.GoalkeeperHands, "The goalkeeper should hold it in hands.");
+    }
+}
+
+static void StoppedPlayResumesOnItsOwnWithClockHeld()
+{
+    var engine = PutBallOut(TeamSide.Away, new Vector2(0f, FieldDimensions.Default.Bottom + 1f));
+    var state = engine.State;
+    var taker = state.Players.Single(player => player.HasPossession);
+    var clockAtStop = state.ClockSeconds;
+
+    StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks - 1);
+    Assert(state.IsBallOutOfPlay, "Play should stay stopped for the whole restart delay.");
+    Assert(state.ClockSeconds == clockAtStop, "The match clock should not run while play is stopped.");
+
+    engine.StepTick(PlayerInput.Empty);
+    Assert(!state.IsBallOutOfPlay, "Play should resume without a host call.");
+
+    engine.StepTick(PlayerInput.Empty);
+    Assert(!state.IsBallOutOfPlay, "A taker standing on the line should not put the ball out again.");
+    Assert(taker.HasPossession, "The taker should still have the ball after the restart.");
+    Assert(state.ClockSeconds > clockAtStop, "The clock should run again once play is live.");
+}
+
+static void OpponentsAreMovedBackFromKickIn()
+{
+    var engine = MatchEngine.CreateDefault();
+    ClearPossession(engine);
+    var spot = new Vector2(3f, engine.State.Field.Top);
+    var crowding = engine.State.Players.Single(player => player.Id == 4);
+    crowding.Position = spot + new Vector2(0.5f, 0.8f);
+    engine.State.LastTouchTeam = TeamSide.Away;
+    // Far enough out that the crowding opponent cannot collect it before the rules check.
+    engine.State.Ball.Position = spot + new Vector2(0f, -3f);
+    engine.StepTick(PlayerInput.Empty);
+
+    var taker = engine.State.Players.Single(player => player.HasPossession);
+    Assert(taker.Team == TeamSide.Home, "Home should be awarded the kick-in.");
+    foreach (var opponent in engine.State.Players.Where(player => player.Team == TeamSide.Away && !player.IsGoalkeeper))
+    {
+        Assert(
+            Vector2.Distance(opponent.Position, spot) >= engine.Tuning.RestartOpponentDistance - 0.001f,
+            $"Opponent {opponent.Id} should be at least the restart distance away.");
+    }
+
+    StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + 1);
+    Assert(taker.HasPossession, "A crowding opponent should not win the ball as play resumes.");
+}
+
+static void ButtonHeldThroughStoppageDoesNotKickOnResume()
+{
+    var engine = PutBallOut(TeamSide.Away, new Vector2(3f, FieldDimensions.Default.Top - 1f));
+    var taker = engine.State.Players.Single(player => player.HasPossession);
+    var held = new PlayerInput(Vector2.Zero, ActionDown: true);
+    Assert(engine.State.ActivePlayerId == taker.Id, "The user should control the taker.");
+
+    StepMany(engine, held, engine.Tuning.RestartDelayTicks + engine.Tuning.TapPassMaxTicks + 10);
+    Assert(!engine.State.IsBallOutOfPlay, "Play should have resumed.");
+    Assert(taker.HasPossession, "A button held since before the restart should not kick the ball.");
+
+    engine.StepTick(PlayerInput.Empty);
+    Assert(taker.HasPossession, "Releasing that stale hold should not pass either.");
+
+    StepMany(engine, held, engine.Tuning.TapPassMaxTicks + 2);
+    Assert(!taker.HasPossession, "A fresh press after the restart should kick normally.");
+}
+
+static string RunUnattendedMatchWithForcedOuts()
+{
+    var engine = MatchEngine.CreateDefault();
+    var computerPlayers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    var field = engine.State.Field;
+    var forcedExits = new[]
+    {
+        new Vector2(4f, field.Top - 1f),
+        new Vector2(field.Left - 1f, 6f),
+        new Vector2(-4f, field.Bottom + 1f),
+        new Vector2(field.Right + 1f, -6f)
+    };
+    var stoppages = 0;
+    var consecutiveStoppedTicks = 0;
+    for (var tick = 0; tick < 6000; tick++)
+    {
+        if (tick % 400 == 399 && !engine.State.IsBallOutOfPlay)
+        {
+            ClearPossession(engine);
+            engine.State.Ball.Position = forcedExits[tick / 400 % forcedExits.Length];
+        }
+
+        var wasOut = engine.State.IsBallOutOfPlay;
+        engine.StepTick(PlayerInput.Empty, computerPlayers);
+        if (engine.State.IsBallOutOfPlay)
+        {
+            stoppages += wasOut ? 0 : 1;
+            consecutiveStoppedTicks++;
+            Assert(
+                consecutiveStoppedTicks <= engine.Tuning.RestartDelayTicks,
+                $"Play stayed stopped past the restart delay at tick {tick} ({engine.State.LastEvent.Description}).");
+        }
+        else
+        {
+            consecutiveStoppedTicks = 0;
+        }
+    }
+
+    // 15 exits are forced. A few more can happen in open play, but a taker who keeps putting the
+    // ball straight back out would stop play far more often than this.
+    Assert(stoppages is >= 14 and <= 30, $"Expected roughly one stoppage per forced exit, got {stoppages}.");
+    return $"{stoppages} {engine.State.Ball.Position:R} "
+        + string.Join(";", engine.State.Players.Select(player => $"{player.Position:R}"));
+}
+
+static void UnattendedMatchKeepsResumingAfterForcedOuts()
+{
+    var first = RunUnattendedMatchWithForcedOuts();
+    var second = RunUnattendedMatchWithForcedOuts();
+
+    Assert(first == second, "Restarts should replay to the same state.");
+}
+
+static void SlidingPlayerTakesRestartOnTheirFeet()
+{
+    var engine = MatchEngine.CreateDefault();
+    ClearPossession(engine);
+    var spot = new Vector2(3f, engine.State.Field.Top);
+    var slider = engine.State.Players.Single(player => player.Id == 2);
+    slider.Position = spot + new Vector2(0f, 4f);
+    slider.SlideTicksRemaining = 20;
+    slider.SlideRecoveryTicksRemaining = 20;
+    engine.State.LastTouchTeam = TeamSide.Away;
+    engine.State.Ball.Position = spot + new Vector2(0f, -3f);
+    engine.StepTick(PlayerInput.Empty);
+
+    Assert(slider.HasPossession, "The nearest home outfielder should take the kick-in.");
+    Assert(!slider.IsSliding && !slider.IsRecoveringFromSlide, "The taker should not resume mid-slide.");
 }
 
 static void StepMany(MatchEngine engine, PlayerInput input, int count)
