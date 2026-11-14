@@ -35,7 +35,7 @@ public sealed class MatchEngine
     public MatchEngine(
         MatchState state,
         PhysicsTuning? tuning = null,
-        TeamSide userControlledTeam = TeamSide.Home,
+        TeamSide? userControlledTeam = TeamSide.Home,
         bool opponentMovementEnabled = true)
     {
         State = state;
@@ -58,7 +58,8 @@ public sealed class MatchEngine
 
     public MatchState State { get; }
     public PhysicsTuning Tuning { get; private set; }
-    public TeamSide UserControlledTeam { get; }
+    /// <summary>The team a person plays, or null when computers play both and neither is treated differently.</summary>
+    public TeamSide? UserControlledTeam { get; }
     public bool OpponentMovementEnabled { get; }
     public MatchSnapshot PreviousSnapshot { get; private set; }
     public MatchSnapshot CurrentSnapshot { get; private set; }
@@ -68,7 +69,8 @@ public sealed class MatchEngine
         PhysicsTuning? tuning = null,
         bool opponentMovementEnabled = true,
         IReadOnlyList<PlayerAttributes>? outfieldAttributes = null,
-        int seed = 0)
+        int seed = 0,
+        TeamSide? userControlledTeam = TeamSide.Home)
     {
         tuning ??= PhysicsTuning.Default;
         var field = FieldDimensions.Default;
@@ -119,8 +121,10 @@ public sealed class MatchEngine
         };
 
         return new MatchEngine(
-            new MatchState(field, players, ball, activePlayerId: 1) { Seed = seed },
+            // With nobody playing there is no active player; 0 is no player's id.
+            new MatchState(field, players, ball, activePlayerId: userControlledTeam is null ? 0 : 1) { Seed = seed },
             tuning,
+            userControlledTeam,
             opponentMovementEnabled: opponentMovementEnabled);
     }
 
@@ -1951,8 +1955,11 @@ public sealed class MatchEngine
                 .Where(candidate => candidate.Team == UserControlledTeam && candidate.Role == PlayerRole.Outfield)
                 .OrderBy(candidate => Vector2.DistanceSquared(candidate.Position, State.Ball.Position))
                 .ThenBy(candidate => candidate.Id)
-                .First();
-            TransferUserControlToOutfielder(userOutfielder);
+                .FirstOrDefault();
+            if (userOutfielder is not null)
+            {
+                TransferUserControlToOutfielder(userOutfielder);
+            }
         }
 
         // Standing over the ball: any further back and it is outside the taker's control,
