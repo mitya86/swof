@@ -65,23 +65,32 @@ public sealed class MatchEngine
 
     public static MatchEngine CreateDefault(
         PhysicsTuning? tuning = null,
-        bool opponentMovementEnabled = true)
+        bool opponentMovementEnabled = true,
+        IReadOnlyList<PlayerAttributes>? outfieldAttributes = null)
     {
         tuning ??= PhysicsTuning.Default;
         var field = FieldDimensions.Default;
         var poor = new PlayerAttributes(4, 4, 4, 4, 4, 4, 4);
         var moderate = new PlayerAttributes(8, 8, 8, 8, 8, 8, 8);
         var elite = new PlayerAttributes(15, 15, 15, 15, 15, 15, 15);
+        // Eight outfielders in the order created below: Home fixo, left ala, right ala,
+        // pivo, then Away the same. Squads are not data yet, so this is the only way in.
+        var squad = outfieldAttributes ?? [poor, moderate, elite, moderate, poor, moderate, elite, moderate];
+        if (squad.Count != 8)
+        {
+            throw new ArgumentException("Eight outfield attribute sets are required.", nameof(outfieldAttributes));
+        }
+
         var players = new List<PlayerState>
         {
-            CreatePlayer(1, "Mara", 10, TeamSide.Home, FutsalOutfieldRole.Fixo, new Vector2(-12f, 0f), tuning, Azimuth.East, poor),
-            CreatePlayer(2, "Rook", 6, TeamSide.Home, FutsalOutfieldRole.LeftAla, new Vector2(-7f, -5f), tuning, Azimuth.East, moderate),
-            CreatePlayer(3, "Vale", 8, TeamSide.Home, FutsalOutfieldRole.RightAla, new Vector2(-7f, 5f), tuning, Azimuth.East, elite),
-            CreatePlayer(9, "Tavi", 9, TeamSide.Home, FutsalOutfieldRole.Pivo, new Vector2(-2.5f, 0f), tuning, Azimuth.East, moderate),
-            CreatePlayer(4, "Kade", 9, TeamSide.Away, FutsalOutfieldRole.Fixo, new Vector2(12f, 0f), tuning, Azimuth.West, poor),
-            CreatePlayer(5, "Neri", 7, TeamSide.Away, FutsalOutfieldRole.LeftAla, new Vector2(7f, 5f), tuning, Azimuth.West, moderate),
-            CreatePlayer(6, "Sol", 11, TeamSide.Away, FutsalOutfieldRole.RightAla, new Vector2(7f, -5f), tuning, Azimuth.West, elite),
-            CreatePlayer(10, "Bram", 10, TeamSide.Away, FutsalOutfieldRole.Pivo, new Vector2(2.5f, 0f), tuning, Azimuth.West, moderate),
+            CreatePlayer(1, "Mara", 10, TeamSide.Home, FutsalOutfieldRole.Fixo, new Vector2(-12f, 0f), tuning, Azimuth.East, squad[0]),
+            CreatePlayer(2, "Rook", 6, TeamSide.Home, FutsalOutfieldRole.LeftAla, new Vector2(-7f, -5f), tuning, Azimuth.East, squad[1]),
+            CreatePlayer(3, "Vale", 8, TeamSide.Home, FutsalOutfieldRole.RightAla, new Vector2(-7f, 5f), tuning, Azimuth.East, squad[2]),
+            CreatePlayer(9, "Tavi", 9, TeamSide.Home, FutsalOutfieldRole.Pivo, new Vector2(-2.5f, 0f), tuning, Azimuth.East, squad[3]),
+            CreatePlayer(4, "Kade", 9, TeamSide.Away, FutsalOutfieldRole.Fixo, new Vector2(12f, 0f), tuning, Azimuth.West, squad[4]),
+            CreatePlayer(5, "Neri", 7, TeamSide.Away, FutsalOutfieldRole.LeftAla, new Vector2(7f, 5f), tuning, Azimuth.West, squad[5]),
+            CreatePlayer(6, "Sol", 11, TeamSide.Away, FutsalOutfieldRole.RightAla, new Vector2(7f, -5f), tuning, Azimuth.West, squad[6]),
+            CreatePlayer(10, "Bram", 10, TeamSide.Away, FutsalOutfieldRole.Pivo, new Vector2(2.5f, 0f), tuning, Azimuth.West, squad[7]),
             CreateGoalkeeper(
                 7,
                 "Ivo",
@@ -318,6 +327,10 @@ public sealed class MatchEngine
         if (possessor is not null)
         {
             ControlBall(possessor);
+            if (possessor.HasPossession && !possessor.IsGoalkeeper)
+            {
+                TryGoalkeeperCatch(State.Ball.Position);
+            }
         }
         else if (!releasedBallThisTick)
         {
@@ -1296,13 +1309,19 @@ public sealed class MatchEngine
 
     private bool TryGoalkeeperCatch(Vector2 previousBallPosition)
     {
-        if (State.Ball.IsPossessed || State.Ball.Height > Tuning.GoalkeeperCatchMaxHeight)
+        // A ball at an outfielder's feet can be smothered by the opposing goalkeeper;
+        // otherwise a dribbler could walk it past a set goalkeeper into the goal.
+        var carrier = State.Ball.IsPossessed
+            ? State.Players.First(player => player.Id == State.Ball.PossessorId)
+            : null;
+        if (State.Ball.Height > Tuning.GoalkeeperCatchMaxHeight
+            || (carrier is not null && State.Ball.ControlKind != BallControlKind.Feet))
         {
             return false;
         }
 
         foreach (var goalkeeper in State.Players
-            .Where(player => player.IsGoalkeeper)
+            .Where(player => player.IsGoalkeeper && player.Team != carrier?.Team)
             .OrderBy(player => Vector2.DistanceSquared(player.Position, State.Ball.Position)))
         {
             if (goalkeeper.Id == _releasedByPlayerId && _releasedByCollectionBlockTicks > 0)
@@ -1322,6 +1341,12 @@ public sealed class MatchEngine
             var attributes = goalkeeper.GoalkeeperAttributes ?? GoalkeeperAttributes.Default;
             var catchDistance = Tuning.GoalkeeperCatchReach
                 * Lerp(0.75f, 1.1f, (attributes.Handling01 + attributes.Reflexes01) * 0.5f);
+            if (carrier is not null)
+            {
+                // A dribbled ball is taken once it runs into the goalkeeper's body.
+                catchDistance = MathF.Max(catchDistance, goalkeeper.Radius);
+            }
+
             if (Vector2.DistanceSquared(goalkeeper.Position, catchPoint) > catchDistance * catchDistance)
             {
                 continue;
@@ -1705,13 +1730,23 @@ public sealed class MatchEngine
 
     private void CheckBallRules()
     {
-        if (State.Ball.IsPossessed)
-        {
-            return;
-        }
-
         var field = State.Field;
         var ball = State.Ball;
+        if (ball.IsPossessed)
+        {
+            // A ball carried over a line at a player's feet is out like any other, against the carrier.
+            // A goalkeeper holding the ball is left alone: carrying it over the own goal line is not modelled.
+            var carrier = State.Players.First(player => player.Id == ball.PossessorId);
+            var inside = ball.Position.X >= field.Left && ball.Position.X <= field.Right
+                && ball.Position.Y >= field.Top && ball.Position.Y <= field.Bottom;
+            if (ball.ControlKind != BallControlKind.Feet || inside)
+            {
+                return;
+            }
+
+            State.LastTouchTeam = carrier.Team;
+        }
+
 
         if (ball.Position.Y < field.Top || ball.Position.Y > field.Bottom)
         {
@@ -1887,8 +1922,12 @@ public sealed class MatchEngine
             candidate.SlideRecoveryTicksRemaining = 0;
         }
 
-        var player = State.Players.First(candidate =>
-            candidate.Team == kickoffTeam && candidate.Role == PlayerRole.Outfield);
+        // The forward-most outfielder takes it, so the players behind stay available for the first pass.
+        var player = State.Players
+            .Where(candidate => candidate.Team == kickoffTeam && candidate.Role == PlayerRole.Outfield)
+            .OrderBy(candidate => candidate.KickoffPosition.LengthSquared())
+            .ThenBy(candidate => candidate.Id)
+            .First();
         if (player.Team == UserControlledTeam)
         {
             TransferUserControlToOutfielder(player);
@@ -1903,7 +1942,9 @@ public sealed class MatchEngine
             TransferUserControlToOutfielder(userOutfielder);
         }
 
-        player.Position = kickoffTeam == TeamSide.Home ? new Vector2(-4f, 0f) : new Vector2(4f, 0f);
+        // Standing over the ball: any further back and it is outside the taker's control,
+        // which turns the kickoff into a loose ball that both teams run at.
+        player.Position = -FacingForTeam(kickoffTeam).ToUnitVector() * Tuning.DribbleLeadDistance;
         player.Velocity = Vector2.Zero;
         player.Facing = FacingForTeam(kickoffTeam);
         player.HasPossession = true;

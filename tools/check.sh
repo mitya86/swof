@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Cross-platform quality gate. Usage: tools/check.sh [fast|full] [scenario-filter]
-#   fast  behavior scenarios + whitespace check (default)
-#   full  fast + MonoGame host build + formatting verification
+#   fast     behavior scenarios + whitespace check (default)
+#   full     fast + MonoGame host build + formatting verification
+#   matches  100 unattended computer-versus-computer matches (about a minute);
+#            tools/check.sh matches <count> <firstSeed> replays chosen seeds
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -14,6 +16,10 @@ fi
 
 mode="${1:-fast}"
 filter="${2:-}"
+
+if [ "$mode" = matches ]; then
+    exec "${dotnet[@]}" run --project Swof.Engine.Tests/Swof.Engine.Tests.csproj -- matches "${@:2}"
+fi
 
 "${dotnet[@]}" run --project Swof.Engine.Tests/Swof.Engine.Tests.csproj -- ${filter:+"$filter"}
 git diff --check HEAD

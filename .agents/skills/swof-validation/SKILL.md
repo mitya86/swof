@@ -17,6 +17,7 @@ On any OS (this is what CI runs):
 tools/check.sh                # fast: behavior scenarios + git diff --check
 tools/check.sh fast "tackle"  # only scenarios whose name contains the filter
 tools/check.sh full           # fast + MonoGame host build + format verification
+tools/check.sh matches        # 100 unattended computer-versus-computer matches (liveness, not balance)
 ```
 
 On Windows, the PowerShell script additionally builds the whole solution (including the WPF host) and has the startup smoke mode:

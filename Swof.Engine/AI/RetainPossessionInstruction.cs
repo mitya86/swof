@@ -95,6 +95,14 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
             var boundaryClearance = MathF.Min(
                 MathF.Min(target.X - field.Left, field.Right - target.X),
                 MathF.Min(target.Y - field.Top, field.Bottom - target.Y));
+            // A direction that leads off the court is not somewhere to carry the ball: clamped,
+            // it looked like free space next to the line and the carrier dribbled out of play.
+            if (unclampedTarget.X < field.Left || unclampedTarget.X > field.Right
+                || unclampedTarget.Y < field.Top || unclampedTarget.Y > field.Bottom)
+            {
+                continue;
+            }
+
             var opponentClearance = MinimumPointClearance(target, opponents, UsefulOpponentClearance);
             var teammateSpacing = MinimumPointClearance(target, teammates, UsefulTeammateSpacing);
             var forwardProgress = Vector2.Dot(direction, new Vector2(attackDirection, 0f));
