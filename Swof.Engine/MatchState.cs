@@ -32,6 +32,12 @@ public sealed class MatchState
     public long Tick { get; set; }
     public float ClockSeconds { get; set; }
     public bool IsBallOutOfPlay { get; set; }
+
+    /// <summary>Gets or sets the team that last played the ball; decides who is awarded a restart.</summary>
+    public TeamSide? LastTouchTeam { get; set; }
+
+    /// <summary>Gets or sets the ticks left before a stopped match resumes on its own.</summary>
+    public int RestartTicksRemaining { get; set; }
     public MatchEvent LastEvent { get; set; } = MatchEvent.None;
     public IReadOnlyList<GameplayFeedbackEvent> FeedbackEvents => _feedbackEvents;
 

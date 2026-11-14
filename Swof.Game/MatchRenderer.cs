@@ -151,7 +151,17 @@ internal sealed class MatchRenderer : IDisposable
 
         if (snapshot.IsBallOutOfPlay)
         {
-            const string restartText = "PLAY STOPPED - PRESS R TO RESUME";
+            var restartLabel = snapshot.LastEvent.Restart switch
+            {
+                RestartKind.Kickoff => "GOAL",
+                RestartKind.KickIn => "KICK-IN",
+                RestartKind.Corner => "CORNER",
+                RestartKind.GoalClearance => "GOAL CLEARANCE",
+                _ => "PLAY STOPPED"
+            };
+            var restartText = snapshot.LastEvent.Team is TeamSide restartTeam
+                ? $"{restartLabel} - {restartTeam.ToString().ToUpperInvariant()}"
+                : restartLabel;
             var size = font.MeasureString(restartText);
             var position = new Vector2(
                 gameView.Center.X - size.X * 0.5f,

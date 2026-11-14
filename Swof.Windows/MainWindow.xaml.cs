@@ -100,7 +100,7 @@ namespace Swof.Windows
                 : "loose";
 
             var eventText = state.IsBallOutOfPlay
-                ? $" | {state.LastEvent.Description} Restart: {state.LastEvent.Restart}. Press R."
+                ? $" | {state.LastEvent.Description} Restart: {state.LastEvent.Restart}."
                 : string.Empty;
 
             StatusText.Text =

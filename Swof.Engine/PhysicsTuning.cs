@@ -43,6 +43,10 @@ public sealed record PhysicsTuning
     public int GoalkeeperAiDistributionDelayTicks { get; init; } = 45;
     /// <summary>Safety timeout before a user-controlled goalkeeper auto-distributes.</summary>
     public int GoalkeeperUserDistributionTimeoutTicks { get; init; } = 240;
+    /// <summary>Pause between the ball leaving play and the awarded restart becoming live.</summary>
+    public int RestartDelayTicks { get; init; } = 60;
+    /// <summary>Distance opponents are moved back from a kick-in or corner (5 m in the futsal laws).</summary>
+    public float RestartOpponentDistance { get; init; } = 5f;
     public float BallRadius { get; init; } = 0.42f;
     public float BallFrictionPerTick { get; init; } = 5.2f / (60f * 60f);
     public float MinBallSpeedPerTick { get; init; } = 0.03f / 60f;
