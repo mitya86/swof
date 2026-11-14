@@ -121,11 +121,13 @@ public sealed class OpenPassingOptionPattern : IPlayerPattern<SafePassOpportunit
 
     private static Vector2 GetRoleOffset(FutsalOutfieldRole role)
     {
+        // Along the court from whoever has the ball: the alas offer ahead of it. Level with it they
+        // gave the carrier only square and backward passes, and passes undid what carries gained.
         return role switch
         {
             FutsalOutfieldRole.Fixo => new Vector2(-5f, 0f),
-            FutsalOutfieldRole.LeftAla => new Vector2(1f, -5f),
-            FutsalOutfieldRole.RightAla => new Vector2(1f, 5f),
+            FutsalOutfieldRole.LeftAla => new Vector2(4f, -5f),
+            FutsalOutfieldRole.RightAla => new Vector2(4f, 5f),
             FutsalOutfieldRole.Pivo => new Vector2(6f, 0f),
             _ => new Vector2(-3f, 0f)
         };

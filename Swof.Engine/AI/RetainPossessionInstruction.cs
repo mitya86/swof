@@ -34,8 +34,9 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
     private const float MaximumPassDistance = 18f;
     private const float MinimumSafeLaneClearance = 3f;
     private const float MinimumSafeReceiverClearance = 3f;
-    // An opponent's body reaches this far across a pass leaving the passer's feet...
-    private const float LaneBodyReach = 1.5f;
+    // An opponent takes a pass that comes within 1.97 m of it (body, ball and
+    // PhysicsTuning.FastBallCollectionReach) and steps toward it while the ball leaves the passer's feet...
+    private const float LaneBodyReach = 2.5f;
     // ...and it covers this much more ground for every metre the ball has to travel to pass it.
     private const float LaneReachPerMetre = 0.25f;
 
