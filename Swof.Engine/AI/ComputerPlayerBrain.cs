@@ -34,6 +34,7 @@ public sealed class ComputerPlayerBrain
         return new ComputerPlayerBrain(new IPlayerInstruction[]
         {
             new RecoverLooseBallInstruction(new ClosestTeammateToLooseBallPattern()),
+            new ShootAtGoalInstruction(new ShootingChancePattern()),
             new RetainPossessionInstruction(new SafePossessionPattern()),
             new PressureBallCarrierInstruction(new BallCarrierPressurePattern()),
             new CoverBallCarrierInstruction(new BallCarrierCoverPattern()),

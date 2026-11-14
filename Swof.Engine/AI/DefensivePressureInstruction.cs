@@ -107,7 +107,19 @@ public sealed class BallCarrierCoverPattern : IPlayerPattern<BallCarrierCoverOpp
 public sealed class PressureBallCarrierInstruction : IPlayerInstruction
 {
     private const float ArrivalDistance = 0.55f;
+    // The presser holds station about 1.9 m goal-side of the carrier; a slide covers about 3.3 m.
+    public const float TackleRange = 2.2f;
+    private const float TackleFacingCosine = 0.9f;
+
+    // Longer than a slide and its recovery: a press during either would not start a new slide.
+    internal const int TackleCooldownTicks = 90;
+
+    /// <summary>Ticks the presser shadows a carrier within reach before sliding, so the tackle can be read and beaten.</summary>
+    public const int JockeyTicksBeforeTackle = 20;
+
     private readonly IPlayerPattern<BallCarrierPressureOpportunity> _pattern;
+    private int _tackleCooldownTicksRemaining;
+    private int _ticksWithinReach;
 
     /// <summary>Creates the instruction with its independently replaceable pressure recognizer.</summary>
     /// <param name="pattern">The recognizer that assigns a presser and pressure point.</param>
@@ -121,16 +133,43 @@ public sealed class PressureBallCarrierInstruction : IPlayerInstruction
     public PlayerInstructionCandidate? Evaluate(PlayerDecisionContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+        if (_tackleCooldownTicksRemaining > 0)
+        {
+            _tackleCooldownTicksRemaining--;
+        }
+
         if (!_pattern.TryRecognize(context, out var match))
         {
+            _ticksWithinReach = 0;
             return null;
+        }
+
+        var input = new PlayerInput(
+            DirectionTo(context.Player.Position, match.Target, match.Distance),
+            ActionDown: false);
+        var carrier = context.Match.Players.First(player => player.Id == match.CarrierId);
+        var toCarrier = carrier.Position - context.Player.Position;
+        var carrierDistance = toCarrier.Length();
+        _ticksWithinReach = carrierDistance <= TackleRange ? _ticksWithinReach + 1 : 0;
+        if (_tackleCooldownTicksRemaining == 0
+            && _ticksWithinReach > JockeyTicksBeforeTackle
+            && carrierDistance > 0.0001f)
+        {
+            // Turn onto the carrier first, then press once: the engine starts the slide on the press.
+            var direction = toCarrier / carrierDistance;
+            var isFacingCarrier = Vector2.Dot(context.Player.Facing.ToUnitVector(), direction) >= TackleFacingCosine;
+            input = new PlayerInput(direction, ActionDown: isFacingCarrier);
+            if (isFacingCarrier)
+            {
+                _tackleCooldownTicksRemaining = TackleCooldownTicks;
+            }
         }
 
         return new PlayerInstructionCandidate(
             PlayerInstructionKind.PressureBallCarrier,
             PlayerInstructionPriorityBand.Urgent,
             1f / (1f + match.Distance),
-            new PlayerInput(DirectionTo(context.Player.Position, match.Target, match.Distance), ActionDown: false));
+            input);
     }
 
     private static Vector2 DirectionTo(Vector2 position, Vector2 target, float distance)

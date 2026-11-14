@@ -30,5 +30,8 @@ public enum PlayerInstructionKind
     PressureBallCarrier = 7,
 
     /// <summary>Protect the space behind the player pressing the opposing ball carrier.</summary>
-    CoverBallCarrier = 8
+    CoverBallCarrier = 8,
+
+    /// <summary>Shoot at goal with a held action.</summary>
+    ShootAtGoal = 9
 }

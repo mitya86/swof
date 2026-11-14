@@ -8,7 +8,9 @@ Read this reference before changing SWOF AI, tactics, control assignment, or mul
 - `ComputerPlayerController` owns one `ComputerPlayerBrain` per eligible outfielder. Each brain evaluates the same immutable pre-tick snapshot for its own player.
 - `IPlayerPattern<T>` recognizes reusable field situations. `IPlayerInstruction` turns a recognized situation into an executable `PlayerInstructionCandidate` or returns `null`.
 - `ComputerPlayerBrain.Decide` compares `PlayerInstructionPriorityBand` first, then situational score plus `TacticalPriorities`, then stable registration order.
-- Registered behavior covers loose-ball recovery, possession retention, ball-carrier pressure, cover, safe pass support, structured marking, and team-shape maintenance.
+- Registered behavior covers loose-ball recovery, shooting, possession retention, ball-carrier pressure with a slide tackle, cover, safe pass support, structured marking, and team-shape maintenance.
+- A computer shot is the same held button a human uses. The hold is returned in the `Urgent` band until the ball leaves, and the stick stays neutral through the aftertouch window, so computer players never bend or lift a shot.
+- The presser shadows a carrier within reach for a third of a second, then presses once to slide. There is no other tackle: releasing the button without the ball does nothing, for humans and computer players alike.
 - AI output and assigned human input meet in `PlayerControlFrame`; `MatchEngine` consumes one deterministic frame per tick.
 - The user controls an outfielder selected by possession/defensive handoff. The goalkeeper becomes user-controlled only while holding the ball for distribution.
 - Defensive handoff selects a deterministic nearby goal-side outfielder. AI teammates then cover and mark while the human slot remains reserved.

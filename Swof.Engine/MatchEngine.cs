@@ -441,9 +441,11 @@ public sealed class MatchEngine
 
         if (actionReleased)
         {
-            if (!actionState.ActionCommittedThisHold)
+            // Releasing without the ball does nothing: the only tackle is the slide started on the press.
+            if (!actionState.ActionCommittedThisHold && player.HasPossession)
             {
-                releasedBallThisTick |= UseAction(player, actionState.ActionHeldTicks);
+                UseAction(player, actionState.ActionHeldTicks);
+                releasedBallThisTick = true;
             }
 
             actionState.ActionCommittedThisHold = false;
@@ -1004,24 +1006,16 @@ public sealed class MatchEngine
         State.Ball.CurveSpinZ = 0f;
     }
 
-    private bool UseAction(PlayerState activePlayer, int heldTicks)
+    private void UseAction(PlayerState activePlayer, int heldTicks)
     {
-        if (activePlayer.HasPossession)
+        if (heldTicks <= Tuning.TapPassMaxTicks)
         {
-            if (heldTicks <= Tuning.TapPassMaxTicks)
-            {
-                PassBall(activePlayer);
-            }
-            else
-            {
-                KickBall(activePlayer);
-            }
-
-            return true;
+            PassBall(activePlayer);
         }
-
-        TryTackle(activePlayer);
-        return false;
+        else
+        {
+            KickBall(activePlayer);
+        }
     }
 
     private void PassBall(PlayerState player)
@@ -1193,29 +1187,6 @@ public sealed class MatchEngine
         // A digital diagonal expresses a goal-side choice near goal. It does not become
         // a literal 45-degree miss, while already goal-bound directions remain unchanged.
         return SafeNormalize(new Vector2(goalX, targetY) - player.Position, facing);
-    }
-
-    private void TryTackle(PlayerState activePlayer)
-    {
-        var target = State.Players
-            .Where(player => player.Id != activePlayer.Id && player.HasPossession)
-            .Where(player => !IsHoldingBallInHands(player))
-            .OrderBy(player => Vector2.DistanceSquared(player.Position, activePlayer.Position))
-            .FirstOrDefault();
-
-        if (target is null)
-        {
-            return;
-        }
-
-        if (Vector2.Distance(target.Position, activePlayer.Position) > Tuning.TackleDistance)
-        {
-            return;
-        }
-
-        target.HasPossession = false;
-        activePlayer.HasPossession = true;
-        BeginControlledPossession(activePlayer);
     }
 
     private void MoveLooseBall()
