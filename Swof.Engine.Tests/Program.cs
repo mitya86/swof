@@ -3474,6 +3474,10 @@ static void TouchesGiveStickAndOneButton()
 
     input = controls.Read([new TouchPoint(4, new Vector2(900f, 100f))], screen);
     Assert(input.Move == Vector2.Zero && input.ActionDown, "A touch on the right half should press the button only.");
+    input = controls.Read([new TouchPoint(4, new Vector2(100f, 100f))], screen);
+    input = controls.Read([new TouchPoint(4, new Vector2(100f, 300f))], screen);
+    Assert(input.Move == Vector2.Zero && input.ActionDown && controls.StickOrigin is null,
+        "A button touch dragged onto the left half should stay the button and not become the stick.");
     controls.Reset();
     input = controls.Read([], screen);
     Assert(!input.ActionDown, "A reset should release the button.");

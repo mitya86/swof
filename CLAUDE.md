@@ -83,11 +83,11 @@ If bare `dotnet` fails (a mise shim with no version set), prefix it: `mise exec 
 ## Architecture Overview
 
 - `Swof.Engine`: dependency-free deterministic 60 Hz match simulation. `MatchEngine.StepTick` is authoritative; hosts render interpolated immutable snapshots. `Swof.Engine/AI` drives computer players through the same one-button `PlayerInput` a human uses.
-- `Swof.Game`: the primary host (MonoGame DesktopGL). Keyboard and gamepad only; there is no touch input yet.
+- `Swof.Game`: the primary host (MonoGame DesktopGL). Keyboard, gamepad, and a mouse-driven prototype of the touch controls (`Swof.Engine/TouchControls.cs`: drag on the left half is a stick, the right half is the button). Real touch input is not read yet.
 - `Swof.Windows`: legacy WPF host kept for its live physics-tuning grid. Do not add features to its renderer.
 - `Swof.Engine.Tests`: the scenario runner described above.
 
-What does not exist yet, despite appearing in docs as design: fouls and free kicks, the four-second count, changing ends at half-time, extra time, AI aftertouch on shots, tactics selection, menus, touch, multiplayer.
+What does not exist yet, despite appearing in docs as design: fouls and free kicks, the four-second count, changing ends at half-time, extra time, AI aftertouch on shots, tactics selection, menus, real touch input (only the mouse-driven prototype), multiplayer.
 
 ## Conventions & Patterns
 
