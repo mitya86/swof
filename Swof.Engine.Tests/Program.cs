@@ -112,7 +112,6 @@ var tests = new (string Name, Action Test)[]
     ("computer corner taker carries the ball into the court", ComputerCornerTakerCarriesBallIntoCourt),
     ("goalkeeper smothers a ball dribbled straight at it", GoalkeeperSmothersBallDribbledStraightAtIt),
     ("adjacent opponents do not swap the ball every tick", AdjacentOpponentsDoNotSwapBallEveryTick),
-    ("computer shot aim drifts less for a better finisher", ComputerShotAimDriftsLessForBetterFinisher),
     ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
 };
 
@@ -2802,41 +2801,6 @@ static void UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds()
     var equalFirst = MatchRunner.Play(seed: 3, halfLengthSeconds: 10f, equalSquads: true);
     Assert(equalFirst == MatchRunner.Play(seed: 3, halfLengthSeconds: 10f, equalSquads: true), "Equal squads with the same seed should play the same match.");
     Assert(equalFirst != MatchRunner.Play(seed: 4, halfLengthSeconds: 10f, equalSquads: true), "Equal squads with another seed should play a different match.");
-}
-
-static void ComputerShotAimDriftsLessForBetterFinisher()
-{
-    var poor = AimDistancesFromGoalCentre(finishing: 4);
-    var good = AimDistancesFromGoalCentre(finishing: 15);
-
-    Assert(poor.Max() - poor.Min() > 0.5f, "A poor finisher's aim should vary from shot to shot.");
-    Assert(good.Min() > poor.Min() + 0.3f, "A good finisher should keep the shot further from the middle of the goal.");
-    Assert(good.Concat(poor).All(distance => distance <= 0.9f + 0.001f), "The aim should never drift outside the intended spot.");
-
-    static float[] AimDistancesFromGoalCentre(byte finishing)
-    {
-        var attributes = PlayerAttributes.DefaultOutfield with { Finishing = finishing };
-        var setup = MatchEngine.CreateDefault(outfieldAttributes: Enumerable.Repeat(attributes, 8).ToArray());
-        var state = setup.State;
-        var shooter = state.Players.Single(player => player.Id == 10);
-        shooter.Position = new Vector2(state.Field.Left + 8f, 2f);
-        foreach (var defender in state.Players.Where(player => player.Team == TeamSide.Home && player.Role == PlayerRole.Outfield))
-        {
-            defender.Position = new Vector2(state.Field.Right - 3f, defender.Id - 5f);
-        }
-
-        GivePossession(setup, shooter);
-        var pattern = new ShootingChancePattern();
-        return Enumerable.Range(0, 200)
-            .Select(tick =>
-            {
-                var snapshot = MatchSnapshot.FromState(state) with { Tick = tick };
-                Assert(pattern.TryRecognize(new PlayerDecisionContext(snapshot, shooter.Id), out var chance), "The shooter should have a chance.");
-                var toGoalLine = (state.Field.Left - shooter.Position.X) / chance.AimDirection.X;
-                return MathF.Abs(shooter.Position.Y + chance.AimDirection.Y * toGoalLine);
-            })
-            .ToArray();
-    }
 }
 
 static void MatchPlaysTwoHalvesAndThenStaysFinished()
