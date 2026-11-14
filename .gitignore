@@ -16,3 +16,6 @@ tools/analysis/*
 *.db
 .beads-credential-key
 .beads/proxieddb/
+.DS_Store
+publish/
+artifacts/
