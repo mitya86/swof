@@ -284,7 +284,13 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
 /// </remarks>
 public sealed class RetainPossessionInstruction : IPlayerInstruction
 {
-    internal const int MinimumPassDelayTicks = 30;
+    public const int MinimumPassDelayTicks = 30;
+
+    /// <summary>
+    /// Ticks a pressed carrier in its own third keeps the ball before passing. Waiting the usual half second there,
+    /// the last outfielder had the ball taken off it where it stood about 18 times a match.
+    /// </summary>
+    public const int OwnThirdPassDelayTicks = 10;
     internal const int NormalPassDelayTicks = 48;
     internal const int CarryCommitmentTicks = 10;
     internal const float PressureDistance = 3.25f;
@@ -322,9 +328,11 @@ public sealed class RetainPossessionInstruction : IPlayerInstruction
         }
 
         _possessionTicks++;
+        var attackDirection = context.Player.Team == TeamSide.Home ? 1f : -1f;
+        var isInOwnThird = context.Player.Position.X * attackDirection < -context.Match.Field.Length / 6f;
         var mayPass = match.PassTargetId is not null
             && (_possessionTicks >= NormalPassDelayTicks
-                || _possessionTicks >= MinimumPassDelayTicks
+                || _possessionTicks >= (isInOwnThird ? OwnThirdPassDelayTicks : MinimumPassDelayTicks)
                     && match.NearestOpponentDistance <= PressureDistance);
         if (mayPass)
         {

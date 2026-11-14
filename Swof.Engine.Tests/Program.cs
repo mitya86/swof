@@ -24,6 +24,7 @@ var tests = new (string Name, Action Test)[]
     ("computer carrier turns a quarter at a time", ComputerCarrierTurnsAQuarterAtATime),
     ("wide players offer ahead of the ball", WidePlayersOfferAheadOfBall),
     ("carrier does not pass within an opponent's reach", CarrierDoesNotPassWithinOpponentsReach),
+    ("pressed carrier in its own third passes at once", PressedCarrierInOwnThirdPassesAtOnce),
     ("pressed carrier can pass away from the presser but not through it", PressedCarrierCanPassAwayFromPresserButNotThroughIt),
     ("active player can dribble the ball", ActivePlayerCanDribble),
     ("holding beyond the tap window commits a shot before release", HeldActionCommitsShotBeforeRelease),
@@ -557,6 +558,44 @@ static void CarrierDoesNotPassWithinOpponentsReach()
                 out var opportunity),
             "The carrier should be weighing where to go.");
         return opportunity.PassTargetId;
+    }
+}
+
+static void PressedCarrierInOwnThirdPassesAtOnce()
+{
+    Assert(
+        TicksUntilPass(carrierX: -10f) == RetainPossessionInstruction.OwnThirdPassDelayTicks,
+        "Pressed in its own third, a carrier with a safe pass should play it after a sixth of a second.");
+    Assert(
+        TicksUntilPass(carrierX: 0f) == RetainPossessionInstruction.MinimumPassDelayTicks,
+        "Pressed further up the court, a carrier still holds the ball for half a second first.");
+
+    // Home attacks toward positive X. A presser stands beside the carrier; a teammate is free ahead.
+    static int TicksUntilPass(float carrierX)
+    {
+        var engine = MatchEngine.CreateDefault(userControlledTeam: null);
+        var state = engine.State;
+        var carrier = state.Players.Single(player => player.Id == 2);
+        foreach (var other in state.Players.Where(player => !player.IsGoalkeeper))
+        {
+            other.Position = new Vector2(other.Team == TeamSide.Home ? -17f : 17f, other.Id - 5f);
+        }
+
+        carrier.Position = new Vector2(carrierX, 0f);
+        state.Players.Single(player => player.Id == 3).Position = carrier.Position + new Vector2(8f, 0f);
+        state.Players.Single(player => player.Id == 10).Position = carrier.Position + new Vector2(0f, 3f);
+        GivePossession(engine, carrier);
+        var context = new PlayerDecisionContext(MatchSnapshot.FromState(state), carrier.Id);
+        var instruction = new RetainPossessionInstruction(new SafePossessionPattern());
+        for (var tick = 1; tick <= 60; tick++)
+        {
+            if (instruction.Evaluate(context)?.Input.ActionDown == true)
+            {
+                return tick;
+            }
+        }
+
+        return int.MaxValue;
     }
 }
 
