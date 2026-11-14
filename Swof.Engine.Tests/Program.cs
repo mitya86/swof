@@ -22,6 +22,8 @@ var tests = new (string Name, Action Test)[]
     ("match with no user team treats both goalkeepers alike", MatchWithNoUserTeamTreatsBothGoalkeepersAlike),
     ("pressed carrier in its own half does not carry toward its own goal", PressedCarrierInOwnHalfDoesNotCarryTowardOwnGoal),
     ("computer carrier turns a quarter at a time", ComputerCarrierTurnsAQuarterAtATime),
+    ("wide players offer ahead of the ball", WidePlayersOfferAheadOfBall),
+    ("carrier does not pass within an opponent's reach", CarrierDoesNotPassWithinOpponentsReach),
     ("pressed carrier can pass away from the presser but not through it", PressedCarrierCanPassAwayFromPresserButNotThroughIt),
     ("active player can dribble the ball", ActivePlayerCanDribble),
     ("holding beyond the tap window commits a shot before release", HeldActionCommitsShotBeforeRelease),
@@ -499,6 +501,62 @@ static void PressedCarrierInOwnHalfDoesNotCarryTowardOwnGoal()
                 out var opportunity),
             "The carrier should be weighing where to go.");
         return opportunity.CarryDirection.X;
+    }
+}
+
+static void WidePlayersOfferAheadOfBall()
+{
+    // The fixo has the ball in its own half and nobody is near. Level with it, the alas gave it
+    // only square and backward passes: over 100 matches passes took the ball back as far as carries took it up.
+    var engine = MatchEngine.CreateDefault(userControlledTeam: null);
+    var state = engine.State;
+    var home = state.Players.Where(player => player.Team == TeamSide.Home && !player.IsGoalkeeper).ToArray();
+    var fixo = home.Single(player => player.FutsalRole == FutsalOutfieldRole.Fixo);
+    foreach (var other in state.Players.Where(player => !player.IsGoalkeeper))
+    {
+        other.Position = new Vector2(other.Team == TeamSide.Home ? -12f : 17f, other.Id - 5f);
+    }
+
+    fixo.Position = new Vector2(-8f, 0f);
+    GivePossession(engine, fixo);
+    var snapshot = MatchSnapshot.FromState(state);
+    foreach (var ala in home.Where(player => player.FutsalRole is FutsalOutfieldRole.LeftAla or FutsalOutfieldRole.RightAla))
+    {
+        Assert(
+            new OpenPassingOptionPattern().TryRecognize(new PlayerDecisionContext(snapshot, ala.Id), out var offer),
+            "An ala should look for somewhere to offer a pass.");
+        Assert(
+            offer.Target.X - fixo.Position.X >= 2f,
+            $"An ala should offer ahead of the ball, not level with it (offered {offer.Target.X - fixo.Position.X:0.0} m ahead).");
+    }
+}
+
+static void CarrierDoesNotPassWithinOpponentsReach()
+{
+    Assert(PassTarget(opponentOffLane: 2.2f) != 3, "An opponent 2.2 m off the lane, two metres from the passer, reaches the pass.");
+    Assert(PassTarget(opponentOffLane: 3.4f) == 3, "With the opponent 3.4 m off the lane the pass is on; if not, the scenario proves nothing.");
+
+    static int? PassTarget(float opponentOffLane)
+    {
+        var engine = MatchEngine.CreateDefault(userControlledTeam: null);
+        var state = engine.State;
+        var carrier = state.Players.Single(player => player.Id == 2);
+        var teammate = state.Players.Single(player => player.Id == 3);
+        foreach (var other in state.Players.Where(player => !player.IsGoalkeeper))
+        {
+            other.Position = new Vector2(other.Team == TeamSide.Home ? -17f : 17f, other.Id - 5f);
+        }
+
+        carrier.Position = new Vector2(-6f, 0f);
+        teammate.Position = carrier.Position + new Vector2(8f, 0f);
+        state.Players.Single(player => player.Id == 10).Position = carrier.Position + new Vector2(2f, opponentOffLane);
+        GivePossession(engine, carrier);
+        Assert(
+            new SafePossessionPattern().TryRecognize(
+                new PlayerDecisionContext(MatchSnapshot.FromState(state), carrier.Id),
+                out var opportunity),
+            "The carrier should be weighing where to go.");
+        return opportunity.PassTargetId;
     }
 }
 
