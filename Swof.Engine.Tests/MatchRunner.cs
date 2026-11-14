@@ -40,7 +40,11 @@ internal static class MatchRunner
     /// small differences in computer decisions. Goalkeepers stay fixed so that shot numbers
     /// compare across seeds.
     /// </summary>
-    internal static MatchResult Play(int seed, float halfLengthSeconds = 0f, bool equalSquads = false)
+    internal static MatchResult Play(
+        int seed,
+        float halfLengthSeconds = 0f,
+        bool equalSquads = false,
+        TeamSide? userControlledTeam = null)
     {
         var random = new Random(seed);
         // 4 to 15 is the range the default squads already use.
@@ -56,7 +60,7 @@ internal static class MatchRunner
             Array.Fill(squad, PlayerAttributes.DefaultOutfield);
         }
 
-        var engine = MatchEngine.CreateDefault(tuning, outfieldAttributes: squad, seed: seed, userControlledTeam: null);
+        var engine = MatchEngine.CreateDefault(tuning, outfieldAttributes: squad, seed: seed, userControlledTeam: userControlledTeam);
         var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
         var state = engine.State;
         var nobody = new Dictionary<int, PlayerInput>();
@@ -232,8 +236,19 @@ internal static class MatchRunner
         Console.WriteLine(
             $"first goal   home {results.Count(r => r.FirstGoalBy == TeamSide.Home)}, away {results.Count(r => r.FirstGoalBy == TeamSide.Away)}");
 
-        var broken = results.Count(r => r.Fault is not null);
-        Console.WriteLine(broken == 0 ? $"All {count} matches reached full time." : $"{broken} of {count} matches broke.");
+        // Every real match has Home as the person's team, which switches the active player and
+        // makes Home's goalkeeper wait. Those paths must still finish a match, so a few seeds
+        // are replayed that way; they lean toward Away and stay out of the figures above.
+        var withUserTeam = Enumerable.Range(firstSeed, Math.Min(count, 10))
+            .Select(seed => Play(seed, equalSquads: equalSquads, userControlledTeam: TeamSide.Home))
+            .ToArray();
+        foreach (var r in withUserTeam.Where(r => r.Fault is not null))
+        {
+            Console.WriteLine($"FAIL seed {r.Seed,4} with Home as the user team  {r.Fault}");
+        }
+
+        var broken = results.Concat(withUserTeam).Count(r => r.Fault is not null);
+        Console.WriteLine(broken == 0 ? $"All {count} matches reached full time, and {withUserTeam.Length} more with Home as the user team." : $"{broken} of {count + withUserTeam.Length} matches broke.");
         return broken;
     }
 
