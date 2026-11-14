@@ -64,6 +64,7 @@ var tests = new (string Name, Action Test)[]
     ("home AI collector becomes the human-controlled player", HomeAiCollectorBecomesHumanControlledPlayer),
     ("passive challenger can win controlled ball", PassiveChallengerCanWinControlledBall),
     ("high control player resists passive challenge", HighControlPlayerResistsPassiveChallenge),
+    ("equal carrier keeps the ball from a challenger behind but not in front", EqualCarrierKeepsBallFromBehindButNotInFront),
     ("sliding tackle has travel and recovery phases", SlidingTackleHasTravelAndRecoveryPhases),
     ("sliding tackle can knock ball loose", SlidingTackleCanKnockBallLoose),
     ("holding after contact cannot accelerate the shot", HoldingAfterContactCannotAccelerateShot),
@@ -1427,6 +1428,46 @@ static void PassiveChallengerCanWinControlledBall()
     Assert(!attacker.HasPossession, "Low-control attacker should lose possession to a strong nearby tackler.");
     Assert(defender.HasPossession, "Strong nearby tackler should win passive possession.");
     Assert(engine.State.Ball.PossessorId == defender.Id, "Ball possessor should become the defender.");
+}
+
+static void EqualCarrierKeepsBallFromBehindButNotInFront()
+{
+    var behind = new Vector2(-0.7f, 0f);
+    var inFront = new Vector2(2.9f, 0f);
+
+    Assert(CarrierKeepsBall(behind, PhysicsTuning.Default), "A carrier should shield the ball from an equal challenger behind it.");
+    Assert(!CarrierKeepsBall(inFront, PhysicsTuning.Default), "A carrier should lose the ball to an equal challenger it runs into.");
+    Assert(
+        !CarrierKeepsBall(behind, PhysicsTuning.Default with { PassiveContestPossessorAdvantage = 0f }),
+        "Without the carrier's advantage standing near the ball is enough to take it.");
+
+    static bool CarrierKeepsBall(Vector2 challengerPosition, PhysicsTuning tuning)
+    {
+        PlayerState Player(int id, TeamSide team, Vector2 position, Azimuth facing) => new(id, "Player", team, position)
+        {
+            Facing = facing,
+            Attributes = PlayerAttributes.DefaultOutfield,
+            Radius = tuning.PlayerRadius,
+            MaxSpeedPerTick = tuning.PlayerMaxSpeedPerTick,
+            AccelerationPerTick = tuning.PlayerAccelerationPerTick,
+            FrictionPerTick = tuning.PlayerFrictionPerTick
+        };
+        var carrier = Player(1, TeamSide.Home, Vector2.Zero, Azimuth.East);
+        carrier.HasPossession = true;
+        var challenger = Player(2, TeamSide.Away, challengerPosition, Azimuth.West);
+        var ball = new BallState
+        {
+            Radius = tuning.BallRadius,
+            Position = carrier.Position + carrier.Facing.ToUnitVector() * tuning.DribbleLeadDistance,
+            PossessorId = carrier.Id
+        };
+        var engine = new MatchEngine(
+            new MatchState(FieldDimensions.Default, new[] { carrier, challenger }, ball, activePlayerId: carrier.Id),
+            tuning);
+
+        engine.StepTick(PlayerInput.Empty);
+        return carrier.HasPossession;
+    }
 }
 
 static void HighControlPlayerResistsPassiveChallenge()

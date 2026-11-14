@@ -1068,7 +1068,8 @@ public sealed class MatchEngine
             + challengerSpeed01 * 0.08f
             - possessorControl * 0.46f
             - (1f - exposedBall01) * 0.18f
-            - possessorSpeed01 * 0.06f;
+            - possessorSpeed01 * 0.06f
+            - Tuning.PassiveContestPossessorAdvantage;
     }
 
     private void KnockBallLoose(PlayerState possessor, PlayerState challenger)
