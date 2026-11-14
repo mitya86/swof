@@ -98,6 +98,17 @@ public sealed record PhysicsTuning
     public float PassiveContestDistance { get; init; } = 0.72f;
     public float PassiveContestCleanWinMargin { get; init; } = 0.1f;
     public float PassiveContestKnockLooseSpeedPerTick { get; init; } = 0.22f;
+    /// <summary>
+    /// Ticks after a player gains the ball during which standing next to them cannot take it.
+    /// Without it two adjacent players take the ball from each other on alternate ticks.
+    /// A slide tackle still wins the ball during this time.
+    /// </summary>
+    public int NewPossessionProtectionTicks { get; init; } = 30;
+    /// <summary>
+    /// Ticks a player who has just had the ball knocked away must wait before collecting it again.
+    /// Without it the loser of a tackle picks the ball straight back up from beside their feet.
+    /// </summary>
+    public int DispossessedCollectionBlockTicks { get; init; } = 20;
     /// <summary>Brief travel window for a compact futsal tackle.</summary>
     public int SlideTravelTicks { get; init; } = 9;
     /// <summary>Short recovery window before the tackler can move again.</summary>
