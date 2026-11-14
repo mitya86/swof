@@ -308,6 +308,12 @@ public sealed class MatchEngine
         }
 
         _ballCollectionCooldownTicks = Math.Max(0, _ballCollectionCooldownTicks - 1);
+        if (State.Ball.IsPossessed || State.IsBallOutOfPlay)
+        {
+            // The pass is over once anyone has the ball or it has left the court.
+            _passReceiverId = null;
+        }
+
         _newPossessionProtectionTicks = Math.Max(0, _newPossessionProtectionTicks - 1);
         _releasedByCollectionBlockTicks = Math.Max(0, _releasedByCollectionBlockTicks - 1);
         if (_releasedByCollectionBlockTicks == 0)
@@ -1178,7 +1184,6 @@ public sealed class MatchEngine
         State.Ball.Height = 0f;
         State.Ball.VerticalVelocity = lift;
         _ballCollectionCooldownTicks = collectionCooldownTicks;
-        _passReceiverId = null;
         _releasedByPlayerId = player.Id;
         _releasedByCollectionBlockTicks = Tuning.KickCollectionCooldownTicks;
         _ticksSinceBallReleased = 0;
@@ -1463,7 +1468,6 @@ public sealed class MatchEngine
             return;
         }
 
-        _passReceiverId = null;
         collector.HasPossession = true;
         BeginControlledPossession(collector);
     }
