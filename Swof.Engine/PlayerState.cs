@@ -10,6 +10,7 @@ public sealed class PlayerState : IMatchPersonState
         Name = name;
         Team = team;
         Position = position;
+        KickoffPosition = position;
     }
 
     public int Id { get; }
@@ -20,6 +21,9 @@ public sealed class PlayerState : IMatchPersonState
     public FutsalOutfieldRole FutsalRole { get; init; }
     public GoalkeeperAttributes? GoalkeeperAttributes { get; init; }
     public Vector2 Position { get; set; }
+
+    /// <summary>Gets where this player lines up for a kickoff: the position the match was created with.</summary>
+    public Vector2 KickoffPosition { get; }
     public Vector2 Velocity { get; set; }
     public Azimuth Facing { get; set; }
     public bool HasPossession { get; set; }

@@ -259,6 +259,11 @@ public sealed class MatchEngine
 
         if (State.IsBallOutOfPlay)
         {
+            if (State.IsMatchOver)
+            {
+                return;
+            }
+
             // Futsal uses a stopped clock, so match time does not advance here.
             HoldActionsDuringStoppage(frame);
             State.RestartTicksRemaining--;
@@ -271,6 +276,11 @@ public sealed class MatchEngine
         }
 
         State.ClockSeconds += Tuning.TickSeconds;
+        if (State.ClockSeconds >= Tuning.HalfLengthSeconds * State.Period)
+        {
+            EndPeriod();
+            return;
+        }
 
         State.LastEvent = MatchEvent.None;
         foreach (var player in State.Players)
@@ -450,9 +460,37 @@ public sealed class MatchEngine
         return releasedBallThisTick;
     }
 
+    // ponytail: teams do not change ends at half-time and there is no extra time or
+    // penalty shoot-out; add them with competition modes.
+    private void EndPeriod()
+    {
+        if (State.Period >= 2)
+        {
+            StopForRestart(new MatchEvent(
+                MatchEventType.FullTime,
+                RestartKind.None,
+                Team: null,
+                Position: State.Ball.Position,
+                Description: $"Full time: Home {State.HomeScore} - {State.AwayScore} Away."));
+            State.IsMatchOver = true;
+            return;
+        }
+
+        State.Period++;
+        StopForRestart(new MatchEvent(
+            MatchEventType.HalfTime,
+            RestartKind.Kickoff,
+            Team: null,
+            Position: Vector2.Zero,
+            Description: "Half-time."));
+        // Home takes the opening kickoff, so Away starts the second half.
+        ResetForKickoff(TeamSide.Away);
+        State.RestartTicksRemaining = Tuning.RestartDelayTicks * 3;
+    }
+
     public void ResumeFromRestart()
     {
-        if (!State.IsBallOutOfPlay)
+        if (!State.IsBallOutOfPlay || State.IsMatchOver)
         {
             return;
         }
@@ -1808,6 +1846,17 @@ public sealed class MatchEngine
         _playerActionStates.Clear();
         _shotTeamWhileActionHeld = null;
         _shotActionPlayerId = null;
+        foreach (var candidate in State.Players)
+        {
+            candidate.Position = candidate.KickoffPosition;
+            candidate.Velocity = Vector2.Zero;
+            candidate.Facing = FacingForTeam(candidate.Team);
+            candidate.HasPossession = false;
+            candidate.DribbleStepDistance = 0f;
+            candidate.SlideTicksRemaining = 0;
+            candidate.SlideRecoveryTicksRemaining = 0;
+        }
+
         var player = State.Players.First(candidate =>
             candidate.Team == kickoffTeam && candidate.Role == PlayerRole.Outfield);
         if (player.Team == UserControlledTeam)

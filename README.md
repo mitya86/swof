@@ -15,6 +15,7 @@ This repository starts a clean .NET 5v5 futsal engine inspired by one-button arc
 - Space or gamepad A: tap for a targeted pass, hold beyond the tap window to shoot, or tackle when out of possession.
 - Direction immediately after shot contact: bend sideways, drive forward, or loft backward relative to the shot.
 - R or gamepad Start: skip the short pause before a restart. Play resumes on its own after about a second.
+- A match is two three-minute halves on a stopped clock (`HalfLengthSeconds` in the tuning). After full time, relaunch to play again; there is no menu yet.
 - F1: reload the persisted physics-tuning profile.
 - F2: cycle between dry, connected, and arcade action feedback for direct comparison.
 - F3: toggle the compact match HUD and full diagnostic HUD.

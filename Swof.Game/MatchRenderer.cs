@@ -151,13 +151,18 @@ internal sealed class MatchRenderer : IDisposable
 
         if (snapshot.IsBallOutOfPlay)
         {
-            var restartLabel = snapshot.LastEvent.Restart switch
+            var restartLabel = snapshot.LastEvent.Type switch
             {
-                RestartKind.Kickoff => "GOAL",
-                RestartKind.KickIn => "KICK-IN",
-                RestartKind.Corner => "CORNER",
-                RestartKind.GoalClearance => "GOAL CLEARANCE",
-                _ => "PLAY STOPPED"
+                MatchEventType.HalfTime => "HALF-TIME",
+                MatchEventType.FullTime => $"FULL TIME  HOME {snapshot.HomeScore} - {snapshot.AwayScore} AWAY",
+                MatchEventType.GoalScored => "GOAL",
+                _ => snapshot.LastEvent.Restart switch
+                {
+                    RestartKind.KickIn => "KICK-IN",
+                    RestartKind.Corner => "CORNER",
+                    RestartKind.GoalClearance => "GOAL CLEARANCE",
+                    _ => "PLAY STOPPED"
+                }
             };
             var restartText = snapshot.LastEvent.Team is TeamSide restartTeam
                 ? $"{restartLabel} - {restartTeam.ToString().ToUpperInvariant()}"

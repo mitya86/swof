@@ -33,6 +33,12 @@ public sealed class MatchState
     public float ClockSeconds { get; set; }
     public bool IsBallOutOfPlay { get; set; }
 
+    /// <summary>Gets or sets the current half, starting at 1.</summary>
+    public int Period { get; set; } = 1;
+
+    /// <summary>Gets or sets whether full time has been reached. A finished match no longer advances.</summary>
+    public bool IsMatchOver { get; set; }
+
     /// <summary>Gets or sets the team that last played the ball; decides who is awarded a restart.</summary>
     public TeamSide? LastTouchTeam { get; set; }
 

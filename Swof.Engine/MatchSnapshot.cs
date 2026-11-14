@@ -11,6 +11,8 @@ public sealed record MatchSnapshot(
     long Tick,
     float ClockSeconds,
     bool IsBallOutOfPlay,
+    int Period,
+    bool IsMatchOver,
     MatchEvent LastEvent,
     IReadOnlyList<GameplayFeedbackEvent> FeedbackEvents)
 {
@@ -29,6 +31,8 @@ public sealed record MatchSnapshot(
             state.Tick,
             state.ClockSeconds,
             state.IsBallOutOfPlay,
+            state.Period,
+            state.IsMatchOver,
             state.LastEvent,
             state.FeedbackEvents.ToArray());
     }
