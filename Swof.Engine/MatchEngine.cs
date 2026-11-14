@@ -602,12 +602,12 @@ public sealed class MatchEngine
             }
 
             var attributes = goalkeeper.GoalkeeperAttributes ?? GoalkeeperAttributes.Default;
-            var target = GoalkeeperGuardPosition(goalkeeper, attributes);
+            var target = GoalkeeperGuardPosition(goalkeeper, attributes, out var isSavingShot);
             var response = Tuning.GoalkeeperAccelerationPerTick * Lerp(0.8f, 1.2f, attributes.Reflexes01);
 
-            // A struck ball is read late: the goalkeeper holds its ground for a reaction time before moving.
+            // A shot is read late: the goalkeeper holds its ground for a reaction time before stepping across.
             var reactionTicks = Tuning.GoalkeeperReactionTicks * Lerp(1.25f, 0.75f, attributes.Reflexes01);
-            var desiredVelocity = _ticksSinceBallReleased < reactionTicks
+            var desiredVelocity = isSavingShot && _ticksSinceBallReleased < reactionTicks
                 ? Vector2.Zero
                 : SafeNormalize(target - goalkeeper.Position, goalkeeper.Facing.ToUnitVector())
                     * Tuning.GoalkeeperMaxSpeedPerTick;
@@ -637,15 +637,24 @@ public sealed class MatchEngine
     /// Places the goalkeeper on the line from the goal centre to the ball: out toward the edge of its
     /// reach while the ball is far away, back near its line as the ball comes within shooting range.
     /// </summary>
-    private Vector2 GoalkeeperGuardPosition(PlayerState goalkeeper, GoalkeeperAttributes attributes)
+    private Vector2 GoalkeeperGuardPosition(
+        PlayerState goalkeeper,
+        GoalkeeperAttributes attributes,
+        out bool isSavingShot)
     {
+        isSavingShot = false;
         var field = State.Field;
         var isHome = goalkeeper.Team == TeamSide.Home;
         var goalCentre = new Vector2(isHome ? field.Left : field.Right, 0f);
         var outward = isHome ? Vector2.UnitX : -Vector2.UnitX;
+        // A dead ball is claimed only where the goalkeeper is allowed to stand.
+        var ballFromGoal = State.Ball.Position - goalCentre;
+        var ballDepth = Vector2.Dot(ballFromGoal, outward);
         if (!State.Ball.IsPossessed
             && State.Ball.Velocity.Length() < Tuning.GoalkeeperClaimBallSpeedPerTick
-            && IsInsideOwnPenaltyArea(goalkeeper.Team, State.Ball.Position))
+            && ballDepth >= 0f
+            && ballDepth <= Tuning.GoalkeeperMaxAdvanceDistance
+            && MathF.Abs(ballFromGoal.Y) <= field.GoalWidth * 0.5f + Tuning.GoalkeeperLateralPadding)
         {
             return State.Ball.Position;
         }
@@ -658,6 +667,7 @@ public sealed class MatchEngine
             var crossing = State.Ball.Position + State.Ball.Velocity * ticksToGoalLine;
             if (MathF.Abs(crossing.Y) <= field.GoalWidth * 0.5f + Tuning.GoalkeeperLateralPadding)
             {
+                isSavingShot = true;
                 return ClosestPointOnSegment(goalkeeper.Position, State.Ball.Position, crossing);
             }
         }

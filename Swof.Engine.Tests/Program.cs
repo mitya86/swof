@@ -320,8 +320,10 @@ static void OffBallGoalkeeperIgnoresDirectMovementInput()
 
     engine.StepTick(new PlayerInput(Vector2.UnitY, ActionDown: false));
 
+    // The goalkeeper still repositions on its own (here straight out, the ball being on the centre line),
+    // so only the sideways stick direction is checked.
     Assert(
-        Vector2.Distance(goalkeeper.Position, positionBefore) < 0.0001f,
+        MathF.Abs(goalkeeper.Position.Y - positionBefore.Y) < 0.0001f,
         "Directional input must not move an off-ball goalkeeper.");
     Assert(goalkeeper.Facing != Azimuth.South, "Off-ball input must not aim the goalkeeper either.");
 }
@@ -2911,6 +2913,7 @@ static void SetGoalkeeperIsBeatenFromRangeButNotFromDistance()
         }
     }
 
+    // Measured at 8 of 24 when written.
     Assert(
         goals >= 4 && goals <= 12,
         $"Expected a set goalkeeper to concede 4 to 12 of {shots} unopposed shots, got {goals}.");
