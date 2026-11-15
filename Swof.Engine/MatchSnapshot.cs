@@ -19,6 +19,9 @@ public sealed record MatchSnapshot(
     /// <summary>The match seed, for computer decisions that vary from match to match.</summary>
     public int Seed { get; init; }
 
+    /// <summary>The foul rule for slides that the engine applies.</summary>
+    public SlideFoulRule SlideFoul { get; init; } = SlideFoulRule.Off;
+
     public PlayerSnapshot ActivePlayer => Players.Single(player => player.Id == ActivePlayerId);
 
     public static MatchSnapshot FromState(MatchState state)
@@ -39,7 +42,8 @@ public sealed record MatchSnapshot(
             state.LastEvent,
             state.FeedbackEvents.ToArray())
         {
-            Seed = state.Seed
+            Seed = state.Seed,
+            SlideFoul = state.SlideFoul
         };
     }
 
