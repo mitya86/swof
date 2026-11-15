@@ -6,13 +6,15 @@ internal sealed record SwofGameLaunchOptions(
     MatchFeedbackMode FeedbackMode,
     MatchDemoAction DemoAction,
     TeamTactic OpponentTactic,
-    TeamTactic TeamTactic)
+    TeamTactic TeamTactic,
+    bool OpponentFollowsScore)
 {
     public static SwofGameLaunchOptions Default { get; } = new(
         MatchFeedbackMode.Connected,
         MatchDemoAction.None,
         TeamTactic.HighPress,
-        TeamTactic.HighPress);
+        TeamTactic.HighPress,
+        OpponentFollowsScore: false);
 
     public static SwofGameLaunchOptions Parse(IEnumerable<string> arguments)
     {
@@ -20,6 +22,7 @@ internal sealed record SwofGameLaunchOptions(
         var demoAction = MatchDemoAction.None;
         var opponentTactic = TeamTactic.HighPress;
         var teamTactic = TeamTactic.HighPress;
+        var opponentFollowsScore = false;
         foreach (var argument in arguments)
         {
             if (argument.StartsWith("--feedback=", StringComparison.OrdinalIgnoreCase))
@@ -44,13 +47,17 @@ internal sealed record SwofGameLaunchOptions(
             {
                 opponentTactic = ParseTactic(argument["--opponent-tactic=".Length..]);
             }
+            else if (argument.Equals("--opponent-follows-score", StringComparison.OrdinalIgnoreCase))
+            {
+                opponentFollowsScore = true;
+            }
             else if (argument.StartsWith("--team-tactic=", StringComparison.OrdinalIgnoreCase))
             {
                 teamTactic = ParseTactic(argument["--team-tactic=".Length..]);
             }
         }
 
-        return new SwofGameLaunchOptions(feedbackMode, demoAction, opponentTactic, teamTactic);
+        return new SwofGameLaunchOptions(feedbackMode, demoAction, opponentTactic, teamTactic, opponentFollowsScore);
     }
 
     private static TeamTactic ParseTactic(string value) => value.ToLowerInvariant() switch

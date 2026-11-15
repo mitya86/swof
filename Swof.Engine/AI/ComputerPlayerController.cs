@@ -10,6 +10,7 @@ public sealed class ComputerPlayerController
     private readonly IReadOnlyDictionary<int, ComputerPlayerBrain> _brains;
     private readonly Dictionary<TeamSide, TacticalPriorities> _teamPriorities = new();
     private readonly Dictionary<TeamSide, TeamTactic> _teamTactics = new();
+    private readonly Dictionary<TeamSide, TacticByScore> _tacticsByScore = new();
     private IReadOnlyDictionary<int, PlayerDecision> _lastDecisions =
         new ReadOnlyDictionary<int, PlayerDecision>(new Dictionary<int, PlayerDecision>());
 
@@ -100,6 +101,15 @@ public sealed class ComputerPlayerController
         _teamTactics[team] = tactic;
     }
 
+    /// <summary>Lets the score and the time left swap one team's tactic.</summary>
+    /// <param name="team">The affected team.</param>
+    /// <param name="rule">The rule, applied on top of the tactic the team was given.</param>
+    public void SetTacticByScore(TeamSide team, TacticByScore rule)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        _tacticsByScore[team] = rule;
+    }
+
     /// <summary>
     /// Preserves assigned inputs and fills every remaining registered outfield slot with an independent AI decision.
     /// </summary>
@@ -134,7 +144,7 @@ public sealed class ComputerPlayerController
                 ? configuredPriorities
                 : TacticalPriorities.Neutral;
             var decision = brain.Decide(
-                new PlayerDecisionContext(match, playerId, _teamTactics.GetValueOrDefault(player.Team)),
+                new PlayerDecisionContext(match, playerId, TacticNow(match, player.Team)),
                 priorities);
             decisions.Add(playerId, decision);
             inputs.Add(playerId, decision.Input);
@@ -142,5 +152,11 @@ public sealed class ComputerPlayerController
 
         _lastDecisions = new ReadOnlyDictionary<int, PlayerDecision>(decisions);
         return new PlayerControlFrame(inputs);
+    }
+
+    private TeamTactic TacticNow(MatchSnapshot match, TeamSide team)
+    {
+        var usual = _teamTactics.GetValueOrDefault(team) ?? TeamTactic.HighPress;
+        return _tacticsByScore.TryGetValue(team, out var rule) ? rule.Choose(match, team, usual) : usual;
     }
 }

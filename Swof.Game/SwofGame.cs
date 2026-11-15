@@ -23,6 +23,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private readonly MatchDemoAction _demoAction;
     private readonly TeamTactic _opponentTactic;
     private TeamTactic _teamTactic;
+    private readonly bool _opponentFollowsScore;
     private MatchRenderer? _renderer;
     private MatchFeedbackPlayer? _feedbackPlayer;
     private SpriteFont? _font;
@@ -52,10 +53,16 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private void StartMatch()
     {
         // A different seed each match, so the computer players do not replay the same one.
-        _engine = MatchEngine.CreateDefault(PhysicsTuningStore.LoadOrDefault(), seed: Environment.TickCount);
+        var tuning = PhysicsTuningStore.LoadOrDefault();
+        _engine = MatchEngine.CreateDefault(tuning, seed: Environment.TickCount);
         _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
         _computerPlayers.SetTactic(TeamSide.Away, _opponentTactic);
         _computerPlayers.SetTactic(TeamSide.Home, _teamTactic);
+        if (_opponentFollowsScore)
+        {
+            // ponytail: the match length is read once here; reloading the tuning with F1 mid-match leaves the rule on the old length.
+            _computerPlayers.SetTacticByScore(TeamSide.Away, TacticByScore.ChaseAndHold(tuning.HalfLengthSeconds * 2f));
+        }
     }
 
     public SwofGame(SwofGameLaunchOptions? launchOptions = null)
@@ -63,6 +70,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         launchOptions ??= SwofGameLaunchOptions.Default;
         _opponentTactic = launchOptions.OpponentTactic;
         _teamTactic = launchOptions.TeamTactic;
+        _opponentFollowsScore = launchOptions.OpponentFollowsScore;
         StartMatch();
         _demoAction = launchOptions.DemoAction;
         _feedbackModeIndex = Array.IndexOf(FeedbackModes, launchOptions.FeedbackMode);
