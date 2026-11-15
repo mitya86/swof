@@ -20,9 +20,11 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private ComputerPlayerController _computerPlayers;
     private readonly PlayerInputBuffer _inputBuffer = new();
     private readonly TouchControls _touchControls = new();
+    private readonly PauseMenu _pauseMenu = new(["Resume", .. TeamTactics.Select(tactic => $"Tactic: {tactic.Name}")]);
     private readonly MatchDemoAction _demoAction;
     private readonly TeamTactic _opponentTactic;
     private TeamTactic _teamTactic;
+    private IReadOnlyList<TouchPoint> _remainingTouches = [];
     private readonly bool _opponentFollowsScore;
     private MatchRenderer? _renderer;
     private MatchFeedbackPlayer? _feedbackPlayer;
@@ -73,6 +75,11 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         _opponentFollowsScore = launchOptions.OpponentFollowsScore;
         StartMatch();
         _demoAction = launchOptions.DemoAction;
+        if (launchOptions.StartPaused && _demoAction == MatchDemoAction.None)
+        {
+            _pauseMenu.Open();
+        }
+
         _feedbackModeIndex = Array.IndexOf(FeedbackModes, launchOptions.FeedbackMode);
         if (_feedbackModeIndex < 0)
         {
@@ -168,11 +175,42 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
 
         if (IsNewKeyPress(Keys.T, keyboard) || IsNewButtonPress(Buttons.Y, gamePad))
         {
-            // ponytail: changed outside the per-tick control frame, so a replay or a network peer would not see it;
-            // put the tactic in the frame when either exists. No touch way to do this until there is a pause menu.
-            _teamTactic = TeamTactics[(Array.IndexOf(TeamTactics, _teamTactic) + 1) % TeamTactics.Length];
-            _computerPlayers.SetTactic(TeamSide.Home, _teamTactic);
-            SetNotice($"Team tactic: {_teamTactic.Name}", 2d);
+            SetTeamTactic(TeamTactics[(Array.IndexOf(TeamTactics, _teamTactic) + 1) % TeamTactics.Length]);
+        }
+
+        var wasPaused = _pauseMenu.IsOpen;
+        if (_demoAction == MatchDemoAction.None)
+        {
+            if (IsNewKeyPress(Keys.P, keyboard))
+            {
+                if (wasPaused)
+                {
+                    _pauseMenu.Close();
+                }
+                else
+                {
+                    _pauseMenu.Open();
+                }
+            }
+
+            var chosen = _pauseMenu.Read(ReadTouches(), ScreenSize(), out var touches);
+            if (chosen == 0)
+            {
+                _pauseMenu.Close();
+            }
+            else if (chosen is int item)
+            {
+                SetTeamTactic(TeamTactics[item - 1]);
+            }
+
+            _remainingTouches = touches;
+        }
+
+        if (wasPaused && !_pauseMenu.IsOpen)
+        {
+            // Nothing pressed while the menu was open may reach the match as a pass or a shot.
+            _inputBuffer.Reset(ReadInput(keyboard, gamePad));
+            _touchControls.Reset();
         }
 
         if (IsNewKeyPress(Keys.R, keyboard) || IsNewButtonPress(Buttons.Start, gamePad))
@@ -196,8 +234,12 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             input = AddTouchInput(input);
         }
 
-        _inputBuffer.Capture(input);
-        _engine.Step(deltaSeconds, _inputBuffer, _computerPlayers);
+        if (!_pauseMenu.IsOpen)
+        {
+            _inputBuffer.Capture(input);
+            _engine.Step(deltaSeconds, _inputBuffer, _computerPlayers);
+        }
+
         _feedbackPlayer?.Update(
             _engine.CurrentSnapshot,
             _engine.UserControlledTeam ?? TeamSide.Home,
@@ -228,7 +270,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             $"Tick {snapshot.Tick}   FPS {_framesPerSecond:0}   Ball {ballOwner}";
         var secondaryStatus =
             $"{active.Name}  C:{active.Attributes.EffectiveBallControl} S:{active.Attributes.EffectiveSpeed}   " +
-            "Move/aftertouch: Arrows/WASD, left stick or drag on the left half   Tap Space/A or the right half: pass   Hold: shoot/tackle   R/Start: resume";
+            "Move/aftertouch: Arrows/WASD, left stick or drag on the left half   Tap Space/A or the right half: pass   Hold: shoot/tackle   P or the top right corner: pause and tactic   R/Start: resume";
         var notice = _runtimeSeconds <= _noticeUntilSeconds ? _notice : null;
 
         _renderer.Draw(
@@ -242,7 +284,9 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
                 FeedbackModes[_feedbackModeIndex],
                 _cameraEffectsEnabled,
                 _showDebugHud),
-            _touchControls);
+            _touchControls,
+            _demoAction == MatchDemoAction.None ? _pauseMenu : null,
+            1 + Array.IndexOf(TeamTactics, _teamTactic));
         base.Draw(gameTime);
     }
 
@@ -266,17 +310,36 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
 
     // ponytail: the left mouse button stands in for one finger, so stick and button cannot be held together
     // with the mouse alone (use it with the keyboard). Read TouchPanel here once there is a touch device to try.
-    private PlayerInput AddTouchInput(PlayerInput input)
+    private TouchPoint[] ReadTouches()
     {
         var mouse = Mouse.GetState();
-        var bounds = GraphicsDevice.Viewport.Bounds;
-        TouchPoint[] touches = IsActive
+        return IsActive
             && mouse.LeftButton == ButtonState.Pressed
-            && bounds.Contains(mouse.Position)
+            && GraphicsDevice.Viewport.Bounds.Contains(mouse.Position)
                 ? [new TouchPoint(0, new NumericsVector2(mouse.X, mouse.Y))]
                 : [];
-        var touch = _touchControls.Read(touches, new NumericsVector2(bounds.Width, bounds.Height));
+    }
+
+    private NumericsVector2 ScreenSize()
+    {
+        var bounds = GraphicsDevice.Viewport.Bounds;
+        return new NumericsVector2(bounds.Width, bounds.Height);
+    }
+
+    /// <summary>Adds the stick and button from the touches the pause menu did not keep.</summary>
+    private PlayerInput AddTouchInput(PlayerInput input)
+    {
+        var touch = _touchControls.Read(_remainingTouches, ScreenSize());
         return new PlayerInput(input.Move + touch.Move, input.ActionDown || touch.ActionDown);
+    }
+
+    // ponytail: changed outside the per-tick control frame, so a replay or a network peer would not see it;
+    // put the tactic in the frame when either exists.
+    private void SetTeamTactic(TeamTactic tactic)
+    {
+        _teamTactic = tactic;
+        _computerPlayers.SetTactic(TeamSide.Home, _teamTactic);
+        SetNotice($"Team tactic: {_teamTactic.Name}", 2d);
     }
 
     private PlayerInput ReadInput(KeyboardState keyboard, GamePadState gamePad)
