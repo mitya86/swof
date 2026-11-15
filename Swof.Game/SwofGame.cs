@@ -25,6 +25,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private readonly TeamTactic _opponentTactic;
     private TeamTactic _teamTactic;
     private IReadOnlyList<TouchPoint> _remainingTouches = [];
+    private readonly string? _capturePath;
     private readonly bool _opponentFollowsScore;
     private MatchRenderer? _renderer;
     private MatchFeedbackPlayer? _feedbackPlayer;
@@ -41,6 +42,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private float _demoElapsedSeconds;
     private bool _showDebugHud;
     private bool _cameraEffectsEnabled;
+
+    private const double CaptureAfterSeconds = 2d;
 
     private static readonly TeamTactic[] TeamTactics = [TeamTactic.HighPress, TeamTactic.HalfCourt, TeamTactic.PushUp];
 
@@ -75,6 +78,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         _opponentFollowsScore = launchOptions.OpponentFollowsScore;
         StartMatch();
         _demoAction = launchOptions.DemoAction;
+        _capturePath = launchOptions.CapturePath;
         if (launchOptions.StartPaused && _demoAction == MatchDemoAction.None)
         {
             _pauseMenu.Open();
@@ -90,7 +94,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         {
             PreferredBackBufferWidth = 1280,
             PreferredBackBufferHeight = 720,
-            SynchronizeWithVerticalRetrace = true,
+            // A window nobody can see never gets its vertical sync, and the game then stops after one frame.
+            SynchronizeWithVerticalRetrace = _capturePath is null,
             HardwareModeSwitch = false
         };
 
@@ -288,6 +293,10 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             _demoAction == MatchDemoAction.None ? _pauseMenu : null,
             1 + Array.IndexOf(TeamTactics, _teamTactic));
         base.Draw(gameTime);
+        if (_capturePath is not null && _runtimeSeconds >= CaptureAfterSeconds)
+        {
+            SaveFrameAndExit(_capturePath);
+        }
     }
 
     protected override void UnloadContent()
@@ -310,6 +319,20 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
 
     // ponytail: the left mouse button stands in for one finger, so stick and button cannot be held together
     // with the mouse alone (use it with the keyboard). Read TouchPanel here once there is a touch device to try.
+    /// <summary>Writes what was just drawn to a PNG, so a layout can be looked at without anyone at the screen.</summary>
+    private void SaveFrameAndExit(string path)
+    {
+        var width = GraphicsDevice.PresentationParameters.BackBufferWidth;
+        var height = GraphicsDevice.PresentationParameters.BackBufferHeight;
+        var pixels = new Color[width * height];
+        GraphicsDevice.GetBackBufferData(pixels);
+        using var texture = new Texture2D(GraphicsDevice, width, height);
+        texture.SetData(pixels);
+        using var stream = File.Create(path);
+        texture.SaveAsPng(stream, width, height);
+        Exit();
+    }
+
     private TouchPoint[] ReadTouches()
     {
         var mouse = Mouse.GetState();

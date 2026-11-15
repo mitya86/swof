@@ -73,6 +73,7 @@ tools/check.sh matches 100 1 equal away=half   # a team waits at halfway (also h
 tools/check.sh matches 100 1 equal away-behind=up away-ahead=half   # a team swaps tactic by score and time (also home-)
 dotnet run --project Swof.Game/Swof.Game.csproj -- --opponent-tactic=half   # play against it (also up; --team-tactic= sets your own team's; --opponent-follows-score makes the opponent push up when losing and wait when winning late)
 dotnet run --project Swof.Game/Swof.Game.csproj   # play it
+dotnet run --project Swof.Game/Swof.Game.csproj -- --start-paused --capture=/tmp/frame.png   # write the frame drawn after two seconds to a PNG and exit (--start-paused shows the pause menu)
 ```
 
 If bare `dotnet` fails (a mise shim with no version set), prefix it: `mise exec dotnet@10 -- dotnet ...`.

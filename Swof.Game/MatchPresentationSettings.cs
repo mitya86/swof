@@ -6,6 +6,4 @@ internal readonly record struct MatchPresentationSettings(
     bool ShowDebugHud)
 {
     public float FeedbackIntensity => FeedbackMode == MatchFeedbackMode.Dry ? 0f : 1f;
-
-    public string FeedbackLabel => FeedbackMode.ToString().ToUpperInvariant();
 }
