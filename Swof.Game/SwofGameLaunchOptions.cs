@@ -8,7 +8,8 @@ internal sealed record SwofGameLaunchOptions(
     TeamTactic OpponentTactic,
     TeamTactic TeamTactic,
     bool OpponentFollowsScore,
-    bool StartPaused = false)
+    bool StartPaused = false,
+    string? CapturePath = null)
 {
     public static SwofGameLaunchOptions Default { get; } = new(
         MatchFeedbackMode.Connected,
@@ -25,6 +26,7 @@ internal sealed record SwofGameLaunchOptions(
         var teamTactic = TeamTactic.HighPress;
         var opponentFollowsScore = false;
         var startPaused = false;
+        string? capturePath = null;
         foreach (var argument in arguments)
         {
             if (argument.StartsWith("--feedback=", StringComparison.OrdinalIgnoreCase))
@@ -53,6 +55,10 @@ internal sealed record SwofGameLaunchOptions(
             {
                 opponentFollowsScore = true;
             }
+            else if (argument.StartsWith("--capture=", StringComparison.OrdinalIgnoreCase))
+            {
+                capturePath = argument["--capture=".Length..];
+            }
             else if (argument.Equals("--start-paused", StringComparison.OrdinalIgnoreCase))
             {
                 startPaused = true;
@@ -63,7 +69,7 @@ internal sealed record SwofGameLaunchOptions(
             }
         }
 
-        return new SwofGameLaunchOptions(feedbackMode, demoAction, opponentTactic, teamTactic, opponentFollowsScore, startPaused);
+        return new SwofGameLaunchOptions(feedbackMode, demoAction, opponentTactic, teamTactic, opponentFollowsScore, startPaused, capturePath);
     }
 
     private static TeamTactic ParseTactic(string value) => value.ToLowerInvariant() switch

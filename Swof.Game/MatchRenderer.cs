@@ -134,7 +134,7 @@ internal sealed class MatchRenderer : IDisposable
         }
         else
         {
-            DrawMatchHud(snapshot, font, bounds, settings);
+            DrawMatchHud(snapshot, font, bounds);
         }
 
         if (!string.IsNullOrWhiteSpace(notice))
@@ -490,8 +490,7 @@ internal sealed class MatchRenderer : IDisposable
     private void DrawMatchHud(
         MatchSnapshot snapshot,
         SpriteFont font,
-        Rectangle bounds,
-        MatchPresentationSettings settings)
+        Rectangle bounds)
     {
         var score = $"HOME  {snapshot.HomeScore}  -  {snapshot.AwayScore}  AWAY";
         var minutes = (int)(snapshot.ClockSeconds / 60f);
@@ -506,10 +505,6 @@ internal sealed class MatchRenderer : IDisposable
         _primitives.Batch.DrawString(font, score, scorePosition, Color.White);
         _primitives.Batch.DrawString(font, clock, new Vector2(scorePosition.X + scoreSize.X + 20f, 5f), new Color(190, 211, 235));
         _primitives.Batch.DrawString(font, activeText, new Vector2(14f, 5f), ActiveColor);
-
-        var help = $"F2 {settings.FeedbackLabel}   F3 DEBUG   F4 CAMERA";
-        var helpSize = font.MeasureString(help);
-        _primitives.Batch.DrawString(font, help, new Vector2(bounds.Right - helpSize.X - 14f, 5f), new Color(130, 145, 162));
     }
 
     private static bool IsVisible(Vector2 center, float margin, Rectangle viewport)
