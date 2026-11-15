@@ -116,6 +116,7 @@ var tests = new (string Name, Action Test)[]
     ("touches give a stick and one button", TouchesGiveStickAndOneButton),
     ("a team told to wait at halfway does not follow the carrier past it", HalfCourtTeamWaitsAtHalfway),
     ("a team told to push up marks further from its own goal", PushUpTeamMarksFurtherFromOwnGoal),
+    ("a tactic reaches the team-mates of a person's player", TacticReachesTeammatesOfPersonsPlayer),
     ("a short touch passes and a held touch shoots", ShortTouchPassesAndHeldTouchShoots),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
@@ -3617,6 +3618,48 @@ static void PushUpTeamMarksFurtherFromOwnGoal()
     Assert(
         awayOutfielders.Any(id => plain.LastDecisions[id].Input != awayUp.LastDecisions[id].Input),
         "Away pushing up should move one of Away's markers differently.");
+}
+
+static void TacticReachesTeammatesOfPersonsPlayer()
+{
+    // Home is the person's team. Their player is always the one who presses, so a tactic can only change the other three.
+    var engine = MatchEngine.CreateDefault(userControlledTeam: TeamSide.Home);
+    var state = engine.State;
+    var carrier = state.Players.Single(player => player.Id == 4);
+    carrier.Position = new Vector2(14f, 0f);
+    GivePossession(engine, carrier);
+    var snapshot = MatchSnapshot.FromState(state);
+    var personsPlayer = snapshot.ActivePlayerId;
+    var person = new Dictionary<int, PlayerInput> { [personsPlayer] = PlayerInput.Empty };
+    var teammates = snapshot.Players
+        .Where(player => player.Team == TeamSide.Home && player.Role == PlayerRole.Outfield && player.Id != personsPlayer)
+        .Select(player => player.Id)
+        .ToArray();
+    Assert(teammates.Length == 3, "The person should hold one of Home's four outfielders.");
+
+    IReadOnlyDictionary<int, PlayerDecision> Decide(TeamTactic tactic)
+    {
+        var controller = ComputerPlayerController.CreateDefault(snapshot);
+        controller.SetTactic(TeamSide.Home, tactic);
+        controller.CreateControlFrame(snapshot, person);
+        return controller.LastDecisions;
+    }
+
+    var high = Decide(TeamTactic.HighPress);
+    var half = Decide(TeamTactic.HalfCourt);
+    var up = Decide(TeamTactic.PushUp);
+    Assert(!high.ContainsKey(personsPlayer), "The computer should not decide for the person's player.");
+
+    int[] Changed(IReadOnlyDictionary<int, PlayerDecision> other) =>
+        teammates.Where(id => high[id].Input != other[id].Input).ToArray();
+
+    var cover = teammates.Single(id => high[id].Kind == PlayerInstructionKind.CoverBallCarrier);
+    Assert(
+        Changed(half).SequenceEqual([cover]),
+        $"Half court should change only the cover on a person's team (changed {string.Join(",", Changed(half))}).");
+    Assert(
+        Changed(up).Length > 0 && Changed(up).All(id => high[id].Kind == PlayerInstructionKind.MarkOpponent),
+        $"Push up should change only the markers on a person's team (changed {string.Join(",", Changed(up))}).");
 }
 
 static void TouchesGiveStickAndOneButton()

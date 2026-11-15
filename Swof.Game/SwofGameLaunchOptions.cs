@@ -5,11 +5,13 @@ namespace Swof.Game;
 internal sealed record SwofGameLaunchOptions(
     MatchFeedbackMode FeedbackMode,
     MatchDemoAction DemoAction,
-    TeamTactic OpponentTactic)
+    TeamTactic OpponentTactic,
+    TeamTactic TeamTactic)
 {
     public static SwofGameLaunchOptions Default { get; } = new(
         MatchFeedbackMode.Connected,
         MatchDemoAction.None,
+        TeamTactic.HighPress,
         TeamTactic.HighPress);
 
     public static SwofGameLaunchOptions Parse(IEnumerable<string> arguments)
@@ -17,6 +19,7 @@ internal sealed record SwofGameLaunchOptions(
         var feedbackMode = MatchFeedbackMode.Connected;
         var demoAction = MatchDemoAction.None;
         var opponentTactic = TeamTactic.HighPress;
+        var teamTactic = TeamTactic.HighPress;
         foreach (var argument in arguments)
         {
             if (argument.StartsWith("--feedback=", StringComparison.OrdinalIgnoreCase))
@@ -39,17 +42,22 @@ internal sealed record SwofGameLaunchOptions(
             }
             else if (argument.StartsWith("--opponent-tactic=", StringComparison.OrdinalIgnoreCase))
             {
-                var value = argument["--opponent-tactic=".Length..];
-                opponentTactic = value.ToLowerInvariant() switch
-                {
-                    "high" => TeamTactic.HighPress,
-                    "half" => TeamTactic.HalfCourt,
-                    "up" => TeamTactic.PushUp,
-                    _ => throw new ArgumentException($"Unknown opponent tactic '{value}' (high, half or up).", nameof(arguments))
-                };
+                opponentTactic = ParseTactic(argument["--opponent-tactic=".Length..]);
+            }
+            else if (argument.StartsWith("--team-tactic=", StringComparison.OrdinalIgnoreCase))
+            {
+                teamTactic = ParseTactic(argument["--team-tactic=".Length..]);
             }
         }
 
-        return new SwofGameLaunchOptions(feedbackMode, demoAction, opponentTactic);
+        return new SwofGameLaunchOptions(feedbackMode, demoAction, opponentTactic, teamTactic);
     }
+
+    private static TeamTactic ParseTactic(string value) => value.ToLowerInvariant() switch
+    {
+        "high" => TeamTactic.HighPress,
+        "half" => TeamTactic.HalfCourt,
+        "up" => TeamTactic.PushUp,
+        _ => throw new ArgumentException($"Unknown tactic '{value}' (high, half or up).", nameof(value))
+    };
 }

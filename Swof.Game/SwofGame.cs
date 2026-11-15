@@ -22,6 +22,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private readonly TouchControls _touchControls = new();
     private readonly MatchDemoAction _demoAction;
     private readonly TeamTactic _opponentTactic;
+    private TeamTactic _teamTactic;
     private MatchRenderer? _renderer;
     private MatchFeedbackPlayer? _feedbackPlayer;
     private SpriteFont? _font;
@@ -38,6 +39,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private bool _showDebugHud;
     private bool _cameraEffectsEnabled;
 
+    private static readonly TeamTactic[] TeamTactics = [TeamTactic.HighPress, TeamTactic.HalfCourt, TeamTactic.PushUp];
+
     private static readonly MatchFeedbackMode[] FeedbackModes =
     [
         MatchFeedbackMode.Dry,
@@ -52,12 +55,14 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         _engine = MatchEngine.CreateDefault(PhysicsTuningStore.LoadOrDefault(), seed: Environment.TickCount);
         _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
         _computerPlayers.SetTactic(TeamSide.Away, _opponentTactic);
+        _computerPlayers.SetTactic(TeamSide.Home, _teamTactic);
     }
 
     public SwofGame(SwofGameLaunchOptions? launchOptions = null)
     {
         launchOptions ??= SwofGameLaunchOptions.Default;
         _opponentTactic = launchOptions.OpponentTactic;
+        _teamTactic = launchOptions.TeamTactic;
         StartMatch();
         _demoAction = launchOptions.DemoAction;
         _feedbackModeIndex = Array.IndexOf(FeedbackModes, launchOptions.FeedbackMode);
@@ -151,6 +156,15 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         {
             _cameraEffectsEnabled = !_cameraEffectsEnabled;
             SetNotice(_cameraEffectsEnabled ? "Camera feedback enabled" : "Camera feedback disabled", 1.5d);
+        }
+
+        if (IsNewKeyPress(Keys.T, keyboard) || IsNewButtonPress(Buttons.Y, gamePad))
+        {
+            // ponytail: changed outside the per-tick control frame, so a replay or a network peer would not see it;
+            // put the tactic in the frame when either exists. No touch way to do this until there is a pause menu.
+            _teamTactic = TeamTactics[(Array.IndexOf(TeamTactics, _teamTactic) + 1) % TeamTactics.Length];
+            _computerPlayers.SetTactic(TeamSide.Home, _teamTactic);
+            SetNotice($"Team tactic: {_teamTactic.Name}", 2d);
         }
 
         if (IsNewKeyPress(Keys.R, keyboard) || IsNewButtonPress(Buttons.Start, gamePad))
