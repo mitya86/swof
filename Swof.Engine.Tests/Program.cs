@@ -117,6 +117,7 @@ var tests = new (string Name, Action Test)[]
     ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt),
     ("touches give a stick and one button", TouchesGiveStickAndOneButton),
     ("a touch on the pause button opens a menu and gives no stick or action", PauseMenuOwnsItsTouches),
+    ("a touch that chooses a new match at full time gives no stick or action", TouchThatChoosesNewMatchGivesNoInput),
     ("the pause menu fits a wide window and a phone", PauseMenuFitsScreens),
     ("a team told to wait at halfway does not follow the carrier past it", HalfCourtTeamWaitsAtHalfway),
     ("a team told to push up marks further from its own goal", PushUpTeamMarksFurtherFromOwnGoal),
@@ -3953,6 +3954,39 @@ static void TeamFollowsScore()
     Assert(
         awayOutfielders.Any(id => plainAway[id] != awayRule[id]),
         "The same rule given to Away, which is behind, should change what Away does.");
+}
+
+static void TouchThatChoosesNewMatchGivesNoInput()
+{
+    // What the game does at full time: the pause menu's items are swapped for the result and "New match",
+    // and swapped back the moment that item is touched, with the finger still on the screen.
+    var screen = new Vector2(1000f, 500f);
+    string[] pauseLabels = ["Resume", "One", "Two", "Three"];
+    var menu = new PauseMenu(pauseLabels);
+    var controls = new TouchControls();
+
+    menu.Labels = ["Result", "New match"];
+    menu.Open();
+    var newMatch = menu.ItemBounds(1, screen);
+    var onNewMatch = (newMatch.Min + newMatch.Max) / 2f;
+    Assert(onNewMatch.X >= screen.X / 2f, "The scenario needs the item on the action half, where an unowned touch is a pass.");
+    Assert(
+        menu.ItemBounds(1, screen) != new PauseMenu(pauseLabels).ItemBounds(1, screen),
+        "The items should be laid out for the labels shown now, not the ones the menu was made with.");
+
+    var chosen = menu.Read([new TouchPoint(0, onNewMatch)], screen, out var remaining);
+    Assert(chosen == 1 && remaining.Count == 0, "A touch on the second item should choose it.");
+
+    menu.Labels = pauseLabels;
+    menu.Close();
+    chosen = menu.Read([new TouchPoint(0, onNewMatch)], screen, out remaining);
+    Assert(
+        chosen is null && !menu.IsOpen && controls.Read(remaining, screen) == PlayerInput.Empty,
+        "The finger that chose the new match should not press the action button while it stays down.");
+
+    menu.Read([], screen, out _);
+    menu.Read([new TouchPoint(0, onNewMatch)], screen, out remaining);
+    Assert(controls.Read(remaining, screen).ActionDown, "A new touch after that should press the action button again.");
 }
 
 static void PauseMenuOwnsItsTouches()
