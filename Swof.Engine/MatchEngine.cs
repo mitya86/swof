@@ -72,7 +72,8 @@ public sealed class MatchEngine
         bool opponentMovementEnabled = true,
         IReadOnlyList<PlayerAttributes>? outfieldAttributes = null,
         int seed = 0,
-        TeamSide? userControlledTeam = TeamSide.Home)
+        TeamSide? userControlledTeam = TeamSide.Home,
+        bool startWithKickoff = false)
     {
         tuning ??= PhysicsTuning.Default;
         var field = FieldDimensions.Default;
@@ -122,12 +123,23 @@ public sealed class MatchEngine
             ControlKind = BallControlKind.Feet
         };
 
-        return new MatchEngine(
+        var engine = new MatchEngine(
             // With nobody playing there is no active player; 0 is no player's id.
             new MatchState(field, players, ball, activePlayerId: userControlledTeam is null ? 0 : 1) { Seed = seed },
             tuning,
             userControlledTeam,
             opponentMovementEnabled: opponentMovementEnabled);
+        if (startWithKickoff)
+        {
+            // Without this a match opens with the Home fixo on the ball nine metres from its own goal,
+            // which the scenarios are built on. Home takes it because Away takes the second half's.
+            // ponytail: play starts at once, with no stoppage or prompt before the first kickoff.
+            engine.ResetForKickoff(TeamSide.Home);
+            engine.CurrentSnapshot = MatchSnapshot.FromState(engine.State);
+            engine.PreviousSnapshot = engine.CurrentSnapshot;
+        }
+
+        return engine;
     }
 
     public int Step(float deltaSeconds, PlayerInput input)
