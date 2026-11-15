@@ -9,6 +9,7 @@ public sealed class ComputerPlayerController
 {
     private readonly IReadOnlyDictionary<int, ComputerPlayerBrain> _brains;
     private readonly Dictionary<TeamSide, TacticalPriorities> _teamPriorities = new();
+    private readonly Dictionary<TeamSide, TeamTactic> _teamTactics = new();
     private IReadOnlyDictionary<int, PlayerDecision> _lastDecisions =
         new ReadOnlyDictionary<int, PlayerDecision>(new Dictionary<int, PlayerDecision>());
 
@@ -90,6 +91,15 @@ public sealed class ComputerPlayerController
         _teamPriorities[team] = priorities;
     }
 
+    /// <summary>Changes the tactic every computer player on one team is given.</summary>
+    /// <param name="team">The affected team.</param>
+    /// <param name="tactic">The tactic to play from the next decision on.</param>
+    public void SetTactic(TeamSide team, TeamTactic tactic)
+    {
+        ArgumentNullException.ThrowIfNull(tactic);
+        _teamTactics[team] = tactic;
+    }
+
     /// <summary>
     /// Preserves assigned inputs and fills every remaining registered outfield slot with an independent AI decision.
     /// </summary>
@@ -123,7 +133,9 @@ public sealed class ComputerPlayerController
             var priorities = _teamPriorities.TryGetValue(player.Team, out var configuredPriorities)
                 ? configuredPriorities
                 : TacticalPriorities.Neutral;
-            var decision = brain.Decide(new PlayerDecisionContext(match, playerId), priorities);
+            var decision = brain.Decide(
+                new PlayerDecisionContext(match, playerId, _teamTactics.GetValueOrDefault(player.Team)),
+                priorities);
             decisions.Add(playerId, decision);
             inputs.Add(playerId, decision.Input);
         }

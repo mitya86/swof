@@ -114,6 +114,7 @@ var tests = new (string Name, Action Test)[]
     ("computer presser slides at a carrier within reach", ComputerPresserSlidesAtCarrierWithinReach),
     ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt),
     ("touches give a stick and one button", TouchesGiveStickAndOneButton),
+    ("a team told to wait at halfway does not follow the carrier past it", HalfCourtTeamWaitsAtHalfway),
     ("a short touch passes and a held touch shoots", ShortTouchPassesAndHeldTouchShoots),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
@@ -126,12 +127,17 @@ var tests = new (string Name, Action Test)[]
     ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
 };
 
-// "matches [count] [firstSeed] [equal]" plays unattended matches instead of the scenarios.
+// "matches [count] [firstSeed] [equal] [home=half] [away=half]" plays unattended matches instead of the scenarios.
 if (args.FirstOrDefault() == "matches")
 {
     var count = args.Length > 1 ? int.Parse(args[1]) : 100;
     var firstSeed = args.Length > 2 ? int.Parse(args[2]) : 1;
-    Environment.ExitCode = MatchRunner.Run(count, firstSeed, equalSquads: args.Contains("equal")) == 0 ? 0 : 1;
+    Environment.ExitCode = MatchRunner.Run(
+        count,
+        firstSeed,
+        equalSquads: args.Contains("equal"),
+        homeTactic: args.Contains("home=half") ? TeamTactic.HalfCourt : null,
+        awayTactic: args.Contains("away=half") ? TeamTactic.HalfCourt : null) == 0 ? 0 : 1;
     return;
 }
 
@@ -3435,6 +3441,76 @@ static bool StandingShotScores(float distanceFromGoalLine, float lateralOffset)
     }
 
     return false;
+}
+
+static void HalfCourtTeamWaitsAtHalfway()
+{
+    var engine = MatchEngine.CreateDefault(userControlledTeam: null);
+    var state = engine.State;
+    var carrier = state.Players.Single(player => player.Id == 4);
+    var homeOutfielders = state.Players
+        .Where(player => player.Team == TeamSide.Home && player.Role == PlayerRole.Outfield)
+        .Select(player => player.Id)
+        .ToArray();
+    var pressure = new BallCarrierPressurePattern();
+    var cover = new BallCarrierCoverPattern();
+
+    Vector2 Target<T>(IPlayerPattern<T> pattern, Func<T, Vector2> pick, TeamTactic? tactic)
+        where T : struct
+    {
+        var snapshot = MatchSnapshot.FromState(state);
+        foreach (var id in homeOutfielders)
+        {
+            if (pattern.TryRecognize(new PlayerDecisionContext(snapshot, id, tactic), out var match))
+            {
+                return pick(match);
+            }
+        }
+
+        throw new InvalidOperationException("Nobody took the job.");
+    }
+
+    // Home defends the left goal, so its halfway press line is x = 0. The carrier is deep in its own half.
+    carrier.Position = new Vector2(12f, 3f);
+    GivePossession(engine, carrier);
+    Assert(Target(pressure, match => match.Target, null).X > 9f, "By default the presser should go to the carrier.");
+    Assert(
+        Target(pressure, match => match.Target, TeamTactic.HalfCourt).X <= 0f,
+        "Told to wait at halfway, the presser should not cross it.");
+    Assert(
+        Target(cover, match => match.Target, TeamTactic.HalfCourt).X < Target(pressure, match => match.Target, TeamTactic.HalfCourt).X,
+        "The cover should stay behind its presser.");
+
+    var defaultFrame = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    var halfCourtFrame = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    halfCourtFrame.SetTactic(TeamSide.Home, TeamTactic.HalfCourt);
+    var nobody = new Dictionary<int, PlayerInput>();
+    var snapshotDeep = MatchSnapshot.FromState(state);
+    var defaultInputs = defaultFrame.CreateControlFrame(snapshotDeep, nobody);
+    var halfCourtInputs = halfCourtFrame.CreateControlFrame(snapshotDeep, nobody);
+    Assert(
+        homeOutfielders.Any(id => defaultFrame.LastDecisions[id].Input != halfCourtFrame.LastDecisions[id].Input),
+        "The tactic should change what the team that was given it does.");
+    Assert(
+        new[] { 4, 5, 6, 10 }.All(id => defaultFrame.LastDecisions[id] == halfCourtFrame.LastDecisions[id]),
+        "A tactic given to one team should not change the other team.");
+
+    // Once the carrier is inside the line, the tactic changes nothing.
+    carrier.Position = new Vector2(-5f, 3f);
+    Assert(
+        Target(pressure, match => match.Target, TeamTactic.HalfCourt) == Target(pressure, match => match.Target, null)
+            && Target(cover, match => match.Target, TeamTactic.HalfCourt) == Target(cover, match => match.Target, null),
+        "Inside the press line the team should press as it does by default.");
+
+    // A loose ball is an emergency, wherever it is.
+    ClearPossession(engine);
+    state.Ball.Position = new Vector2(12f, 3f);
+    state.Ball.Velocity = Vector2.Zero;
+    var looseSnapshot = MatchSnapshot.FromState(state);
+    Assert(
+        homeOutfielders.Any(id => ComputerPlayerBrain.CreateDefault()
+            .Decide(new PlayerDecisionContext(looseSnapshot, id, TeamTactic.HalfCourt)).Kind == PlayerInstructionKind.RecoverLooseBall),
+        "A loose ball beyond the press line should still be chased.");
 }
 
 static void TouchesGiveStickAndOneButton()
