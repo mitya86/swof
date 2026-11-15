@@ -124,6 +124,11 @@ public sealed record PhysicsTuning
     public int SlideRecoveryTicks { get; init; } = 15;
     public float SlideSpeedPerTick { get; init; } = 22f / 60f;
     public float SlideTackleHitDistance { get; init; } = 0.6f;
+    /// <summary>
+    /// A slide that reaches the carrier while following the way the carrier faces more closely than this
+    /// (1 is exactly behind), with the ball out of its reach, is a foul. Above 1 there are no fouls.
+    /// </summary>
+    public float SlideFoulBehindDot { get; init; } = 0.9f;
     public float SlideLooseBallDeflectSpeedPerTick { get; init; } = 18f / 60f;
     public int TapPassMaxTicks { get; init; } = 7;
     /// <summary>Ground-pass pace chosen to keep short futsal combinations readable.</summary>

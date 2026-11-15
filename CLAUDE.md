@@ -90,7 +90,7 @@ If bare `dotnet` fails (a mise shim with no version set), prefix it: `mise exec 
 - `Swof.Windows`: legacy WPF host kept for its live physics-tuning grid. Do not add features to its renderer.
 - `Swof.Engine.Tests`: the scenario runner described above.
 
-What does not exist yet, despite appearing in docs as design: fouls and free kicks, the four-second count, changing ends at half-time, extra time, AI aftertouch on shots, a coach or menu that chooses a tactic (three defensive tactics exist as data; launch options pick them, T or gamepad Y cycles the person's team's during a match, and an opt-in rule swaps a computer team's by score and time), menus, real touch input (only the mouse-driven prototype), multiplayer.
+What does not exist yet, despite appearing in docs as design: any foul other than a slide through the carrier's back (that one gives a direct free kick; no accumulated fouls, 10 m kick, penalty kick, cards or advantage), the four-second count, changing ends at half-time, extra time, AI aftertouch on shots, a coach or menu that chooses a tactic (three defensive tactics exist as data; launch options pick them, T or gamepad Y cycles the person's team's during a match, and an opt-in rule swaps a computer team's by score and time), menus, real touch input (only the mouse-driven prototype), multiplayer.
 
 ## Conventions & Patterns
 

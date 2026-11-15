@@ -24,6 +24,7 @@ internal static class MatchRunner
         int Passes,
         int ShotWindUps,
         int Slides,
+        int Fouls,
         int Stoppages,
         float KeeperShare,
         long LongestSamePossessorTicks,
@@ -88,7 +89,7 @@ internal static class MatchRunner
         // Stoppages add to the clock; three times the playing time is far beyond any real match.
         var tickCap = (long)(tuning.HalfLengthSeconds * 2f * 3f / tuning.TickSeconds);
 
-        int shots = 0, passes = 0, windUps = 0, slides = 0, stoppages = 0, lastScore = 0;
+        int shots = 0, passes = 0, windUps = 0, slides = 0, fouls = 0, stoppages = 0, lastScore = 0;
         long lastFeedback = 0, keeperTicks = 0, sameFor = 0, longestSame = 0;
         int? lastPossessor = null;
         var shooting = new HashSet<int>();
@@ -174,6 +175,10 @@ internal static class MatchRunner
             if (state.IsBallOutOfPlay && !wasOut)
             {
                 stoppages++;
+                if (state.LastEvent.Type == MatchEventType.Foul)
+                {
+                    fouls++;
+                }
             }
 
             wasOut = state.IsBallOutOfPlay;
@@ -244,6 +249,7 @@ internal static class MatchRunner
             passes,
             windUps,
             slides,
+            fouls,
             stoppages,
             keeperTicks / (float)Math.Max(1, state.Tick),
             longestSame,
@@ -278,7 +284,7 @@ internal static class MatchRunner
         foreach (var r in results)
         {
             Console.WriteLine(
-                $"{(r.Fault is null ? "OK  " : "FAIL")} seed {r.Seed,4}  {r.HomeScore}-{r.AwayScore}  shots {r.Shots,3} (wind-ups {r.ShotWindUps,4})  passes {r.Passes,3}  slides {r.Slides,3}  " +
+                $"{(r.Fault is null ? "OK  " : "FAIL")} seed {r.Seed,4}  {r.HomeScore}-{r.AwayScore}  shots {r.Shots,3} (wind-ups {r.ShotWindUps,4})  passes {r.Passes,3}  slides {r.Slides,3}  fouls {r.Fouls,2}  " +
                 $"stoppages {r.Stoppages,3}  keeper {r.KeeperShare:P0}  longest same possessor {r.LongestSamePossessorTicks / 60f:F1}s" +
                 (r.Fault is null ? "" : $"  {r.Fault}"));
         }
@@ -292,6 +298,7 @@ internal static class MatchRunner
         Spread("shot wind-ups", r => r.ShotWindUps);
         Spread("passes", r => r.Passes);
         Spread("slides", r => r.Slides);
+        Spread("fouls", r => r.Fouls);
         Spread("stoppages", r => r.Stoppages);
         Spread("possessions", r => r.Possessions);
         Spread("forward m / possession", r => r.ForwardMetres / Math.Max(1, r.Possessions));

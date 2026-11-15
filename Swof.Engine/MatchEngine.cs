@@ -41,6 +41,7 @@ public sealed class MatchEngine
     {
         State = state;
         Tuning = tuning ?? PhysicsTuning.Default;
+        State.SlideFoul = new SlideFoulRule(Tuning.SlideFoulBehindDot, Tuning.SlideTackleHitDistance);
         UserControlledTeam = userControlledTeam;
         OpponentMovementEnabled = opponentMovementEnabled;
         var initialPossessor = State.Ball.PossessorId is int possessorId
@@ -246,6 +247,7 @@ public sealed class MatchEngine
     public void ApplyTuning(PhysicsTuning tuning)
     {
         Tuning = tuning;
+        State.SlideFoul = new SlideFoulRule(tuning.SlideFoulBehindDot, tuning.SlideTackleHitDistance);
         State.Ball.Radius = tuning.BallRadius;
 
         foreach (var player in State.Players)
@@ -365,6 +367,11 @@ public sealed class MatchEngine
                      .OrderBy(player => player.Id))
         {
             HandleSlidingBallInteraction(slidingPlayer);
+            if (State.IsBallOutOfPlay)
+            {
+                // A foul stopped play; a second slider must not reach the player placed for the free kick.
+                break;
+            }
         }
 
         CheckBallRules();
@@ -1577,7 +1584,20 @@ public sealed class MatchEngine
             var toPossessor = possessor.Position - slider.Position;
             if (toPossessor.Length() <= hitDistance && Vector2.Dot(SafeNormalize(toPossessor, slideDirection), slideDirection) > 0.1f)
             {
-                KnockBallLoose(possessor, slider);
+                if (slider.Team != possessor.Team && State.SlideFoul.IsFoul(
+                        slideDirection,
+                        slider.Position,
+                        slider.Radius,
+                        possessor.Facing.ToUnitVector(),
+                        State.Ball.Position,
+                        State.Ball.Radius))
+                {
+                    AwardFreeKick(possessor, slider);
+                }
+                else
+                {
+                    KnockBallLoose(possessor, slider);
+                }
             }
 
             return;
@@ -1597,6 +1617,22 @@ public sealed class MatchEngine
         State.Ball.Velocity = slideDirection * Tuning.SlideLooseBallDeflectSpeedPerTick;
         State.LastTouchTeam = slider.Team;
         _ballCollectionCooldownTicks = Math.Max(_ballCollectionCooldownTicks, 2);
+    }
+
+    // ponytail: every foul is a direct free kick where it happened, also inside the penalty area
+    // (no penalty kick). Accumulated fouls, the 10 m kick, cards, advantage and contact away from
+    // the ball are not modelled; add them once this one rule has been playtested.
+    private void AwardFreeKick(PlayerState fouled, PlayerState fouler)
+    {
+        fouler.SlideTicksRemaining = 0;
+        fouler.Velocity = Vector2.Zero;
+        StopForRestart(new MatchEvent(
+            MatchEventType.Foul,
+            RestartKind.FreeKick,
+            fouled.Team,
+            fouled.Position,
+            Description: $"Free kick to {fouled.Team}."));
+        PlaceRestartTaker(fouled.Team, fouled.Position, FacingForTeam(fouled.Team).ToUnitVector());
     }
 
     private void BeginControlledPossession(PlayerState player)

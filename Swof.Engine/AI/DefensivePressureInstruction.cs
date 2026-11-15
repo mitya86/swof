@@ -158,10 +158,19 @@ public sealed class PressureBallCarrierInstruction : IPlayerInstruction
             // Turn onto the carrier first, then press once: the engine starts the slide on the press.
             var direction = toCarrier / carrierDistance;
             var isFacingCarrier = Vector2.Dot(context.Player.Facing.ToUnitVector(), direction) >= TackleFacingCosine;
-            input = new PlayerInput(direction, ActionDown: isFacingCarrier);
-            if (isFacingCarrier)
+            if (isFacingCarrier && WouldFoul(context, carrier))
             {
-                _tackleCooldownTicksRemaining = TackleCooldownTicks;
+                // A slide from here would go through the carrier's back: step round to the ball instead.
+                var toBall = context.Match.Ball.Position - context.Player.Position;
+                input = new PlayerInput(DirectionTo(context.Player.Position, context.Match.Ball.Position, toBall.Length()), ActionDown: false);
+            }
+            else
+            {
+                input = new PlayerInput(direction, ActionDown: isFacingCarrier);
+                if (isFacingCarrier)
+                {
+                    _tackleCooldownTicksRemaining = TackleCooldownTicks;
+                }
             }
         }
 
@@ -170,6 +179,28 @@ public sealed class PressureBallCarrierInstruction : IPlayerInstruction
             PlayerInstructionPriorityBand.Urgent,
             1f / (1f + match.Distance),
             input);
+    }
+
+    // ponytail: the carrier and ball are taken to stay where they are while the slide travels, so a
+    // carrier who turns away during it can still be fouled. Predict their movement if computers foul too often.
+    private static bool WouldFoul(PlayerDecisionContext context, PlayerSnapshot carrier)
+    {
+        var rule = context.Match.SlideFoul;
+        var slider = context.Player;
+        var ball = context.Match.Ball;
+        var slideDirection = slider.Facing.ToUnitVector();
+        var toCarrier = carrier.Position - slider.Position;
+        var reach = slider.Radius + ball.Radius + rule.HitDistance;
+        var along = Vector2.Dot(toCarrier, slideDirection);
+        var besideSquared = toCarrier.LengthSquared() - along * along;
+        var travel = MathF.Max(0f, along - MathF.Sqrt(MathF.Max(0f, reach * reach - besideSquared)));
+        return rule.IsFoul(
+            slideDirection,
+            slider.Position + slideDirection * travel,
+            slider.Radius,
+            carrier.Facing.ToUnitVector(),
+            ball.Position,
+            ball.Radius);
     }
 
     private static Vector2 DirectionTo(Vector2 position, Vector2 target, float distance)

@@ -6,6 +6,7 @@ public enum MatchEventType
     GoalScored,
     TouchlineOut,
     GoalLineOut,
+    Foul,
     HalfTime,
     FullTime
 }

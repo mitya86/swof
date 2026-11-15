@@ -162,6 +162,7 @@ internal sealed class MatchRenderer : IDisposable
                 {
                     RestartKind.KickIn => "KICK-IN",
                     RestartKind.Corner => "CORNER",
+                    RestartKind.FreeKick => "FREE KICK",
                     RestartKind.GoalClearance => "GOAL CLEARANCE",
                     _ => "PLAY STOPPED"
                 }

@@ -28,6 +28,9 @@ public sealed class MatchState
     /// </summary>
     public int Seed { get; init; }
 
+    /// <summary>The foul rule for slides, kept here so computer players read the same rule the engine applies.</summary>
+    public SlideFoulRule SlideFoul { get; set; } = SlideFoulRule.Off;
+
     public FieldDimensions Field { get; }
     public IReadOnlyList<PlayerState> Players { get; }
     public IReadOnlyList<OfficialState> Officials { get; }
