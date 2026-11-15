@@ -44,7 +44,8 @@ internal sealed record SwofGameLaunchOptions(
                 {
                     "high" => TeamTactic.HighPress,
                     "half" => TeamTactic.HalfCourt,
-                    _ => throw new ArgumentException($"Unknown opponent tactic '{value}' (high or half).", nameof(arguments))
+                    "up" => TeamTactic.PushUp,
+                    _ => throw new ArgumentException($"Unknown opponent tactic '{value}' (high, half or up).", nameof(arguments))
                 };
             }
         }

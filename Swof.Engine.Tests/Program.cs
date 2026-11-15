@@ -115,6 +115,7 @@ var tests = new (string Name, Action Test)[]
     ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt),
     ("touches give a stick and one button", TouchesGiveStickAndOneButton),
     ("a team told to wait at halfway does not follow the carrier past it", HalfCourtTeamWaitsAtHalfway),
+    ("a team told to push up marks further from its own goal", PushUpTeamMarksFurtherFromOwnGoal),
     ("a short touch passes and a held touch shoots", ShortTouchPassesAndHeldTouchShoots),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
@@ -127,7 +128,7 @@ var tests = new (string Name, Action Test)[]
     ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
 };
 
-// "matches [count] [firstSeed] [equal] [home=half] [away=half]" plays unattended matches instead of the scenarios.
+// "matches [count] [firstSeed] [equal] [home=half|up] [away=half|up] [home-up=metres] [away-up=metres]" plays unattended matches instead of the scenarios.
 if (args.FirstOrDefault() == "matches")
 {
     var count = args.Length > 1 ? int.Parse(args[1]) : 100;
@@ -136,8 +137,18 @@ if (args.FirstOrDefault() == "matches")
         count,
         firstSeed,
         equalSquads: args.Contains("equal"),
-        homeTactic: args.Contains("home=half") ? TeamTactic.HalfCourt : null,
-        awayTactic: args.Contains("away=half") ? TeamTactic.HalfCourt : null) == 0 ? 0 : 1;
+        homeTactic: TacticFor("home"),
+        awayTactic: TacticFor("away")) == 0 ? 0 : 1;
+
+    // "home=half" or "home=up" picks a preset; "home-up=12" sets how far up Home's markers stand, for measuring.
+    TeamTactic TacticFor(string side)
+    {
+        var tactic = args.Contains($"{side}=half") ? TeamTactic.HalfCourt
+            : args.Contains($"{side}=up") ? TeamTactic.PushUp
+            : TeamTactic.HighPress;
+        var up = args.FirstOrDefault(argument => argument.StartsWith($"{side}-up=", StringComparison.Ordinal));
+        return up is null ? tactic : tactic with { MarkersUpMetres = float.Parse(up[(side.Length + 4)..]) };
+    }
     return;
 }
 
@@ -3530,6 +3541,82 @@ static void HalfCourtTeamWaitsAtHalfway()
         homeOutfielders.Any(id => ComputerPlayerBrain.CreateDefault()
             .Decide(new PlayerDecisionContext(looseSnapshot, id, TeamTactic.HalfCourt)).Kind == PlayerInstructionKind.RecoverLooseBall),
         "A loose ball beyond the press line should still be chased.");
+}
+
+static void PushUpTeamMarksFurtherFromOwnGoal()
+{
+    var engine = MatchEngine.CreateDefault(userControlledTeam: null);
+    var state = engine.State;
+    var marking = new StructuredMarkingPattern();
+    int[] homeOutfielders = [1, 2, 3, 9];
+    int[] awayOutfielders = [4, 5, 6, 10];
+
+    // Away's fixo has the ball deep in its own half and its team-mates are all in that half too.
+    var carrier = state.Players.Single(player => player.Id == 4);
+    carrier.Position = new Vector2(14f, 0f);
+    GivePossession(engine, carrier);
+    var snapshot = MatchSnapshot.FromState(state);
+
+    Dictionary<int, float> MarkTargets(TeamTactic? tactic) => homeOutfielders
+        .Where(id => marking.TryRecognize(new PlayerDecisionContext(snapshot, id, tactic), out _))
+        .ToDictionary(
+            id => id,
+            id =>
+            {
+                marking.TryRecognize(new PlayerDecisionContext(snapshot, id, tactic), out var match);
+                return match.Target.X;
+            });
+
+    var deep = MarkTargets(null);
+    var up = MarkTargets(TeamTactic.PushUp);
+    Assert(deep.Count == 2, $"Two players should mark while the other two press and cover (got {deep.Count}).");
+    Assert(up.Keys.Order().SequenceEqual(deep.Keys.Order()), "Pushing up should not change who marks.");
+    foreach (var (id, x) in deep)
+    {
+        Assert(
+            MathF.Abs(up[id] - x - TeamTactic.PushUp.MarkersUpMetres) < 0.01f,
+            $"Told to push up, a marker held back by its depth limit should stand that much further up ({x:0.0} m, pushed up {up[id]:0.0} m).");
+    }
+
+    // A marker whose opponent is deep in Home's half stands inside its limit: there only its anchor moves, so it
+    // goes up by part of the distance.
+    foreach (var attacker in state.Players.Where(player => player.Id is 5 or 6 or 10))
+    {
+        attacker.Position = new Vector2(-17f, attacker.Position.Y);
+    }
+
+    snapshot = MatchSnapshot.FromState(state);
+    var deepInside = MarkTargets(null);
+    var upInside = MarkTargets(TeamTactic.PushUp);
+    Assert(deepInside.Count > 0, "Somebody should mark the attackers near Home's goal.");
+    foreach (var (id, x) in deepInside)
+    {
+        var moved = upInside[id] - x;
+        Assert(
+            moved > 0.5f && moved < TeamTactic.PushUp.MarkersUpMetres - 0.5f,
+            $"Inside its limit a marker told to push up should stand part of the way further up (moved {moved:0.0} m).");
+    }
+
+    // The tactic belongs to the team that was given it. Home has the ball, so Away is the team that marks.
+    var homeCarrier = state.Players.Single(player => player.Id == 1);
+    homeCarrier.Position = new Vector2(-14f, 0f);
+    GivePossession(engine, homeCarrier);
+    snapshot = MatchSnapshot.FromState(state);
+    var nobody = new Dictionary<int, PlayerInput>();
+    var plain = ComputerPlayerController.CreateDefault(snapshot);
+    var homeUp = ComputerPlayerController.CreateDefault(snapshot);
+    homeUp.SetTactic(TeamSide.Home, TeamTactic.PushUp);
+    var awayUp = ComputerPlayerController.CreateDefault(snapshot);
+    awayUp.SetTactic(TeamSide.Away, TeamTactic.PushUp);
+    plain.CreateControlFrame(snapshot, nobody);
+    homeUp.CreateControlFrame(snapshot, nobody);
+    awayUp.CreateControlFrame(snapshot, nobody);
+    Assert(
+        awayOutfielders.All(id => plain.LastDecisions[id] == homeUp.LastDecisions[id]),
+        "Home pushing up should not change what Away does.");
+    Assert(
+        awayOutfielders.Any(id => plain.LastDecisions[id].Input != awayUp.LastDecisions[id].Input),
+        "Away pushing up should move one of Away's markers differently.");
 }
 
 static void TouchesGiveStickAndOneButton()
