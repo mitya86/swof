@@ -61,7 +61,8 @@ public sealed class StructuredMarkingPattern : IPlayerPattern<MarkingOpportunity
         var structuralAnchor = GetStructuralAnchor(
             field,
             context.Player.Team,
-            context.Player.FutsalRole);
+            context.Player.FutsalRole,
+            context.Tactic.MarkersUpMetres);
         var ownGoal = new Vector2(
             context.Player.Team == TeamSide.Home ? field.Left : field.Right,
             0f);
@@ -76,7 +77,8 @@ public sealed class StructuredMarkingPattern : IPlayerPattern<MarkingOpportunity
             field,
             context.Player.Team,
             context.Player.FutsalRole,
-            context.Player.Radius);
+            context.Player.Radius,
+            context.Tactic.MarkersUpMetres);
 
         match = new MarkingOpportunity(
             markedOpponent.Id,
@@ -149,7 +151,8 @@ public sealed class StructuredMarkingPattern : IPlayerPattern<MarkingOpportunity
     private static Vector2 GetStructuralAnchor(
         FieldDimensions field,
         TeamSide team,
-        FutsalOutfieldRole role)
+        FutsalOutfieldRole role,
+        float markersUpMetres)
     {
         var attackDirection = team == TeamSide.Home ? 1f : -1f;
         var ownGoalX = team == TeamSide.Home ? field.Left : field.Right;
@@ -166,7 +169,7 @@ public sealed class StructuredMarkingPattern : IPlayerPattern<MarkingOpportunity
             FutsalOutfieldRole.RightAla => attackDirection * 4f,
             _ => 0f
         };
-        return new Vector2(ownGoalX + attackDirection * depth, lateral);
+        return new Vector2(ownGoalX + attackDirection * (depth + markersUpMetres), lateral);
     }
 
     private static Vector2 ClampToDefensiveStructure(
@@ -174,9 +177,10 @@ public sealed class StructuredMarkingPattern : IPlayerPattern<MarkingOpportunity
         FieldDimensions field,
         TeamSide team,
         FutsalOutfieldRole role,
-        float playerRadius)
+        float playerRadius,
+        float markersUpMetres)
     {
-        var maximumDepth = role switch
+        var maximumDepth = markersUpMetres + role switch
         {
             FutsalOutfieldRole.Fixo => 9f,
             FutsalOutfieldRole.LeftAla or FutsalOutfieldRole.RightAla => 12f,

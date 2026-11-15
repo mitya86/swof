@@ -69,8 +69,8 @@ tools/check.sh full            # fast + MonoGame host build + dotnet format veri
 tools/check.sh matches         # 100 unattended computer-versus-computer matches, about a minute
 tools/check.sh matches 1 42    # replay one seed
 tools/check.sh matches 100 1 equal   # every outfielder identical, which adds the balance pass marks
-tools/check.sh matches 100 1 equal away=half   # a team waits at halfway (also home=half); a measurement, expected to miss marks
-dotnet run --project Swof.Game/Swof.Game.csproj -- --opponent-tactic=half   # play against it
+tools/check.sh matches 100 1 equal away=half   # a team waits at halfway (also home=half, =up for markers pushed up, home-up=12 for any distance); a measurement, may miss marks
+dotnet run --project Swof.Game/Swof.Game.csproj -- --opponent-tactic=half   # play against it (also up)
 dotnet run --project Swof.Game/Swof.Game.csproj   # play it
 ```
 
@@ -89,7 +89,7 @@ If bare `dotnet` fails (a mise shim with no version set), prefix it: `mise exec 
 - `Swof.Windows`: legacy WPF host kept for its live physics-tuning grid. Do not add features to its renderer.
 - `Swof.Engine.Tests`: the scenario runner described above.
 
-What does not exist yet, despite appearing in docs as design: fouls and free kicks, the four-second count, changing ends at half-time, extra time, AI aftertouch on shots, choosing a tactic in the game (two press tactics exist as data, picked only by launch option), menus, real touch input (only the mouse-driven prototype), multiplayer.
+What does not exist yet, despite appearing in docs as design: fouls and free kicks, the four-second count, changing ends at half-time, extra time, AI aftertouch on shots, choosing a tactic in the game (three defensive tactics exist as data, picked only by launch option), menus, real touch input (only the mouse-driven prototype), multiplayer.
 
 ## Conventions & Patterns
 
