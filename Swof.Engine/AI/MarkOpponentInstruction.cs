@@ -50,7 +50,8 @@ public sealed class StructuredMarkingPattern : IPlayerPattern<MarkingOpportunity
         var assignments = BuildAssignments(
             context.Match,
             context.Player.Team,
-            opponentPossessor);
+            opponentPossessor,
+            context.Tactic);
         if (!assignments.TryGetValue(context.Player.Id, out var markedOpponent))
         {
             return false;
@@ -89,7 +90,8 @@ public sealed class StructuredMarkingPattern : IPlayerPattern<MarkingOpportunity
     private static IReadOnlyDictionary<int, PlayerSnapshot> BuildAssignments(
         MatchSnapshot match,
         TeamSide defendingTeam,
-        PlayerSnapshot possessor)
+        PlayerSnapshot possessor,
+        TeamTactic tactic)
     {
         var presser = possessor.Role == PlayerRole.Outfield
             ? DefensiveAssignments.FindPresser(match, defendingTeam, possessor)
@@ -97,7 +99,7 @@ public sealed class StructuredMarkingPattern : IPlayerPattern<MarkingOpportunity
         var coverTarget = DefensiveAssignments.GoalSidePoint(
             match.Field,
             defendingTeam,
-            possessor.Position,
+            DefensiveAssignments.PressPoint(match.Field, defendingTeam, possessor.Position, tactic),
             DefensiveAssignments.CoverDistance,
             playerRadius: 0f);
         var cover = presser is null

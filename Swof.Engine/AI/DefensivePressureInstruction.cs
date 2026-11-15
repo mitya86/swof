@@ -47,7 +47,7 @@ public sealed class BallCarrierPressurePattern : IPlayerPattern<BallCarrierPress
         var target = DefensiveAssignments.GoalSidePoint(
             context.Match.Field,
             context.Player.Team,
-            carrier.Position,
+            DefensiveAssignments.PressPoint(context.Match.Field, context.Player.Team, carrier.Position, context.Tactic),
             PressureDistance,
             context.Player.Radius);
         match = new BallCarrierPressureOpportunity(
@@ -81,7 +81,7 @@ public sealed class BallCarrierCoverPattern : IPlayerPattern<BallCarrierCoverOpp
         var target = DefensiveAssignments.GoalSidePoint(
             context.Match.Field,
             context.Player.Team,
-            carrier.Position,
+            DefensiveAssignments.PressPoint(context.Match.Field, context.Player.Team, carrier.Position, context.Tactic),
             DefensiveAssignments.CoverDistance,
             context.Player.Radius);
         var cover = DefensiveAssignments.FindCover(
@@ -281,6 +281,19 @@ internal static class DefensiveAssignments
             .OrderBy(player => Vector2.DistanceSquared(player.Position, coverTarget))
             .ThenBy(player => player.Id)
             .FirstOrDefault();
+    }
+
+    /// <summary>Where the team meets a carrier: the carrier itself, or the nearest point on the press line.</summary>
+    public static Vector2 PressPoint(
+        FieldDimensions field,
+        TeamSide defendingTeam,
+        Vector2 carrierPosition,
+        TeamTactic tactic)
+    {
+        var x = defendingTeam == TeamSide.Home
+            ? MathF.Min(carrierPosition.X, field.Left + tactic.PressLineMetres)
+            : MathF.Max(carrierPosition.X, field.Right - tactic.PressLineMetres);
+        return new Vector2(x, carrierPosition.Y);
     }
 
     public static Vector2 GoalSidePoint(

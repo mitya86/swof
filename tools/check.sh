@@ -5,6 +5,7 @@
 #   matches  100 unattended computer-versus-computer matches (about a minute);
 #            tools/check.sh matches <count> <firstSeed> replays chosen seeds;
 #            add "equal" to give every outfielder the same attributes;
+#            add "home=half" or "away=half" to make that team wait at halfway;
 #            100 or more matches must also meet the runner's pass marks
 set -euo pipefail
 cd "$(dirname "$0")/.."

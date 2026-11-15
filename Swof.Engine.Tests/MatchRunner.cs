@@ -50,7 +50,9 @@ internal static class MatchRunner
         int seed,
         float halfLengthSeconds = 0f,
         bool equalSquads = false,
-        TeamSide? userControlledTeam = null)
+        TeamSide? userControlledTeam = null,
+        TeamTactic? homeTactic = null,
+        TeamTactic? awayTactic = null)
     {
         var random = new Random(seed);
         // 4 to 15 is the range the default squads already use.
@@ -68,6 +70,8 @@ internal static class MatchRunner
 
         var engine = MatchEngine.CreateDefault(tuning, outfieldAttributes: squad, seed: seed, userControlledTeam: userControlledTeam);
         var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+        computers.SetTactic(TeamSide.Home, homeTactic ?? TeamTactic.HighPress);
+        computers.SetTactic(TeamSide.Away, awayTactic ?? TeamTactic.HighPress);
         var state = engine.State;
         var nobody = new Dictionary<int, PlayerInput>();
         // Stoppages add to the clock; three times the playing time is far beyond any real match.
@@ -248,9 +252,16 @@ internal static class MatchRunner
     }
 
     /// <summary>Plays <paramref name="count"/> matches and returns how many broke.</summary>
-    internal static int Run(int count, int firstSeed, bool equalSquads)
+    internal static int Run(
+        int count,
+        int firstSeed,
+        bool equalSquads,
+        TeamTactic? homeTactic = null,
+        TeamTactic? awayTactic = null)
     {
-        var results = Enumerable.Range(firstSeed, count).Select(seed => Play(seed, equalSquads: equalSquads)).ToArray();
+        var results = Enumerable.Range(firstSeed, count)
+            .Select(seed => Play(seed, equalSquads: equalSquads, homeTactic: homeTactic, awayTactic: awayTactic))
+            .ToArray();
         foreach (var r in results)
         {
             Console.WriteLine(

@@ -21,6 +21,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private readonly PlayerInputBuffer _inputBuffer = new();
     private readonly TouchControls _touchControls = new();
     private readonly MatchDemoAction _demoAction;
+    private readonly TeamTactic _opponentTactic;
     private MatchRenderer? _renderer;
     private MatchFeedbackPlayer? _feedbackPlayer;
     private SpriteFont? _font;
@@ -50,11 +51,13 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         // A different seed each match, so the computer players do not replay the same one.
         _engine = MatchEngine.CreateDefault(PhysicsTuningStore.LoadOrDefault(), seed: Environment.TickCount);
         _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
+        _computerPlayers.SetTactic(TeamSide.Away, _opponentTactic);
     }
 
     public SwofGame(SwofGameLaunchOptions? launchOptions = null)
     {
         launchOptions ??= SwofGameLaunchOptions.Default;
+        _opponentTactic = launchOptions.OpponentTactic;
         StartMatch();
         _demoAction = launchOptions.DemoAction;
         _feedbackModeIndex = Array.IndexOf(FeedbackModes, launchOptions.FeedbackMode);
