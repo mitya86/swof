@@ -55,6 +55,11 @@ public sealed record PhysicsTuning
     public float HalfLengthSeconds { get; init; } = 180f;
     /// <summary>Pause between the ball leaving play and the awarded restart becoming live.</summary>
     public int RestartDelayTicks { get; init; } = 60;
+    /// <summary>
+    /// Ticks the other team is kept out of the centre circle at a kickoff, unless the taker plays the ball
+    /// or carries it out first (0 turns it off). Four seconds, like the count on a futsal restart.
+    /// </summary>
+    public int KickoffProtectionTicks { get; init; } = 240;
     /// <summary>Distance opponents are moved back from a kick-in or corner (5 m in the futsal laws).</summary>
     public float RestartOpponentDistance { get; init; } = 5f;
     public float BallRadius { get; init; } = 0.42f;
