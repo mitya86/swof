@@ -126,6 +126,7 @@ var tests = new (string Name, Action Test)[]
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
     ("kickoff taker stands over the ball and keeps it", KickoffTakerStandsOverTheBallAndKeepsIt),
+    ("a match asked to start with a kickoff opens on the centre spot", MatchOpensWithKickoff),
     ("ball carried over the touchline is out against the carrier", BallCarriedOverTouchlineIsOutAgainstCarrier),
     ("computer corner taker carries the ball into the court", ComputerCornerTakerCarriesBallIntoCourt),
     ("goalkeeper smothers a ball dribbled straight at it", GoalkeeperSmothersBallDribbledStraightAtIt),
@@ -2991,6 +2992,33 @@ static void GoalResetsEveryPlayerToKickoffPositions()
 
     StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks);
     Assert(!state.IsBallOutOfPlay, "Play should resume from the kickoff on its own.");
+}
+
+static void MatchOpensWithKickoff()
+{
+    foreach (var userTeam in new TeamSide?[] { TeamSide.Home, null })
+    {
+        var engine = MatchEngine.CreateDefault(userControlledTeam: userTeam, startWithKickoff: true);
+        foreach (var snapshot in new[] { engine.CurrentSnapshot, engine.PreviousSnapshot })
+        {
+            var taker = snapshot.Players.Single(player => player.Id == snapshot.Ball.PossessorId);
+            Assert(snapshot.Ball.Position == Vector2.Zero, "The match should open with the ball on the centre spot.");
+            Assert(
+                taker.Team == TeamSide.Home && taker.FutsalRole == FutsalOutfieldRole.Pivo,
+                "Home's forward-most outfielder should take the first kickoff.");
+            Assert(
+                snapshot.ActivePlayerId == (userTeam is null ? 0 : taker.Id),
+                "A person should control the kickoff taker, and nobody should be active when no person plays.");
+            Assert(!snapshot.IsBallOutOfPlay, "The first kickoff should be in play at once.");
+        }
+
+        Assert(
+            engine.State.Players.Where(player => !player.HasPossession).All(player => player.Position == player.KickoffPosition),
+            "Everyone but the taker should stand on their kickoff position.");
+    }
+
+    var plain = MatchEngine.CreateDefault();
+    Assert(plain.CurrentSnapshot.Ball.Position != Vector2.Zero, "A match not asked for a kickoff keeps the opening the scenarios are built on.");
 }
 
 static void KickoffTakerStandsOverTheBallAndKeepsIt()

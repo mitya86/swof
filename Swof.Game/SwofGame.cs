@@ -59,7 +59,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     {
         // A different seed each match, so the computer players do not replay the same one.
         var tuning = PhysicsTuningStore.LoadOrDefault();
-        _engine = MatchEngine.CreateDefault(tuning, seed: Environment.TickCount);
+        _engine = MatchEngine.CreateDefault(tuning, seed: Environment.TickCount, startWithKickoff: true);
         _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
         _computerPlayers.SetTactic(TeamSide.Away, _opponentTactic);
         _computerPlayers.SetTactic(TeamSide.Home, _teamTactic);

@@ -71,7 +71,7 @@ internal static class MatchRunner
             Array.Fill(squad, PlayerAttributes.DefaultOutfield);
         }
 
-        var engine = MatchEngine.CreateDefault(tuning, outfieldAttributes: squad, seed: seed, userControlledTeam: userControlledTeam);
+        var engine = MatchEngine.CreateDefault(tuning, outfieldAttributes: squad, seed: seed, userControlledTeam: userControlledTeam, startWithKickoff: true);
         var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
         computers.SetTactic(TeamSide.Home, homeTactic ?? TeamTactic.HighPress);
         computers.SetTactic(TeamSide.Away, awayTactic ?? TeamTactic.HighPress);
