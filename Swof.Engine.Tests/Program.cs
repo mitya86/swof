@@ -3486,17 +3486,36 @@ static void HalfCourtTeamWaitsAtHalfway()
     halfCourtFrame.SetTactic(TeamSide.Home, TeamTactic.HalfCourt);
     var nobody = new Dictionary<int, PlayerInput>();
     var snapshotDeep = MatchSnapshot.FromState(state);
-    var defaultInputs = defaultFrame.CreateControlFrame(snapshotDeep, nobody);
-    var halfCourtInputs = halfCourtFrame.CreateControlFrame(snapshotDeep, nobody);
+    defaultFrame.CreateControlFrame(snapshotDeep, nobody);
+    halfCourtFrame.CreateControlFrame(snapshotDeep, nobody);
     Assert(
         homeOutfielders.Any(id => defaultFrame.LastDecisions[id].Input != halfCourtFrame.LastDecisions[id].Input),
         "The tactic should change what the team that was given it does.");
+
+    // Now Home has the ball deep in its own half: only a tactic given to Away may change what Away does.
+    var homeCarrier = state.Players.Single(player => player.Id == 1);
+    homeCarrier.Position = new Vector2(-12f, 3f);
+    GivePossession(engine, homeCarrier);
+    var snapshotHomeBall = MatchSnapshot.FromState(state);
+    int[] awayOutfielders = [4, 5, 6, 10];
+    var plain = ComputerPlayerController.CreateDefault(snapshotHomeBall);
+    var homeHalfCourt = ComputerPlayerController.CreateDefault(snapshotHomeBall);
+    homeHalfCourt.SetTactic(TeamSide.Home, TeamTactic.HalfCourt);
+    var awayHalfCourt = ComputerPlayerController.CreateDefault(snapshotHomeBall);
+    awayHalfCourt.SetTactic(TeamSide.Away, TeamTactic.HalfCourt);
+    plain.CreateControlFrame(snapshotHomeBall, nobody);
+    homeHalfCourt.CreateControlFrame(snapshotHomeBall, nobody);
+    awayHalfCourt.CreateControlFrame(snapshotHomeBall, nobody);
     Assert(
-        new[] { 4, 5, 6, 10 }.All(id => defaultFrame.LastDecisions[id] == halfCourtFrame.LastDecisions[id]),
+        awayOutfielders.All(id => plain.LastDecisions[id] == homeHalfCourt.LastDecisions[id]),
         "A tactic given to one team should not change the other team.");
+    Assert(
+        awayOutfielders.Any(id => plain.LastDecisions[id] != awayHalfCourt.LastDecisions[id]),
+        "The same tactic given to the defending team should change it.");
 
     // Once the carrier is inside the line, the tactic changes nothing.
     carrier.Position = new Vector2(-5f, 3f);
+    GivePossession(engine, carrier);
     Assert(
         Target(pressure, match => match.Target, TeamTactic.HalfCourt) == Target(pressure, match => match.Target, null)
             && Target(cover, match => match.Target, TeamTactic.HalfCourt) == Target(cover, match => match.Target, null),
