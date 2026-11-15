@@ -17,6 +17,8 @@ public sealed class MatchEngine
     private int? _aftertouchPlayerId;
     private int _dribbleSecureTicksRemaining;
     private int _newPossessionProtectionTicks;
+    private int _kickoffProtectionTicks;
+    private TeamSide _kickoffTeam;
     private float _dribbleRisk;
     private float _dribbleSustain01;
     private Vector2 _previousDribbleMoveDirection = Vector2.Zero;
@@ -335,11 +337,24 @@ public sealed class MatchEngine
             _releasedByPlayerId = null;
         }
 
+        if (_kickoffProtectionTicks > 0)
+        {
+            // ponytail: after the count the ball is simply open to a challenge; a real four-second
+            // count would give the other team a kick-in.
+            var takerStillOnTheSpot = State.Players.Any(player => player.HasPossession && player.Team == _kickoffTeam)
+                && State.Ball.Position.Length() <= State.Field.CenterCircleRadius;
+            _kickoffProtectionTicks = takerStillOnTheSpot ? _kickoffProtectionTicks - 1 : 0;
+        }
+
         foreach (var playerId in frame.PlayerIds)
         {
             var controlledPlayer = State.Players.Single(player => player.Id == playerId);
             MoveControlledPlayer(controlledPlayer, frame.GetInputOrEmpty(playerId).NormalizedMove);
             ResolvePlayerBounds(controlledPlayer);
+            if (_kickoffProtectionTicks > 0 && controlledPlayer.Team != _kickoffTeam)
+            {
+                KeepOutOfCentreCircle(controlledPlayer);
+            }
         }
 
         MoveGoalkeepers();
@@ -2043,9 +2058,12 @@ public sealed class MatchEngine
 
         // Standing over the ball: any further back and it is outside the taker's control,
         // which turns the kickoff into a loose ball that both teams run at.
-        player.Position = -FacingForTeam(kickoffTeam).ToUnitVector() * Tuning.DribbleLeadDistance;
+        // Facing its own half from the far side of the ball: every team-mate is behind the centre line,
+        // so a tap with no direction goes back to one of them instead of forward to the waiting opponent.
+        var towardsOwnHalf = FacingForTeam(kickoffTeam == TeamSide.Home ? TeamSide.Away : TeamSide.Home);
+        player.Position = -towardsOwnHalf.ToUnitVector() * Tuning.DribbleLeadDistance;
         player.Velocity = Vector2.Zero;
-        player.Facing = FacingForTeam(kickoffTeam);
+        player.Facing = towardsOwnHalf;
         player.HasPossession = true;
 
         State.Ball.Position = Vector2.Zero;
@@ -2066,6 +2084,38 @@ public sealed class MatchEngine
         _lastDribbleTurn01 = 0f;
         _lastPossessionTeam = kickoffTeam;
         State.LastTouchTeam = kickoffTeam;
+
+        _kickoffTeam = kickoffTeam;
+        _kickoffProtectionTicks = Tuning.KickoffProtectionTicks;
+        if (_kickoffProtectionTicks > 0)
+        {
+            foreach (var opponent in State.Players.Where(candidate => candidate.Team != kickoffTeam))
+            {
+                KeepOutOfCentreCircle(opponent);
+            }
+        }
+    }
+
+    /// <summary>
+    /// The other team waits outside the centre circle (3 m in the futsal laws) until the kickoff is played.
+    /// It is a wall for whoever moves the player, so a person and a computer player are held alike.
+    /// </summary>
+    private void KeepOutOfCentreCircle(PlayerState player)
+    {
+        var nearest = State.Field.CenterCircleRadius + player.Radius;
+        var distance = player.Position.Length();
+        if (distance >= nearest)
+        {
+            return;
+        }
+
+        var outward = distance > 0.0001f ? player.Position / distance : -FacingForTeam(player.Team).ToUnitVector();
+        player.Position = outward * nearest;
+        var outwardSpeed = Vector2.Dot(player.Velocity, outward);
+        if (outwardSpeed < 0f)
+        {
+            player.Velocity -= outward * outwardSpeed;
+        }
     }
 
     private Vector2 ClampToField(Vector2 position)

@@ -127,6 +127,8 @@ var tests = new (string Name, Action Test)[]
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
     ("kickoff taker stands over the ball and keeps it", KickoffTakerStandsOverTheBallAndKeepsIt),
     ("a match asked to start with a kickoff opens on the centre spot", MatchOpensWithKickoff),
+    ("the other team waits outside the centre circle until the kickoff is played", OtherTeamWaitsOutsideCentreCircleAtKickoff),
+    ("a tap at the kickoff reaches a team-mate", TapAtKickoffReachesTeamMate),
     ("ball carried over the touchline is out against the carrier", BallCarriedOverTouchlineIsOutAgainstCarrier),
     ("computer corner taker carries the ball into the court", ComputerCornerTakerCarriesBallIntoCourt),
     ("goalkeeper smothers a ball dribbled straight at it", GoalkeeperSmothersBallDribbledStraightAtIt),
@@ -2986,7 +2988,7 @@ static void GoalResetsEveryPlayerToKickoffPositions()
     Assert(taker.Team == TeamSide.Away, "The conceding team should kick off.");
     foreach (var player in state.Players.Where(player => player.Id != taker.Id))
     {
-        Assert(player.Position == player.KickoffPosition, $"Player {player.Id} should be back at their kickoff position.");
+        Assert(StandsForKickoff(engine, player), $"Player {player.Id} should be back at their kickoff position.");
         Assert(!player.IsRecoveringFromSlide, $"Player {player.Id} should be on their feet for the kickoff.");
     }
 
@@ -3013,12 +3015,89 @@ static void MatchOpensWithKickoff()
         }
 
         Assert(
-            engine.State.Players.Where(player => !player.HasPossession).All(player => player.Position == player.KickoffPosition),
+            engine.State.Players.Where(player => !player.HasPossession).All(player => StandsForKickoff(engine, player)),
             "Everyone but the taker should stand on their kickoff position.");
     }
 
     var plain = MatchEngine.CreateDefault();
     Assert(plain.CurrentSnapshot.Ball.Position != Vector2.Zero, "A match not asked for a kickoff keeps the opening the scenarios are built on.");
+}
+
+// A player whose kickoff position is inside the centre circle waits on its edge when the other team kicks off.
+static bool StandsForKickoff(MatchEngine engine, PlayerState player)
+{
+    var edge = engine.State.Field.CenterCircleRadius + player.Radius;
+    var kickingOff = engine.State.Players.Single(candidate => candidate.HasPossession).Team;
+    return player.Team != kickingOff && player.KickoffPosition.Length() < edge
+        ? MathF.Abs(player.Position.Length() - edge) < 0.001f
+        : player.Position == player.KickoffPosition;
+}
+
+static bool IsInsideCentreCircle(MatchEngine engine, PlayerState player) =>
+    player.Position.Length() < engine.State.Field.CenterCircleRadius + player.Radius - 0.001f;
+
+static void OtherTeamWaitsOutsideCentreCircleAtKickoff()
+{
+    // A person who does nothing at the kickoff keeps the ball for the whole count, then is open to a challenge.
+    var engine = MatchEngine.CreateDefault(startWithKickoff: true);
+    var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    var state = engine.State;
+    var taker = state.Players.Single(player => player.HasPossession);
+    var away = state.Players.Where(player => player.Team == TeamSide.Away).ToArray();
+    for (var tick = 1; tick < engine.Tuning.KickoffProtectionTicks; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        Assert(!away.Any(player => IsInsideCentreCircle(engine, player)), $"Away should wait outside the centre circle (tick {tick}).");
+    }
+
+    Assert(taker.HasPossession && state.AwayScore == 0, "A taker who waits should still have the ball when the count ends.");
+    var entered = false;
+    for (var tick = 0; tick < 300 && !entered; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        entered = away.Any(player => IsInsideCentreCircle(engine, player));
+    }
+
+    Assert(entered, "Once the count is over, Away may come for the ball.");
+
+    // The wall holds a person too, running or sliding. Nobody moves Home here, so its taker never plays the ball.
+    engine = MatchEngine.CreateDefault(userControlledTeam: TeamSide.Away, startWithKickoff: true);
+    for (var tick = 0; tick < 200; tick++)
+    {
+        engine.StepTick(new PlayerInput(new Vector2(-1f, 0f), tick % 40 < 20));
+        var person = engine.State.Players.Single(player => player.Id == engine.State.ActivePlayerId);
+        Assert(!IsInsideCentreCircle(engine, person), $"A person's player should be held outside the centre circle (tick {tick}).");
+    }
+
+    // Once the taker has played the ball the circle is open, long before the count would end.
+    engine = MatchEngine.CreateDefault(userControlledTeam: TeamSide.Away, startWithKickoff: true);
+    computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    entered = false;
+    for (var tick = 0; tick < 120 && !entered; tick++)
+    {
+        engine.StepTick(new PlayerInput(new Vector2(-1f, 0f), ActionDown: false), computers);
+        entered = IsInsideCentreCircle(engine, engine.State.Players.Single(player => player.Id == engine.State.ActivePlayerId));
+    }
+
+    Assert(entered, "A person should be able to enter the circle once the kickoff has been played.");
+}
+
+static void TapAtKickoffReachesTeamMate()
+{
+    var engine = MatchEngine.CreateDefault(startWithKickoff: true);
+    var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    var state = engine.State;
+    var taker = state.Players.Single(player => player.HasPossession);
+    PlayerState? receiver = null;
+    for (var tick = 0; tick < 120 && receiver is null; tick++)
+    {
+        engine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: tick is >= 20 and < 23), computers);
+        receiver = state.Players.SingleOrDefault(player => player.HasPossession && player.Id != taker.Id);
+    }
+
+    Assert(
+        receiver is { Team: TeamSide.Home },
+        $"A tap with no direction at the kickoff should reach a team-mate, not {receiver?.Team.ToString() ?? "nobody"}.");
 }
 
 static void KickoffTakerStandsOverTheBallAndKeepsIt()
@@ -3234,7 +3313,7 @@ static string RunShortMatchWithLiveAi()
             Assert(taker.Team == TeamSide.Away && state.Ball.PossessorId == taker.Id, "Away should hold the ball at half-time.");
             Assert(state.Ball.Position == Vector2.Zero && state.Ball.Height == 0f, "The ball should be on the centre spot.");
             Assert(
-                state.Players.Where(player => player.Id != taker.Id).All(player => player.Position == player.KickoffPosition),
+                state.Players.Where(player => player.Id != taker.Id).All(player => StandsForKickoff(engine, player)),
                 "Everyone else should be back at their kickoff position.");
         }
     }
