@@ -176,7 +176,9 @@ internal sealed class MatchRenderer : IDisposable
             var size = font.MeasureString(restartText);
             var position = new Vector2(
                 gameView.Center.X - size.X * 0.5f,
-                gameView.Center.Y - size.Y * 0.5f);
+                // A quarter of the way down: the camera keeps the ball near the middle, and the
+                // taker waiting on it should not be covered by the word for why play stopped.
+                gameView.Y + gameView.Height * 0.25f - size.Y * 0.5f);
             _primitives.FillRectangle(
                 new Rectangle(
                     (int)position.X - 16,
