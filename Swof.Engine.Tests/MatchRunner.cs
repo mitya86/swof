@@ -52,7 +52,9 @@ internal static class MatchRunner
         bool equalSquads = false,
         TeamSide? userControlledTeam = null,
         TeamTactic? homeTactic = null,
-        TeamTactic? awayTactic = null)
+        TeamTactic? awayTactic = null,
+        Func<float, TacticByScore>? homeRule = null,
+        Func<float, TacticByScore>? awayRule = null)
     {
         var random = new Random(seed);
         // 4 to 15 is the range the default squads already use.
@@ -72,6 +74,15 @@ internal static class MatchRunner
         var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
         computers.SetTactic(TeamSide.Home, homeTactic ?? TeamTactic.HighPress);
         computers.SetTactic(TeamSide.Away, awayTactic ?? TeamTactic.HighPress);
+        if (homeRule is not null)
+        {
+            computers.SetTacticByScore(TeamSide.Home, homeRule(tuning.HalfLengthSeconds * 2f));
+        }
+
+        if (awayRule is not null)
+        {
+            computers.SetTacticByScore(TeamSide.Away, awayRule(tuning.HalfLengthSeconds * 2f));
+        }
         var state = engine.State;
         var nobody = new Dictionary<int, PlayerInput>();
         // Stoppages add to the clock; three times the playing time is far beyond any real match.
@@ -257,10 +268,12 @@ internal static class MatchRunner
         int firstSeed,
         bool equalSquads,
         TeamTactic? homeTactic = null,
-        TeamTactic? awayTactic = null)
+        TeamTactic? awayTactic = null,
+        Func<float, TacticByScore>? homeRule = null,
+        Func<float, TacticByScore>? awayRule = null)
     {
         var results = Enumerable.Range(firstSeed, count)
-            .Select(seed => Play(seed, equalSquads: equalSquads, homeTactic: homeTactic, awayTactic: awayTactic))
+            .Select(seed => Play(seed, equalSquads: equalSquads, homeTactic: homeTactic, awayTactic: awayTactic, homeRule: homeRule, awayRule: awayRule))
             .ToArray();
         foreach (var r in results)
         {

@@ -117,6 +117,7 @@ var tests = new (string Name, Action Test)[]
     ("a team told to wait at halfway does not follow the carrier past it", HalfCourtTeamWaitsAtHalfway),
     ("a team told to push up marks further from its own goal", PushUpTeamMarksFurtherFromOwnGoal),
     ("a tactic reaches the team-mates of a person's player", TacticReachesTeammatesOfPersonsPlayer),
+    ("a team told to follow the score pushes up when behind and waits when ahead late", TeamFollowsScore),
     ("a short touch passes and a held touch shoots", ShortTouchPassesAndHeldTouchShoots),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
@@ -129,7 +130,7 @@ var tests = new (string Name, Action Test)[]
     ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
 };
 
-// "matches [count] [firstSeed] [equal] [home=half|up] [away=half|up] [home-up=metres] [away-up=metres]" plays unattended matches instead of the scenarios.
+// "matches [count] [firstSeed] [equal] [home=half|up] [away=half|up] [home-up=metres] [away-up=metres] [home-behind=up] [home-ahead=half] ..." plays unattended matches instead of the scenarios.
 if (args.FirstOrDefault() == "matches")
 {
     var count = args.Length > 1 ? int.Parse(args[1]) : 100;
@@ -139,7 +140,17 @@ if (args.FirstOrDefault() == "matches")
         firstSeed,
         equalSquads: args.Contains("equal"),
         homeTactic: TacticFor("home"),
-        awayTactic: TacticFor("away")) == 0 ? 0 : 1;
+        awayTactic: TacticFor("away"),
+        homeRule: RuleFor("home"),
+        awayRule: RuleFor("away")) == 0 ? 0 : 1;
+
+    // "home-behind=up" and "home-ahead=half" swap Home's tactic while it is losing, or winning late.
+    Func<float, TacticByScore>? RuleFor(string side)
+    {
+        var behind = args.Contains($"{side}-behind=up") ? TeamTactic.PushUp : null;
+        var ahead = args.Contains($"{side}-ahead=half") ? TeamTactic.HalfCourt : null;
+        return behind is null && ahead is null ? null : length => new TacticByScore(length, behind, ahead);
+    }
 
     // "home=half" or "home=up" picks a preset; "home-up=12" sets how far up Home's markers stand, for measuring.
     TeamTactic TacticFor(string side)
@@ -3660,6 +3671,62 @@ static void TacticReachesTeammatesOfPersonsPlayer()
     Assert(
         Changed(up).Length > 0 && Changed(up).All(id => high[id].Kind == PlayerInstructionKind.MarkOpponent),
         $"Push up should change only the markers on a person's team (changed {string.Join(",", Changed(up))}).");
+}
+
+static void TeamFollowsScore()
+{
+    // The rule counts time across both halves, so the clock must not start again at half-time.
+    var tuning = PhysicsTuning.Default with { HalfLengthSeconds = 10f };
+    var clockEngine = MatchEngine.CreateDefault(tuning);
+    StepMany(clockEngine, PlayerInput.Empty, (int)MathF.Round(10f / tuning.TickSeconds) + 2);
+    Assert(
+        clockEngine.State.Period == 2 && clockEngine.State.ClockSeconds >= 10f,
+        $"The clock should run on through half-time (period {clockEngine.State.Period}, {clockEngine.State.ClockSeconds:0.0} s).");
+
+    var engine = MatchEngine.CreateDefault(userControlledTeam: null);
+    var state = engine.State;
+    var rule = TacticByScore.ChaseAndHold(matchLengthSeconds: 20f);
+    var carrier = state.Players.Single(player => player.Id == 4);
+    carrier.Position = new Vector2(14f, 0f);
+    GivePossession(engine, carrier);
+    var level = MatchSnapshot.FromState(state) with { HomeScore = 1, AwayScore = 1, ClockSeconds = 5f };
+    var usual = TeamTactic.HighPress;
+
+    foreach (var team in new[] { TeamSide.Home, TeamSide.Away })
+    {
+        var ahead = team == TeamSide.Home ? level with { HomeScore = 2 } : level with { AwayScore = 2 };
+        var behind = team == TeamSide.Home ? level with { AwayScore = 2 } : level with { HomeScore = 2 };
+        Assert(rule.Choose(level, team, usual) == usual, $"{team} level should play as usual.");
+        Assert(rule.Choose(level with { ClockSeconds = 19f }, team, usual) == usual, $"{team} level late should play as usual.");
+        Assert(rule.Choose(behind, team, usual) == TeamTactic.PushUp, $"{team} behind should push up.");
+        Assert(rule.Choose(behind with { ClockSeconds = 19f }, team, usual) == TeamTactic.PushUp, $"{team} behind late should push up.");
+        Assert(rule.Choose(ahead, team, usual) == usual, $"{team} ahead early should play as usual.");
+        Assert(rule.Choose(ahead with { ClockSeconds = 14.9f }, team, usual) == usual, $"{team} ahead before the last quarter should play as usual.");
+        Assert(rule.Choose(ahead with { ClockSeconds = 15f }, team, usual) == TeamTactic.HalfCourt, $"{team} ahead in the last quarter should wait at halfway.");
+        Assert(
+            new TacticByScore(20f).Choose(behind, team, usual) == usual,
+            "A rule with nothing to swap to should leave the usual tactic.");
+    }
+
+    // Through the controller: Home with the rule, behind, plays as a team told to push up; Away is untouched.
+    var homeBehind = level with { AwayScore = 2 };
+    var nobody = new Dictionary<int, PlayerInput>();
+    IReadOnlyDictionary<int, PlayerDecision> Decide(Action<ComputerPlayerController> setUp, MatchSnapshot match)
+    {
+        var controller = ComputerPlayerController.CreateDefault(match);
+        setUp(controller);
+        controller.CreateControlFrame(match, nobody);
+        return controller.LastDecisions;
+    }
+
+    var plain = Decide(_ => { }, homeBehind);
+    var pushedUp = Decide(controller => controller.SetTactic(TeamSide.Home, TeamTactic.PushUp), homeBehind);
+    var byScore = Decide(controller => controller.SetTacticByScore(TeamSide.Home, rule), homeBehind);
+    var byScoreLevel = Decide(controller => controller.SetTacticByScore(TeamSide.Home, rule), level);
+    var plainLevel = Decide(_ => { }, level);
+    Assert(!plain.SequenceEqual(pushedUp), "Pushing up should change something in this position.");
+    Assert(byScore.SequenceEqual(pushedUp), "Behind, a team following the score should play exactly as one told to push up.");
+    Assert(byScoreLevel.SequenceEqual(plainLevel), "Level, a team following the score should play as usual.");
 }
 
 static void TouchesGiveStickAndOneButton()

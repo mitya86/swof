@@ -6,7 +6,8 @@
 #            tools/check.sh matches <count> <firstSeed> replays chosen seeds;
 #            add "equal" to give every outfielder the same attributes;
 #            add "home=half" or "away=half" to make that team wait at halfway,
-#            "=up" to push its markers up, "home-up=12" for any distance;
+#            "=up" to push its markers up, "home-up=12" for any distance,
+#            "home-behind=up" / "home-ahead=half" to swap tactic by score and time;
 #            100 or more matches must also meet the runner's pass marks
 set -euo pipefail
 cd "$(dirname "$0")/.."
