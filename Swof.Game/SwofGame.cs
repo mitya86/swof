@@ -60,6 +60,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         _computerPlayers.SetTactic(TeamSide.Home, _teamTactic);
         if (_opponentFollowsScore)
         {
+            // ponytail: the match length is read once here; reloading the tuning with F1 mid-match leaves the rule on the old length.
             _computerPlayers.SetTacticByScore(TeamSide.Away, TacticByScore.ChaseAndHold(tuning.HalfLengthSeconds * 2f));
         }
     }

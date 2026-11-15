@@ -3727,6 +3727,22 @@ static void TeamFollowsScore()
     Assert(!plain.SequenceEqual(pushedUp), "Pushing up should change something in this position.");
     Assert(byScore.SequenceEqual(pushedUp), "Behind, a team following the score should play exactly as one told to push up.");
     Assert(byScoreLevel.SequenceEqual(plainLevel), "Level, a team following the score should play as usual.");
+
+    // Home has the ball and Away is behind: a rule given to Home must not move Away, a rule given to Away must.
+    var homeCarrier = state.Players.Single(player => player.Id == 1);
+    homeCarrier.Position = new Vector2(-14f, 0f);
+    GivePossession(engine, homeCarrier);
+    var awayBehind = MatchSnapshot.FromState(state) with { HomeScore = 2, AwayScore = 1, ClockSeconds = 5f };
+    int[] awayOutfielders = [4, 5, 6, 10];
+    var plainAway = Decide(_ => { }, awayBehind);
+    var homeRule = Decide(controller => controller.SetTacticByScore(TeamSide.Home, rule), awayBehind);
+    var awayRule = Decide(controller => controller.SetTacticByScore(TeamSide.Away, rule), awayBehind);
+    Assert(
+        awayOutfielders.All(id => plainAway[id] == homeRule[id]),
+        "A rule given to Home should not change what Away does.");
+    Assert(
+        awayOutfielders.Any(id => plainAway[id] != awayRule[id]),
+        "The same rule given to Away, which is behind, should change what Away does.");
 }
 
 static void TouchesGiveStickAndOneButton()
