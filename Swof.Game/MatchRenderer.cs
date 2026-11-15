@@ -153,7 +153,8 @@ internal sealed class MatchRenderer : IDisposable
                 ActiveColor);
         }
 
-        if (snapshot.IsBallOutOfPlay)
+        // An open menu at full time shows the result itself.
+        if (snapshot.IsBallOutOfPlay && !(snapshot.IsMatchOver && pauseMenu is { IsOpen: true }))
         {
             var restartLabel = snapshot.LastEvent.Type switch
             {

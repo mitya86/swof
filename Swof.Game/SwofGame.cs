@@ -20,7 +20,14 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private ComputerPlayerController _computerPlayers;
     private readonly PlayerInputBuffer _inputBuffer = new();
     private readonly TouchControls _touchControls = new();
-    private readonly PauseMenu _pauseMenu = new(["Resume", .. TeamTactics.Select(tactic => $"Tactic: {tactic.Name}")]);
+    private const int NewMatchItem = 1;
+    private readonly PauseMenu _pauseMenu = new(PauseLabels);
+    // At full time the same menu shows the result and the way to a new match, so a finger that is
+    // still down when the new match starts stays the menu's and does not pass the kickoff.
+    private bool _showingResult;
+    private double _resultShownAtSeconds;
+    // A touch meant for a last shot must not start the next match before the result has been seen.
+    private const double ResultHoldSeconds = 1d;
     private readonly MatchDemoAction _demoAction;
     private readonly TeamTactic _opponentTactic;
     private TeamTactic _teamTactic;
@@ -46,6 +53,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private const double CaptureAfterSeconds = 2d;
 
     private static readonly TeamTactic[] TeamTactics = [TeamTactic.HighPress, TeamTactic.HalfCourt, TeamTactic.PushUp];
+    // Below TeamTactics on purpose: static fields are set in the order they are written.
+    private static readonly string[] PauseLabels = ["Resume", .. TeamTactics.Select(tactic => $"Tactic: {tactic.Name}")];
 
     private static readonly MatchFeedbackMode[] FeedbackModes =
     [
@@ -59,6 +68,9 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     {
         // A different seed each match, so the computer players do not replay the same one.
         var tuning = PhysicsTuningStore.LoadOrDefault();
+        _showingResult = false;
+        _pauseMenu.Labels = PauseLabels;
+        _pauseMenu.Close();
         _engine = MatchEngine.CreateDefault(tuning, seed: Environment.TickCount, startWithKickoff: true);
         _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
         _computerPlayers.SetTactic(TeamSide.Away, _opponentTactic);
@@ -186,7 +198,16 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         var wasPaused = _pauseMenu.IsOpen;
         if (_demoAction == MatchDemoAction.None)
         {
-            if (IsNewKeyPress(Keys.P, keyboard))
+            var result = _engine.CurrentSnapshot;
+            if (result.IsMatchOver && !_showingResult)
+            {
+                _showingResult = true;
+                _resultShownAtSeconds = _runtimeSeconds;
+                _pauseMenu.Labels = [$"Full time   Home {result.HomeScore} - {result.AwayScore} Away", "New match   (R or Start)"];
+                _pauseMenu.Open();
+            }
+
+            if (IsNewKeyPress(Keys.P, keyboard) && !_showingResult)
             {
                 if (wasPaused)
                 {
@@ -199,7 +220,14 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             }
 
             var chosen = _pauseMenu.Read(ReadTouches(), ScreenSize(), out var touches);
-            if (chosen == 0)
+            if (_showingResult)
+            {
+                if (chosen == NewMatchItem && _runtimeSeconds - _resultShownAtSeconds >= ResultHoldSeconds)
+                {
+                    StartMatch();
+                }
+            }
+            else if (chosen == 0)
             {
                 _pauseMenu.Close();
             }
@@ -291,7 +319,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
                 _showDebugHud),
             _touchControls,
             _demoAction == MatchDemoAction.None ? _pauseMenu : null,
-            1 + Array.IndexOf(TeamTactics, _teamTactic));
+            _showingResult ? NewMatchItem : 1 + Array.IndexOf(TeamTactics, _teamTactic));
         base.Draw(gameTime);
         if (_capturePath is not null && _runtimeSeconds >= CaptureAfterSeconds)
         {

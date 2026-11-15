@@ -40,7 +40,8 @@ public sealed class PauseMenu
         Labels = labels;
     }
 
-    public IReadOnlyList<string> Labels { get; }
+    /// <summary>The items, top to bottom. They can be swapped while touches are held; a held touch stays the menu's.</summary>
+    public IReadOnlyList<string> Labels { get; set; }
 
     public bool IsOpen { get; private set; }
 
