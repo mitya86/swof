@@ -59,7 +59,9 @@ internal sealed class MatchRenderer : IDisposable
         string? notice,
         float elapsedSeconds,
         MatchPresentationSettings settings,
-        TouchControls? touchControls = null)
+        TouchControls? touchControls = null,
+        PauseMenu? pauseMenu = null,
+        int selectedPauseItem = -1)
     {
         var bounds = _graphicsDevice.Viewport.Bounds;
         var hudHeight = settings.ShowDebugHud ? DebugHudHeight : CleanHudHeight;
@@ -198,7 +200,46 @@ internal sealed class MatchRenderer : IDisposable
             _primitives.DrawRing(new Vector2(actionPoint.X, actionPoint.Y), touchControls.StickRadius * 0.7f, TouchColor);
         }
 
+        if (pauseMenu is not null)
+        {
+            DrawPauseMenu(pauseMenu, selectedPauseItem, font, bounds);
+        }
+
         _primitives.Batch.End();
+    }
+
+    private void DrawPauseMenu(PauseMenu menu, int selectedItem, SpriteFont font, Rectangle bounds)
+    {
+        var screen = new NumericsVector2(bounds.Width, bounds.Height);
+        if (!menu.IsOpen)
+        {
+            // Two bars: the usual pause sign.
+            var button = ToRectangle(PauseMenu.ButtonBounds(screen));
+            _primitives.FillRectangle(button, new Color(10, 12, 16, 150));
+            var barWidth = button.Width / 6;
+            _primitives.FillRectangle(new Rectangle(button.X + barWidth * 2 - barWidth / 2, button.Y + button.Height / 4, barWidth, button.Height / 2), TouchColor);
+            _primitives.FillRectangle(new Rectangle(button.X + barWidth * 4 - barWidth / 2, button.Y + button.Height / 4, barWidth, button.Height / 2), TouchColor);
+            return;
+        }
+
+        _primitives.FillRectangle(bounds, new Color(10, 12, 16, 170));
+        for (var index = 0; index < menu.Labels.Count; index++)
+        {
+            var item = ToRectangle(menu.ItemBounds(index, screen));
+            _primitives.FillRectangle(item, index == selectedItem ? new Color(60, 110, 70, 240) : new Color(30, 36, 46, 240));
+            var size = font.MeasureString(menu.Labels[index]);
+            _primitives.Batch.DrawString(
+                font,
+                menu.Labels[index],
+                new Vector2(item.Center.X - size.X * 0.5f, item.Center.Y - size.Y * 0.5f),
+                ActiveColor);
+        }
+
+        static Rectangle ToRectangle(ScreenRect rect) => new(
+            (int)rect.Min.X,
+            (int)rect.Min.Y,
+            (int)(rect.Max.X - rect.Min.X),
+            (int)(rect.Max.Y - rect.Min.Y));
     }
 
     public void Dispose()

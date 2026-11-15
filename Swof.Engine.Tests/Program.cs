@@ -116,6 +116,8 @@ var tests = new (string Name, Action Test)[]
     ("computer presser does not slide through a carrier's back", ComputerPresserDoesNotSlideThroughCarriersBack),
     ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt),
     ("touches give a stick and one button", TouchesGiveStickAndOneButton),
+    ("a touch on the pause button opens a menu and gives no stick or action", PauseMenuOwnsItsTouches),
+    ("the pause menu fits a wide window and a phone", PauseMenuFitsScreens),
     ("a team told to wait at halfway does not follow the carrier past it", HalfCourtTeamWaitsAtHalfway),
     ("a team told to push up marks further from its own goal", PushUpTeamMarksFurtherFromOwnGoal),
     ("a tactic reaches the team-mates of a person's player", TacticReachesTeammatesOfPersonsPlayer),
@@ -3844,6 +3846,98 @@ static void TeamFollowsScore()
     Assert(
         awayOutfielders.Any(id => plainAway[id] != awayRule[id]),
         "The same rule given to Away, which is behind, should change what Away does.");
+}
+
+static void PauseMenuOwnsItsTouches()
+{
+    var screen = new Vector2(1000f, 500f);
+    var menu = new PauseMenu(["Resume", "One", "Two"]);
+    var controls = new TouchControls();
+    var button = PauseMenu.ButtonBounds(screen);
+    var onButton = (button.Min + button.Max) / 2f;
+    var onResume = Centre(menu.ItemBounds(0, screen));
+    var onTwo = Centre(menu.ItemBounds(2, screen));
+
+    // The pause button sits on the action half of the screen, so an unowned touch there would be a pass.
+    Assert(onButton.X > screen.X / 2f, "The scenario needs the pause button on the action half.");
+
+    (int? Chosen, PlayerInput Input) Read(params TouchPoint[] touches)
+    {
+        var chosen = menu.Read(touches, screen, out var remaining);
+        return (chosen, controls.Read(remaining, screen));
+    }
+
+    var read = Read(new TouchPoint(0, new Vector2(800f, 300f)));
+    Assert(!menu.IsOpen && read.Input.ActionDown, "A touch away from the pause button should still press the action button.");
+    read = Read(new TouchPoint(0, onButton));
+    Assert(
+        !menu.IsOpen && read.Input.ActionDown,
+        "A touch dragged onto the pause button should keep pressing the action button and not pause the match.");
+    Read();
+
+    read = Read(new TouchPoint(0, onButton));
+    Assert(menu.IsOpen, "A touch that starts on the pause button should open the menu.");
+    Assert(read.Chosen is null && read.Input == PlayerInput.Empty, "The opening touch should choose nothing and give no input.");
+
+    read = Read(new TouchPoint(0, onTwo));
+    Assert(read.Chosen is null && read.Input == PlayerInput.Empty, "The opening touch dragged onto an item should still choose nothing.");
+    Read();
+
+    read = Read(new TouchPoint(0, new Vector2(950f, 450f)));
+    Assert(read.Chosen is null && menu.IsOpen, "A touch beside the items should choose nothing and leave the menu open.");
+    Assert(read.Input == PlayerInput.Empty, "No touch should reach the action button while the menu is open.");
+    Read();
+
+    // The mouse is always touch 0: released and pressed again it is a new touch.
+    read = Read(new TouchPoint(0, onTwo));
+    Assert(read.Chosen == 2, "A new touch on an item should choose it.");
+    read = Read(new TouchPoint(0, onTwo));
+    Assert(read.Chosen is null, "A held touch should choose its item once.");
+    Read();
+
+    read = Read(new TouchPoint(0, onResume));
+    Assert(read.Chosen == 0, "A new touch on the first item should choose it.");
+    menu.Close();
+    read = Read(new TouchPoint(0, onResume + new Vector2(300f, 0f)));
+    Assert(
+        read.Input == PlayerInput.Empty,
+        "The touch that closed the menu should give no stick or action until it is released.");
+    Read();
+
+    read = Read(new TouchPoint(0, new Vector2(800f, 300f)));
+    Assert(!menu.IsOpen && read.Input.ActionDown, "After the menu closes a new touch should press the action button again.");
+
+    // A stick already held when the menu opens some other way must not carry on when it closes.
+    Read();
+    Read(new TouchPoint(1, new Vector2(200f, 300f)));
+    menu.Open();
+    Read(new TouchPoint(1, new Vector2(260f, 300f)));
+    menu.Close();
+    read = Read(new TouchPoint(1, new Vector2(260f, 300f)));
+    Assert(read.Input == PlayerInput.Empty, "A touch held through the menu should give no input after it closes.");
+
+    static Vector2 Centre(ScreenRect rect) => (rect.Min + rect.Max) / 2f;
+}
+
+static void PauseMenuFitsScreens()
+{
+    var menu = new PauseMenu(["Resume", "One", "Two", "Three"]);
+    foreach (var screen in new[] { new Vector2(1920f, 1080f), new Vector2(844f, 390f), new Vector2(390f, 844f) })
+    {
+        var rects = Enumerable.Range(0, menu.Labels.Count)
+            .Select(index => menu.ItemBounds(index, screen))
+            .Append(PauseMenu.ButtonBounds(screen))
+            .ToArray();
+        foreach (var rect in rects)
+        {
+            Assert(
+                rect.Min.X >= 0f && rect.Min.Y >= 0f && rect.Max.X <= screen.X && rect.Max.Y <= screen.Y,
+                $"Every item and the pause button should be on a {screen.X} by {screen.Y} screen.");
+            Assert(
+                rects.Count(other => other.Min.X < rect.Max.X && rect.Min.X < other.Max.X && other.Min.Y < rect.Max.Y && rect.Min.Y < other.Max.Y) == 1,
+                $"Nothing should overlap on a {screen.X} by {screen.Y} screen.");
+        }
+    }
 }
 
 static void TouchesGiveStickAndOneButton()
