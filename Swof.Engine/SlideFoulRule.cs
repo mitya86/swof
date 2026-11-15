@@ -4,7 +4,7 @@ namespace Swof.Engine;
 
 /// <summary>
 /// Decides whether a slide that reaches the ball carrier is a foul. The engine and the computer
-/// players both ask this, so a computer never slides into what the engine would punish.
+/// players both ask this, so a computer does not choose a slide the engine would punish.
 /// </summary>
 /// <param name="BehindDot">
 /// How closely the slide must follow the way the carrier faces to count as from behind

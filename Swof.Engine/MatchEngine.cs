@@ -1584,7 +1584,7 @@ public sealed class MatchEngine
             var toPossessor = possessor.Position - slider.Position;
             if (toPossessor.Length() <= hitDistance && Vector2.Dot(SafeNormalize(toPossessor, slideDirection), slideDirection) > 0.1f)
             {
-                if (State.SlideFoul.IsFoul(
+                if (slider.Team != possessor.Team && State.SlideFoul.IsFoul(
                         slideDirection,
                         slider.Position,
                         slider.Radius,

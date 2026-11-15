@@ -112,6 +112,8 @@ var tests = new (string Name, Action Test)[]
     ("computer carrier shoots from range and leaves the shot alone", ComputerCarrierShootsFromRangeAndLeavesTheShotAlone),
     ("computer carrier does not shoot from distance or through a defender", ComputerCarrierDoesNotShootFromDistanceOrThroughDefender),
     ("computer presser slides at a carrier within reach", ComputerPresserSlidesAtCarrierWithinReach),
+    ("a slide through the carrier's back is a foul and a free kick", SlideThroughCarriersBackIsFoul),
+    ("computer presser does not slide through a carrier's back", ComputerPresserDoesNotSlideThroughCarriersBack),
     ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt),
     ("touches give a stick and one button", TouchesGiveStickAndOneButton),
     ("a team told to wait at halfway does not follow the carrier past it", HalfCourtTeamWaitsAtHalfway),
@@ -3341,7 +3343,105 @@ static void ComputerPresserSlidesAtCarrierWithinReach()
     }
 }
 
-static (MatchEngine Engine, ComputerPlayerController Computers, PlayerState Presser) CreatePressingDuel(float presserDistance)
+static void SlideThroughCarriersBackIsFoul()
+{
+    foreach (var sliderTeam in new[] { TeamSide.Home, TeamSide.Away })
+    {
+        var (engine, slider, carrier) = CreateSlideFromBehind(PhysicsTuning.Default, sliderTeam);
+        engine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: true));
+        StepMany(engine, PlayerInput.Empty, 8);
+
+        var state = engine.State;
+        Assert(
+            state.IsBallOutOfPlay && state.LastEvent.Type == MatchEventType.Foul && state.LastEvent.Restart == RestartKind.FreeKick,
+            "A slide from behind that cannot reach the ball should stop play for a free kick.");
+        Assert(state.LastEvent.Team == carrier.Team, "The free kick goes to the team of the player who was fouled.");
+        Assert(carrier.HasPossession, "The fouled player should stand over the ball to take the kick.");
+        Assert(!slider.IsSliding, "The player who fouled should not keep sliding through the stoppage.");
+        Assert(
+            Vector2.Distance(slider.Position, carrier.Position) >= engine.Tuning.RestartOpponentDistance - 0.01f,
+            "The player who fouled should be moved back from the free kick.");
+
+        StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + 1);
+        Assert(!state.IsBallOutOfPlay && carrier.HasPossession, "Play should resume on its own with the fouled team in possession.");
+    }
+
+    // The rule's own number switches it off: the same slide then wins the ball as before.
+    var (offEngine, _, offCarrier) = CreateSlideFromBehind(PhysicsTuning.Default with { SlideFoulBehindDot = 2f }, TeamSide.Home);
+    offEngine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: true));
+    StepMany(offEngine, PlayerInput.Empty, 8);
+    Assert(
+        !offEngine.State.IsBallOutOfPlay && !offCarrier.HasPossession,
+        "With the foul rule switched off a slide from behind should knock the ball loose.");
+
+    // From behind but with the ball within reach is a fair tackle.
+    var (nearEngine, _, nearCarrier) = CreateSlideFromBehind(PhysicsTuning.Default, TeamSide.Home, ballLead: -0.5f);
+    nearEngine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: true));
+    StepMany(nearEngine, PlayerInput.Empty, 8);
+    Assert(
+        !nearEngine.State.IsBallOutOfPlay && !nearCarrier.HasPossession,
+        "A slide from behind that reaches the ball should win it without a foul.");
+
+    var (ownEngine, _, _) = CreateSlideFromBehind(PhysicsTuning.Default, TeamSide.Home, sameTeam: true);
+    ownEngine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: true));
+    StepMany(ownEngine, PlayerInput.Empty, 8);
+    Assert(!ownEngine.State.IsBallOutOfPlay, "Sliding into a team-mate should not earn the team a free kick.");
+}
+
+static (MatchEngine Engine, PlayerState Slider, PlayerState Carrier) CreateSlideFromBehind(
+    PhysicsTuning tuning,
+    TeamSide sliderTeam,
+    float? ballLead = null,
+    bool sameTeam = false)
+{
+    PlayerState Create(int id, TeamSide team, Vector2 position) => new(id, team.ToString(), team, position)
+    {
+        Facing = Azimuth.East,
+        Attributes = new PlayerAttributes(8, 8, 8, 8, 8, 8, 8),
+        Radius = tuning.PlayerRadius,
+        MaxSpeedPerTick = tuning.PlayerMaxSpeedPerTick,
+        AccelerationPerTick = tuning.PlayerAccelerationPerTick,
+        FrictionPerTick = tuning.PlayerFrictionPerTick
+    };
+
+    var slider = Create(1, sliderTeam, Vector2.Zero);
+    var carrier = Create(2, (sliderTeam == TeamSide.Home) == sameTeam ? TeamSide.Home : TeamSide.Away, new Vector2(2f, 0f));
+    carrier.HasPossession = true;
+    var ball = new BallState
+    {
+        Radius = tuning.BallRadius,
+        Position = carrier.Position + carrier.Facing.ToUnitVector() * (ballLead ?? tuning.DribbleLeadDistance),
+        PossessorId = carrier.Id
+    };
+    var engine = new MatchEngine(
+        new MatchState(FieldDimensions.Default, new[] { slider, carrier }, ball, activePlayerId: slider.Id),
+        tuning,
+        userControlledTeam: sliderTeam);
+    return (engine, slider, carrier);
+}
+
+static void ComputerPresserDoesNotSlideThroughCarriersBack()
+{
+    var (engine, computers, presser) = CreatePressingDuel(
+        presserDistance: PressureBallCarrierInstruction.TackleRange - 0.2f,
+        carrierShieldsBall: true);
+    var carrier = engine.State.Players.Single(player => player.Id == engine.State.ActivePlayerId);
+
+    // The carrier is a person's player given no input: someone standing still with their back to the presser.
+    for (var tick = 0; tick < 120 && carrier.HasPossession; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        Assert(
+            !computers.LastDecisions[presser.Id].Input.ActionDown && !presser.IsSliding,
+            "A presser behind a carrier who shields the ball should not slide through their back.");
+    }
+
+    Assert(
+        !carrier.HasPossession && engine.State.LastEvent.Type != MatchEventType.Foul,
+        "The presser should step round and take the ball on their feet, so shielding it is not a way to keep it for ever.");
+}
+
+static (MatchEngine Engine, ComputerPlayerController Computers, PlayerState Presser) CreatePressingDuel(float presserDistance, bool carrierShieldsBall = false)
 {
     var setup = MatchEngine.CreateDefault();
     var state = setup.State;
@@ -3353,7 +3453,8 @@ static (MatchEngine Engine, ComputerPlayerController Computers, PlayerState Pres
     }
 
     carrier.Position = Vector2.Zero;
-    carrier.Facing = Azimuth.West;
+    // Side-on to the presser, or with their back to the presser and the ball beyond their body.
+    carrier.Facing = carrierShieldsBall ? Azimuth.West : Azimuth.North;
     GivePossession(setup, carrier);
     presser.Position = new Vector2(presserDistance, 0f);
     presser.Facing = Azimuth.West;
