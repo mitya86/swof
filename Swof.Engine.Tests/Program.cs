@@ -3578,7 +3578,30 @@ static void PushUpTeamMarksFurtherFromOwnGoal()
             $"Told to push up, a marker held back by its depth limit should stand that much further up ({x:0.0} m, pushed up {up[id]:0.0} m).");
     }
 
-    // The tactic belongs to the team that was given it.
+    // A marker whose opponent is deep in Home's half stands inside its limit: there only its anchor moves, so it
+    // goes up by part of the distance.
+    foreach (var attacker in state.Players.Where(player => player.Id is 5 or 6 or 10))
+    {
+        attacker.Position = new Vector2(-17f, attacker.Position.Y);
+    }
+
+    snapshot = MatchSnapshot.FromState(state);
+    var deepInside = MarkTargets(null);
+    var upInside = MarkTargets(TeamTactic.PushUp);
+    Assert(deepInside.Count > 0, "Somebody should mark the attackers near Home's goal.");
+    foreach (var (id, x) in deepInside)
+    {
+        var moved = upInside[id] - x;
+        Assert(
+            moved > 0.5f && moved < TeamTactic.PushUp.MarkersUpMetres - 0.5f,
+            $"Inside its limit a marker told to push up should stand part of the way further up (moved {moved:0.0} m).");
+    }
+
+    // The tactic belongs to the team that was given it. Home has the ball, so Away is the team that marks.
+    var homeCarrier = state.Players.Single(player => player.Id == 1);
+    homeCarrier.Position = new Vector2(-14f, 0f);
+    GivePossession(engine, homeCarrier);
+    snapshot = MatchSnapshot.FromState(state);
     var nobody = new Dictionary<int, PlayerInput>();
     var plain = ComputerPlayerController.CreateDefault(snapshot);
     var homeUp = ComputerPlayerController.CreateDefault(snapshot);
@@ -3589,14 +3612,11 @@ static void PushUpTeamMarksFurtherFromOwnGoal()
     homeUp.CreateControlFrame(snapshot, nobody);
     awayUp.CreateControlFrame(snapshot, nobody);
     Assert(
-        deep.Keys.Any(id => plain.LastDecisions[id].Input != homeUp.LastDecisions[id].Input),
-        "A marker of the team told to push up should move differently.");
-    Assert(
         awayOutfielders.All(id => plain.LastDecisions[id] == homeUp.LastDecisions[id]),
         "Home pushing up should not change what Away does.");
     Assert(
-        homeOutfielders.All(id => plain.LastDecisions[id] == awayUp.LastDecisions[id]),
-        "Away pushing up should not change what Home does while Away has the ball.");
+        awayOutfielders.Any(id => plain.LastDecisions[id].Input != awayUp.LastDecisions[id].Input),
+        "Away pushing up should move one of Away's markers differently.");
 }
 
 static void TouchesGiveStickAndOneButton()
