@@ -41,7 +41,8 @@ internal static class MatchRunner
         int Possessions,
         float ForwardMetres,
         int LostInOwnThird,
-        int FourSecondCalls);
+        int FourSecondCalls,
+        int SpotKicks);
 
     /// <summary>
     /// The seed chooses the eight outfielders' attributes (unless the squads are equal) and the
@@ -107,7 +108,7 @@ internal static class MatchRunner
         TeamSide? kickoffTaker = null;
         long kickoffTick = 0;
         int shotsByTaker = 0, shotsByOpponent = 0;
-        var fourSecondCalls = 0;
+        int fourSecondCalls = 0, spotKicks = 0;
         // A possession runs from a team gaining the ball to the other team gaining it. How far
         // toward the opposing goal the ball got in that time says whether teams attack or retreat.
         TeamSide? holders = null;
@@ -183,6 +184,7 @@ internal static class MatchRunner
                 }
 
                 fourSecondCalls += state.LastEvent.Type == MatchEventType.FourSeconds ? 1 : 0;
+                spotKicks += state.LastEvent.Restart is RestartKind.Penalty or RestartKind.TenMetreKick ? 1 : 0;
             }
 
             wasOut = state.IsBallOutOfPlay;
@@ -270,7 +272,8 @@ internal static class MatchRunner
             possessions,
             forwardMetres,
             lostInOwnThird,
-            fourSecondCalls);
+            fourSecondCalls,
+            spotKicks);
     }
 
     /// <summary>Plays <paramref name="count"/> matches and returns how many broke.</summary>
@@ -305,6 +308,7 @@ internal static class MatchRunner
         Spread("slides", r => r.Slides);
         Spread("fouls", r => r.Fouls);
         Spread("four-second calls", r => r.FourSecondCalls);
+        Spread("penalties and 10 m kicks", r => r.SpotKicks);
         Spread("stoppages", r => r.Stoppages);
         Spread("possessions", r => r.Possessions);
         Spread("forward m / possession", r => r.ForwardMetres / Math.Max(1, r.Possessions));

@@ -38,6 +38,10 @@ public sealed class MatchState
     public int ActivePlayerId { get; set; }
     public int HomeScore { get; set; }
     public int AwayScore { get; set; }
+
+    /// <summary>Fouls a team has committed in the current half. From the sixth, each one gives a 10 m kick.</summary>
+    public int HomeFouls { get; set; }
+    public int AwayFouls { get; set; }
     public long Tick { get; set; }
     public float ClockSeconds { get; set; }
     public bool IsBallOutOfPlay { get; set; }

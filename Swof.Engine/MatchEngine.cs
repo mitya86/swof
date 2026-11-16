@@ -24,6 +24,8 @@ public sealed class MatchEngine
     private float _restartWallRadius;
     private float _restartPlayedDistance;
     private RestartKind _restartWallKind;
+    // A penalty or 10 m kick: the taker stays on the spot and everyone else waits behind the ball.
+    private int? _spotKickTakerId;
     private Vector2 _restartWallInward;
     private float _dribbleRisk;
     private float _dribbleSustain01;
@@ -360,7 +362,13 @@ public sealed class MatchEngine
         {
             var controlledPlayer = State.Players.Single(player => player.Id == playerId);
             MoveControlledPlayer(controlledPlayer, frame.GetInputOrEmpty(playerId).NormalizedMove);
-            if (_restartWallTicks > 0 && controlledPlayer.Team != _restartWallTeam)
+            if (_restartWallTicks > 0 && _spotKickTakerId == controlledPlayer.Id)
+            {
+                // The stick only aims a penalty or 10 m kick.
+                controlledPlayer.Position = _restartWallSpot - _restartWallInward * Tuning.DribbleLeadDistance;
+                controlledPlayer.Velocity = Vector2.Zero;
+            }
+            else if (_restartWallTicks > 0 && (controlledPlayer.Team != _restartWallTeam || _spotKickTakerId is not null))
             {
                 KeepAwayFromRestart(controlledPlayer);
             }
@@ -553,6 +561,8 @@ public sealed class MatchEngine
         }
 
         State.Period++;
+        State.HomeFouls = 0;
+        State.AwayFouls = 0;
         StopForRestart(new MatchEvent(
             MatchEventType.HalfTime,
             RestartKind.Kickoff,
@@ -1665,6 +1675,34 @@ public sealed class MatchEngine
     {
         fouler.SlideTicksRemaining = 0;
         fouler.Velocity = Vector2.Zero;
+        var fouls = fouler.Team == TeamSide.Home ? ++State.HomeFouls : ++State.AwayFouls;
+        var field = State.Field;
+        var towardsGoal = FacingForTeam(fouled.Team).ToUnitVector();
+        var goalLineX = fouler.Team == TeamSide.Home ? field.Left : field.Right;
+        if (field.ContainsInPenaltyArea(fouler.Team, fouled.Position))
+        {
+            AwardSpotKick(
+                fouled.Team,
+                RestartKind.Penalty,
+                new Vector2(goalLineX - towardsGoal.X * field.PenaltyMarkDistance, 0f),
+                $"Penalty to {fouled.Team}.");
+            return;
+        }
+
+        if (fouls > Tuning.AccumulatedFoulLimit)
+        {
+            // From the second penalty mark, or from where the foul was if that is nearer the goal.
+            var nearerThanTheMark = MathF.Abs(goalLineX - fouled.Position.X) < field.SecondPenaltyMarkDistance;
+            AwardSpotKick(
+                fouled.Team,
+                RestartKind.TenMetreKick,
+                nearerThanTheMark
+                    ? fouled.Position
+                    : new Vector2(goalLineX - towardsGoal.X * field.SecondPenaltyMarkDistance, 0f),
+                $"Foul {fouls} by {fouler.Team} this half. 10 m kick to {fouled.Team}.");
+            return;
+        }
+
         StopForRestart(new MatchEvent(
             MatchEventType.Foul,
             RestartKind.FreeKick,
@@ -1672,6 +1710,29 @@ public sealed class MatchEngine
             fouled.Position,
             Description: $"Free kick to {fouled.Team}."));
         PlaceRestartTaker(fouled.Team, fouled.Position, FacingForTeam(fouled.Team).ToUnitVector());
+    }
+
+    /// <summary>
+    /// A penalty or 10 m kick: the ball on the spot, the taker behind it facing the goal, and every
+    /// other outfielder behind the ball and 5 m from it until it is kicked. There is no wall.
+    /// </summary>
+    // ponytail: the goalkeeper is not held on its line, and at a 10 m kick may not come out to 5 m.
+    private void AwardSpotKick(TeamSide team, RestartKind kind, Vector2 spot, string description)
+    {
+        var towardsGoal = FacingForTeam(team).ToUnitVector();
+        StopForRestart(new MatchEvent(MatchEventType.Foul, kind, team, spot, description));
+        PlaceRestartTaker(team, spot - towardsGoal * Tuning.DribbleLeadDistance, towardsGoal);
+        _restartWallSpot = spot;
+        // The taker cannot carry the ball, so the kick is played when the ball leaves its feet.
+        _restartPlayedDistance = float.MaxValue;
+        _spotKickTakerId = State.Ball.PossessorId;
+        foreach (var other in State.Players.Where(player =>
+                     player.Role == PlayerRole.Outfield && player.Id != _spotKickTakerId))
+        {
+            KeepAwayFromRestart(other);
+            other.Position = ClampToField(other.Position);
+            other.Velocity = Vector2.Zero;
+        }
     }
 
     private void BeginControlledPossession(PlayerState player)
@@ -2028,7 +2089,8 @@ public sealed class MatchEngine
             return;
         }
 
-        var kind = _restartWallKind;
+        // A penalty or 10 m kick not taken in time is an ordinary free kick for the defending team.
+        var kind = _restartWallKind == RestartKind.KickIn ? RestartKind.KickIn : RestartKind.FreeKick;
         var inward = kind == RestartKind.FreeKick ? FacingForTeam(team).ToUnitVector() : _restartWallInward;
         StopForRestart(new MatchEvent(
             MatchEventType.FourSeconds,
@@ -2059,6 +2121,7 @@ public sealed class MatchEngine
         _shotActionPlayerId = null;
 
         _restartWallTicks = 0;
+        _spotKickTakerId = null;
         State.IsBallOutOfPlay = true;
         State.RestartTicksRemaining = Tuning.RestartDelayTicks;
         State.LastEvent = matchEvent;
@@ -2161,13 +2224,25 @@ public sealed class MatchEngine
     {
         var nearest = _restartWallRadius + player.Radius;
         var offset = player.Position - _restartWallSpot;
+        if (_spotKickTakerId is not null)
+        {
+            // Behind the ball: no nearer the goal than it is.
+            var ahead = Vector2.Dot(offset, _restartWallInward);
+            if (ahead > 0f)
+            {
+                offset -= _restartWallInward * ahead;
+                player.Position = _restartWallSpot + offset;
+            }
+        }
+
         var distance = offset.Length();
         if (distance >= nearest)
         {
             return;
         }
 
-        var outward = distance > 0.0001f ? offset / distance : -FacingForTeam(player.Team).ToUnitVector();
+        var fallback = _spotKickTakerId is not null ? -_restartWallInward : -FacingForTeam(player.Team).ToUnitVector();
+        var outward = distance > 0.0001f ? offset / distance : fallback;
         player.Position = _restartWallSpot + outward * nearest;
         var outwardSpeed = Vector2.Dot(player.Velocity, outward);
         if (outwardSpeed < 0f)

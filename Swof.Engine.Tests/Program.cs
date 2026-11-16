@@ -115,6 +115,9 @@ var tests = new (string Name, Action Test)[]
     ("computer carrier does not shoot from distance or through a defender", ComputerCarrierDoesNotShootFromDistanceOrThroughDefender),
     ("computer presser slides at a carrier within reach", ComputerPresserSlidesAtCarrierWithinReach),
     ("a slide through the carrier's back is a foul and a free kick", SlideThroughCarriersBackIsFoul),
+    ("a foul in the area is a penalty with everyone else behind the ball", FoulInAreaIsPenalty),
+    ("the sixth foul of a half is a 10 m kick and the count starts again at half-time", SixthFoulOfHalfIsTenMetreKick),
+    ("a computer taker shoots a penalty and a 10 m kick in time", ComputerTakerShootsSpotKicksInTime),
     ("computer presser does not slide through a carrier's back", ComputerPresserDoesNotSlideThroughCarriersBack),
     ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt),
     ("touches give a stick and one button", TouchesGiveStickAndOneButton),
@@ -3634,6 +3637,153 @@ static (MatchEngine Engine, PlayerState Slider, PlayerState Carrier) CreateSlide
         tuning,
         userControlledTeam: sliderTeam);
     return (engine, slider, carrier);
+}
+
+// Away's person slides through the back of a Home carrier who stands at the spot facing Away's goal.
+static MatchEngine AwayFoulsHomeCarrierAt(Vector2 at, MatchEngine? engine = null)
+{
+    engine ??= MatchEngine.CreateDefault(userControlledTeam: TeamSide.Away);
+    var state = engine.State;
+    var carrier = state.Players.First(player => player.Team == TeamSide.Home && !player.IsGoalkeeper);
+    var slider = state.Players.Single(player => player.Id == state.ActivePlayerId);
+    carrier.Position = at;
+    carrier.Facing = Azimuth.East;
+    carrier.Velocity = Vector2.Zero;
+    slider.Position = at - new Vector2(2f, 0f);
+    slider.Facing = Azimuth.East;
+    slider.Velocity = Vector2.Zero;
+    GivePossession(engine, carrier);
+    engine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: true));
+    for (var tick = 0; tick < 12 && !state.IsBallOutOfPlay; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty);
+    }
+
+    Assert(state.LastEvent.Type == MatchEventType.Foul, $"The slide at {at} should be a foul, got {state.LastEvent.Type}.");
+    return engine;
+}
+
+static void FoulInAreaIsPenalty()
+{
+    var engine = AwayFoulsHomeCarrierAt(new Vector2(14.8f, 0.5f));
+    var state = engine.State;
+    var mark = new Vector2(state.Field.Right - state.Field.PenaltyMarkDistance, 0f);
+    var taker = state.Players.Single(player => player.HasPossession);
+    var takerSpot = taker.Position;
+    bool Waits(PlayerState player) =>
+        player.Position.X <= mark.X + 0.001f
+        && Vector2.Distance(player.Position, mark) >= engine.Tuning.RestartOpponentDistance + player.Radius - 0.001f;
+
+    Assert(state.LastEvent is { Restart: RestartKind.Penalty, Team: TeamSide.Home }, $"Expected a penalty to Home, got {state.LastEvent.Restart}.");
+    Assert(state.AwayFouls == 1 && state.HomeFouls == 0, "The foul should count against Away.");
+    Assert(state.Ball.Position == mark, "The ball goes on the penalty mark.");
+    Assert(
+        taker.Team == TeamSide.Home && taker.Facing == Azimuth.East && Vector2.Distance(takerSpot, mark - new Vector2(engine.Tuning.DribbleLeadDistance, 0f)) < 0.001f,
+        "A Home player stands behind the ball facing the goal.");
+    foreach (var other in state.Players.Where(player => !player.IsGoalkeeper && player.Id != taker.Id))
+    {
+        Assert(Waits(other), $"Player {other.Id} should wait behind the ball, five metres from it.");
+    }
+
+    // The stick only aims, whoever takes it, and Away's person cannot get ahead of the ball or near it.
+    var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    for (var tick = 0; tick < engine.Tuning.RestartDelayTicks + 100; tick++)
+    {
+        var person = state.Players.Single(player => player.Id == state.ActivePlayerId);
+        var inputs = new Dictionary<int, PlayerInput>
+        {
+            [taker.Id] = new(new Vector2(1f, 0f), ActionDown: false),
+            [person.Id] = new(Vector2.Normalize(new Vector2(state.Field.Right, 0f) - person.Position), tick % 40 < 20),
+        };
+        engine.StepTick(computers.CreateControlFrame(engine.CurrentSnapshot, inputs));
+        Assert(taker.Position == takerSpot && taker.HasPossession, $"The taker should stay on the spot with the ball (tick {tick}).");
+        Assert(Waits(person), $"A person's player should be held behind the ball (tick {tick}).");
+    }
+
+    // A held button shoots, and then everyone is free.
+    for (var tick = 0; tick < 60 && taker.HasPossession; tick++)
+    {
+        var inputs = new Dictionary<int, PlayerInput> { [taker.Id] = new(new Vector2(1f, 0f), ActionDown: true) };
+        engine.StepTick(computers.CreateControlFrame(engine.CurrentSnapshot, inputs));
+    }
+
+    Assert(!taker.HasPossession && state.Ball.Velocity.X > 0f, "Holding the button should shoot the penalty at the goal.");
+
+    // Not taken in four seconds: a free kick to the defending team.
+    engine = AwayFoulsHomeCarrierAt(new Vector2(14.8f, 0.5f));
+    StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + engine.Tuning.RestartProtectionTicks);
+    Assert(
+        engine.State.LastEvent is { Type: MatchEventType.FourSeconds, Restart: RestartKind.FreeKick, Team: TeamSide.Away },
+        "A penalty not taken in four seconds should become the defending team's free kick.");
+}
+
+static void SixthFoulOfHalfIsTenMetreKick()
+{
+    var engine = AwayFoulsHomeCarrierAt(new Vector2(5f, 0.5f));
+    var state = engine.State;
+    Assert(state.LastEvent.Restart == RestartKind.FreeKick && state.AwayFouls == 1, "A first foul outside the area is a free kick.");
+
+    state.AwayFouls = engine.Tuning.AccumulatedFoulLimit - 1;
+    // Each foul is somewhere new: the last free kick was never played, so its spot is still guarded.
+    StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + 1);
+    AwayFoulsHomeCarrierAt(new Vector2(5f, -5f), engine);
+    Assert(state.LastEvent.Restart == RestartKind.FreeKick, "The fifth foul is still a free kick.");
+
+    StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + 1);
+    AwayFoulsHomeCarrierAt(new Vector2(5f, 0.5f), engine);
+    var mark = new Vector2(state.Field.Right - state.Field.SecondPenaltyMarkDistance, 0f);
+    var taker = state.Players.Single(player => player.HasPossession);
+    Assert(state.LastEvent is { Restart: RestartKind.TenMetreKick, Team: TeamSide.Home }, $"The sixth foul should be a 10 m kick, got {state.LastEvent.Restart}.");
+    Assert(state.Ball.Position == mark, "A foul further out is punished from the second penalty mark.");
+    foreach (var other in state.Players.Where(player => !player.IsGoalkeeper && player.Id != taker.Id))
+    {
+        Assert(
+            other.Position.X <= mark.X + 0.001f
+                && Vector2.Distance(other.Position, mark) >= engine.Tuning.RestartOpponentDistance + other.Radius - 0.001f,
+            $"Player {other.Id} should wait behind the ball: there is no wall at a 10 m kick.");
+    }
+
+    // A foul nearer the goal than the mark, but outside the area, is punished from where it happened.
+    var near = new Vector2(13f, 6f);
+    var later = MatchEngine.CreateDefault(userControlledTeam: TeamSide.Away);
+    later.State.AwayFouls = engine.Tuning.AccumulatedFoulLimit + 1;
+    AwayFoulsHomeCarrierAt(near, later);
+    Assert(
+        later.State.LastEvent.Restart == RestartKind.TenMetreKick && later.State.Ball.Position == near,
+        $"A seventh foul 7 m out should be kicked from there, got {later.State.LastEvent.Restart} at {later.State.Ball.Position}.");
+
+    // Half-time wipes the count.
+    StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + 1);
+    state.ClockSeconds = engine.Tuning.HalfLengthSeconds - 0.001f;
+    engine.StepTick(PlayerInput.Empty);
+    Assert(state.Period == 2 && state.AwayFouls == 0, "The foul count should start again in the second half.");
+}
+
+static void ComputerTakerShootsSpotKicksInTime()
+{
+    foreach (var (at, fouls, kind) in new[]
+             {
+                 (new Vector2(14.8f, 0.5f), 0, RestartKind.Penalty),
+                 (new Vector2(5f, 0.5f), 5, RestartKind.TenMetreKick),
+             })
+    {
+        var engine = MatchEngine.CreateDefault(userControlledTeam: TeamSide.Away);
+        engine.State.AwayFouls = fouls;
+        AwayFoulsHomeCarrierAt(at, engine);
+        var state = engine.State;
+        Assert(state.LastEvent.Restart == kind, $"Expected {kind}, got {state.LastEvent.Restart}.");
+        var taker = state.Players.Single(player => player.HasPossession);
+        var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+        var shot = false;
+        for (var tick = 0; tick < engine.Tuning.RestartDelayTicks + engine.Tuning.RestartProtectionTicks + 5 && !shot; tick++)
+        {
+            engine.StepTick(PlayerInput.Empty, computers);
+            Assert(state.LastEvent.Type != MatchEventType.FourSeconds, $"A computer taker should not run out the count at a {kind}.");
+            shot = !taker.HasPossession;
+        }
+
+        Assert(shot && state.Ball.Velocity.X > 0f, $"A computer taker should kick a {kind} at the goal.");
+    }
 }
 
 static void ComputerPresserDoesNotSlideThroughCarriersBack()

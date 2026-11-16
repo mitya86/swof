@@ -68,7 +68,7 @@ td.num, th.num { text-align: right; }
   <section>
     <h2>Where each milestone stands</h2>
     <div class="board" id="board">
-      <div class="row"><strong>1. A real futsal match</strong><span class="state part">in progress</span><p>Kickoffs, halves, one foul, free kicks, 5 m at restarts and the four-second count exist. Next: accumulated fouls and the 10 m kick, penalty, changing ends.</p></div>
+      <div class="row"><strong>1. A real futsal match</strong><span class="state part">in progress</span><p>Kickoffs, halves, one foul, free kicks, 5 m at restarts, the four-second count, penalties and accumulated fouls with the 10 m kick exist. Next: changing ends, and decisions on cards, advantage and extra time.</p></div>
       <div class="row"><strong>2. Touch</strong><span class="state todo">prototype</span><p>A mouse stands in for one finger. A build for a real device has not started.</p></div>
       <div class="row"><strong>3. Tactics as data</strong><span class="state part">about half</span><p>Three defensive tactics, chosen from the pause menu. No coach that chooses one, no fix for two waiting teams.</p></div>
       <div class="row"><strong>4. Product shell</strong><span class="state todo">just started</span><p>Pause menu and a full-time result. No start screen, difficulty choice or way to leave a match.</p></div>
@@ -89,6 +89,51 @@ td.num, th.num { text-align: right; }
   <section class="entries">
     <h2>Entries, newest first</h2>
     <!-- NEW-ENTRIES-HERE -->
+
+    <article class="entry">
+      <header>
+        <div class="meta"><span class="label">15 Nov 2026</span><span class="tag">Milestone 1</span><span class="label">pull request 32</span></div>
+        <h3>The penalty, and accumulated fouls with the 10 m kick</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The futsal rule</p>
+        <p>Futsal counts each team's fouls per half. The first five cost a free kick. From the sixth, every foul gives the other side a direct shot from the second penalty mark, 10 m out, with no defensive wall; if the foul was nearer the goal than that, the kick is taken from where it happened. The count starts again at half-time. This is the rule that makes a futsal team defend differently late in a half, and it is the one hardcore fans will look for first. A foul inside the area is a penalty from 6 m, as in football.</p>
+      </div>
+      <div class="part-block">
+        <p class="label">What was built</p>
+        <ul>
+          <li>A foul count per team per half, shown beside each team's name in the top bar (<code>F3 HOME 1 - 0 AWAY F5</code>).</li>
+          <li>One mechanism for both kicks, since they differ only in the spot: the ball on the mark, the taker behind it facing the goal, every other outfielder of both teams behind the ball and 5 m from it until it is kicked.</li>
+          <li>The taker cannot move. The stick only aims; a tap passes and a held button shoots, as everywhere else.</li>
+          <li>The four-second count applies. A kick not taken becomes the defending team's free kick.</li>
+        </ul>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>Built although computers almost never reach it.</strong> Computer players decline a slide they can see is a foul, so they commit about one a match. In 300 matches with identical squads there was not one penalty or 10 m kick; with rolled squads no match had more than two. This rule exists for the person who slides at everything, and it cost little because the wall from the previous entry carried most of it.</li>
+          <li><strong>The taker is frozen, unlike at a kick-in.</strong> Six metres from goal, letting the taker walk the ball forward would turn a penalty into a dribble at the goalkeeper.</li>
+          <li><strong>The goalkeeper is not held on its line.</strong> At a 10 m kick the laws let it come out to 5 m; at a penalty it must stay on the line. The keeper's own positioning code runs unchanged. Marked as a shortcut.</li>
+          <li><strong>No new controls.</strong> A penalty is aimed and struck with the same stick and button as any shot, which keeps the one-button promise.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Measured over 300 matches</p>
+        <ul>
+          <li>Identical squads: every match identical to before, seed for seed. Rolled squads: goals 4.2 and shots 28.4 as before, results 109 / 65 / 126 against 110 / 64 / 126.</li>
+          <li>In scenarios a computer taker shoots both kinds of kick at the goal within the four seconds.</li>
+          <li>Five deliberate breakages (taker free to move, players not held behind the ball, no sixth-foul rule, no half-time reset, an untaken penalty handed over as a penalty) each made a scenario fail.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised</p>
+        <ul>
+          <li>A person taking or conceding either kick. How often penalties are scored is unmeasured: there were too few to count.</li>
+          <li>The PENALTY and 10 M KICK banners, and the foul counts at two digits.</li>
+          <li>Whether a person notices the count at all before the sixth foul surprises them.</li>
+        </ul>
+      </div>
+    </article>
 
     <article class="entry">
       <header>
