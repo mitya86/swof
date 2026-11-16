@@ -42,7 +42,8 @@ internal static class MatchRunner
         float ForwardMetres,
         int LostInOwnThird,
         int FourSecondCalls,
-        int SpotKicks);
+        int SpotKicks,
+        int CoachChanges = 0);
 
     /// <summary>
     /// The seed chooses the eight outfielders' attributes (unless the squads are equal) and the
@@ -57,7 +58,9 @@ internal static class MatchRunner
         TeamTactic? homeTactic = null,
         TeamTactic? awayTactic = null,
         Func<float, TacticByScore>? homeRule = null,
-        Func<float, TacticByScore>? awayRule = null)
+        Func<float, TacticByScore>? awayRule = null,
+        bool homeCoach = false,
+        bool awayCoach = false)
     {
         var random = new Random(seed);
         // 4 to 15 is the range the default squads already use.
@@ -86,6 +89,17 @@ internal static class MatchRunner
         {
             computers.SetTacticByScore(TeamSide.Away, awayRule(tuning.HalfLengthSeconds * 2f));
         }
+
+        if (homeCoach)
+        {
+            computers.SetCoach(TeamSide.Home, new Coach(TeamSide.Home, TacticByScore.ChaseAndHold(tuning.HalfLengthSeconds * 2f)));
+        }
+
+        if (awayCoach)
+        {
+            computers.SetCoach(TeamSide.Away, new Coach(TeamSide.Away, TacticByScore.ChaseAndHold(tuning.HalfLengthSeconds * 2f)));
+        }
+
         var state = engine.State;
         var nobody = new Dictionary<int, PlayerInput>();
         // Stoppages add to the clock; three times the playing time is far beyond any real match.
@@ -273,7 +287,8 @@ internal static class MatchRunner
             forwardMetres,
             lostInOwnThird,
             fourSecondCalls,
-            spotKicks);
+            spotKicks,
+            computers.CoachChanges);
     }
 
     /// <summary>Plays <paramref name="count"/> matches and returns how many broke.</summary>
@@ -284,10 +299,12 @@ internal static class MatchRunner
         TeamTactic? homeTactic = null,
         TeamTactic? awayTactic = null,
         Func<float, TacticByScore>? homeRule = null,
-        Func<float, TacticByScore>? awayRule = null)
+        Func<float, TacticByScore>? awayRule = null,
+        bool homeCoach = false,
+        bool awayCoach = false)
     {
         var results = Enumerable.Range(firstSeed, count)
-            .Select(seed => Play(seed, equalSquads: equalSquads, homeTactic: homeTactic, awayTactic: awayTactic, homeRule: homeRule, awayRule: awayRule))
+            .Select(seed => Play(seed, equalSquads: equalSquads, homeTactic: homeTactic, awayTactic: awayTactic, homeRule: homeRule, awayRule: awayRule, homeCoach: homeCoach, awayCoach: awayCoach))
             .ToArray();
         foreach (var r in results)
         {
@@ -309,6 +326,11 @@ internal static class MatchRunner
         Spread("fouls", r => r.Fouls);
         Spread("four-second calls", r => r.FourSecondCalls);
         Spread("penalties and 10 m kicks", r => r.SpotKicks);
+        if (homeCoach || awayCoach)
+        {
+            Spread("coach tactic changes", r => r.CoachChanges);
+        }
+
         Spread("stoppages", r => r.Stoppages);
         Spread("possessions", r => r.Possessions);
         Spread("forward m / possession", r => r.ForwardMetres / Math.Max(1, r.Possessions));

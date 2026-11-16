@@ -119,6 +119,8 @@ var tests = new (string Name, Action Test)[]
     ("the sixth foul of a half is a 10 m kick and the count starts again at half-time", SixthFoulOfHalfIsTenMetreKick),
     ("a computer taker shoots a penalty and a 10 m kick in time", ComputerTakerShootsSpotKicksInTime),
     ("the second half is seen from the other end", SecondHalfIsSeenFromTheOtherEnd),
+    ("a coach decides on a look and the team follows after a delay", CoachDecidesOnLookAndTeamFollowsAfterDelay),
+    ("the same seed with coaches replays the same match", SameSeedWithCoachesReplaysSameMatch),
     ("computer presser does not slide through a carrier's back", ComputerPresserDoesNotSlideThroughCarriersBack),
     ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt),
     ("touches give a stick and one button", TouchesGiveStickAndOneButton),
@@ -144,7 +146,7 @@ var tests = new (string Name, Action Test)[]
     ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
 };
 
-// "matches [count] [firstSeed] [equal] [home=half|up] [away=half|up] [home-up=metres] [away-up=metres] [home-behind=up] [home-ahead=half] ..." plays unattended matches instead of the scenarios.
+// "matches [count] [firstSeed] [equal] [home=half|up] [away=half|up] [home-up=metres] [away-up=metres] [home-behind=up] [home-ahead=half] [home-coach] ..." plays unattended matches instead of the scenarios.
 
 if (args.FirstOrDefault() == "matches")
 {
@@ -157,7 +159,9 @@ if (args.FirstOrDefault() == "matches")
         homeTactic: TacticFor("home"),
         awayTactic: TacticFor("away"),
         homeRule: RuleFor("home"),
-        awayRule: RuleFor("away")) == 0 ? 0 : 1;
+        awayRule: RuleFor("away"),
+        homeCoach: args.Contains("home-coach"),
+        awayCoach: args.Contains("away-coach")) == 0 ? 0 : 1;
 
     // "home-behind=up" and "home-ahead=half" swap Home's tactic while it is losing, or winning late.
     Func<float, TacticByScore>? RuleFor(string side)
@@ -4458,6 +4462,65 @@ static float ProjectedYAtX(BallState ball, float targetX)
     Assert(MathF.Abs(ball.Velocity.X) > 0.0001f, "The test shot must travel toward a goal line.");
     var ticksToTarget = (targetX - ball.Position.X) / ball.Velocity.X;
     return ball.Position.Y + ball.Velocity.Y * ticksToTarget;
+}
+
+// Feeds a coach one snapshot a tick for some seconds of play and returns the tactic it has the team play at the end.
+static TeamTactic WatchFor(Coach coach, TeamTactic usual, ref MatchSnapshot match, float seconds, Func<MatchSnapshot, MatchSnapshot>? change = null)
+{
+    for (var tick = 0; tick < (int)MathF.Round(seconds * 60f); tick++)
+    {
+        match = match with { Tick = match.Tick + 1, ClockSeconds = match.ClockSeconds + 1f / 60f };
+        match = change?.Invoke(match) ?? match;
+        coach.Watch(match, usual);
+    }
+
+    return coach.Tactic(usual);
+}
+
+static void CoachDecidesOnLookAndTeamFollowsAfterDelay()
+{
+    var match = MatchEngine.CreateDefault().CurrentSnapshot;
+    var coach = new Coach(TeamSide.Home, TacticByScore.ChaseAndHold(360f));
+    var usual = TeamTactic.HighPress;
+    Assert(WatchFor(coach, usual, ref match, 1f) == usual, "A coach should start from the tactic the team was given.");
+
+    // Home concedes one second in. The coach next looks at ten seconds and the team follows five seconds later.
+    match = match with { AwayScore = 1 };
+    Assert(WatchFor(coach, usual, ref match, 8.5f) == usual, "A coach should not react before its next look.");
+    Assert(WatchFor(coach, usual, ref match, 4.5f) == usual, "The team should not follow a decision before the delay has passed.");
+    Assert(WatchFor(coach, usual, ref match, 1.5f) == TeamTactic.PushUp, "A team that is losing should push up once the decision has reached it.");
+    Assert(coach.Changes == 1, "One change of tactic should be counted.");
+
+    match = match with { HomeScore = 1 };
+    Assert(WatchFor(coach, usual, ref match, 16f) == usual, "A team that has drawn level should go back to its usual tactic.");
+    Assert(coach.Changes == 2, "Going back is a change too.");
+
+    // A new match starts the coach again.
+    match = match with { Tick = 0, ClockSeconds = 0f, HomeScore = 0, AwayScore = 3 };
+    Assert(WatchFor(coach, usual, ref match, 1f) == usual && coach.Changes == 0, "A new match should start from the usual tactic.");
+
+    // Through the controller: only the coached team changes, and its players are given what the coach asked for.
+    var computers = ComputerPlayerController.CreateDefault(match);
+    computers.SetCoach(TeamSide.Away, new Coach(TeamSide.Away, TacticByScore.ChaseAndHold(360f)));
+    match = match with { Tick = 0, ClockSeconds = 0f, HomeScore = 1, AwayScore = 0 };
+    var nobody = new Dictionary<int, PlayerInput>();
+    for (var tick = 0; tick < 16 * 60; tick++)
+    {
+        match = match with { Tick = match.Tick + 1, ClockSeconds = match.ClockSeconds + 1f / 60f };
+        computers.CreateControlFrame(match, nobody);
+    }
+
+    Assert(computers.TacticNow(match, TeamSide.Away) == TeamTactic.PushUp, "A coached team that is losing should be given the coach's tactic.");
+    Assert(computers.TacticNow(match, TeamSide.Home) == TeamTactic.HighPress, "A team with no coach should keep its tactic.");
+    Assert(computers.CoachChanges == 1, "The controller should count the change.");
+}
+
+static void SameSeedWithCoachesReplaysSameMatch()
+{
+    var first = MatchRunner.Play(3, halfLengthSeconds: 30f, equalSquads: true, homeTactic: TeamTactic.HalfCourt, awayTactic: TeamTactic.HalfCourt, homeCoach: true, awayCoach: true);
+    var second = MatchRunner.Play(3, halfLengthSeconds: 30f, equalSquads: true, homeTactic: TeamTactic.HalfCourt, awayTactic: TeamTactic.HalfCourt, homeCoach: true, awayCoach: true);
+    Assert(first == second, "The same seed with coaches should give the same match.");
+    Assert(first.Fault is null, $"A coached match should finish: {first.Fault}");
 }
 
 static void SecondHalfIsSeenFromTheOtherEnd()

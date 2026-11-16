@@ -70,7 +70,7 @@ td.num, th.num { text-align: right; }
     <div class="board" id="board">
       <div class="row"><strong>1. A real futsal match</strong><span class="state done">closed for this run</span><p>Kickoffs, halves with a change of ends, one foul, free kicks, 5 m at restarts, the four-second count, penalties and accumulated fouls with the 10 m kick exist. Cards, advantage and extra time are decided against for now, with the numbers in the entry below; cards are to be looked at again after a person has played.</p></div>
       <div class="row"><strong>2. Touch</strong><span class="state todo">prototype</span><p>A mouse stands in for one finger. A build for a real device has not started.</p></div>
-      <div class="row"><strong>3. Tactics as data</strong><span class="state part">about half</span><p>Three defensive tactics, chosen from the pause menu. No coach that chooses one, no fix for two waiting teams.</p></div>
+      <div class="row"><strong>3. Tactics as data</strong><span class="state done">closed for this run</span><p>Three defensive tactics, chosen from the pause menu, and a coach for a computer team that changes its tactic by the score. The coach is off until the difficulty choice turns it on. A fix for two waiting teams was tried once and decided against.</p></div>
       <div class="row"><strong>4. Product shell</strong><span class="state todo">just started</span><p>Pause menu and a full-time result. No start screen, difficulty choice or way to leave a match.</p></div>
       <div class="row"><strong>5. Release preparation</strong><span class="state todo">not started</span><p>Ends, for this run, at packaged builds that CI can reproduce.</p></div>
     </div>
@@ -89,6 +89,58 @@ td.num, th.num { text-align: right; }
   <section class="entries">
     <h2>Entries, newest first</h2>
     <!-- NEW-ENTRIES-HERE -->
+
+    <article class="entry">
+      <header>
+        <div class="meta"><span class="label">16 Nov 2026</span><span class="tag">Milestone 3</span><span class="label">pull request 35</span></div>
+        <h3>A coach, and what the numbers say a coach is worth</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The futsal idea</p>
+        <p>A futsal coach stands a metre from the court and changes how the team defends many times a match: press everywhere when a goal is needed, wait at halfway to protect a lead. Two things make a coach human. It does not react to every second of play, and the players do not hear it at once.</p>
+      </div>
+      <div class="part-block">
+        <p class="label">What was built</p>
+        <ul>
+          <li>A <code>Coach</code> for a computer team. Every ten seconds of play it looks at the score and the clock; five seconds after it decides, the team plays what it asked for. Losing: push up. Winning in the last quarter: wait at halfway. Otherwise the team's usual tactic.</li>
+          <li>It reads only match snapshots and uses no randomness, so a seed still replays the same match. A scenario plays one seed twice to hold that.</li>
+          <li><code>--opponent-coach</code> in the game (it replaces <code>--opponent-follows-score</code>) and <code>home-coach</code> / <code>away-coach</code> in the match runner, which now prints how often a coach changed tactic.</li>
+        </ul>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>Off by default.</strong> A coached opponent pushes up whenever it trails, and pushing up is the stronger way to defend. That sits close to the "push up for everyone" default the owner declined. The difficulty choice in the next milestone is where it gets turned on.</li>
+          <li><strong>Never for the person's team.</strong> Their tactic is theirs, from the pause menu.</li>
+          <li><strong>The look and the delay stay, but difficulty will not be built on them.</strong> Paired seed for seed against the same rule applied instantly, the delayed coach was better in 55 matches and worse in 52 (identical squads), 45 against 39 (rolled). That is noise. A "smarter coach" that only thinks faster would be a difficulty level nobody could feel. Difficulty has to come from what the numbers do separate: which tactic a team plays, and how good its players are.</li>
+          <li><strong>A fix for two waiting teams: tried once, removed.</strong> When both teams wait at halfway nobody attacks: 0.9 goals and 9.5 shots a match. I gave the coach a rule to go and get a ball the other team keeps in its own half. It lifted the match to 1.2 goals (1.4 with patience cut from 20 s to 6 s). Not enough to keep the code. The state is also out of reach in a real game: a coach only waits when its team is ahead, and both teams cannot be ahead; and a person's own player always presses. It needs both teams to be told to wait by a launch option.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Measured over 300 matches</p>
+        <div class="tablewrap"><table>
+          <tr><th>Squads</th><th>Coaches</th><th class="num">Goals a match</th><th class="num">Shots a match</th><th class="num">Home / draw / away</th><th class="num">Tactic changes a match</th></tr>
+          <tr><td>Identical</td><td>none</td><td class="num">3.3</td><td class="num">32.4</td><td class="num">109 / 74 / 117</td><td class="num">&ndash;</td></tr>
+          <tr><td>Identical</td><td>both</td><td class="num">3.1</td><td class="num">30.4</td><td class="num">119 / 60 / 121</td><td class="num">3.1</td></tr>
+          <tr><td>Rolled</td><td>none</td><td class="num">4.2</td><td class="num">28.4</td><td class="num">110 / 64 / 126</td><td class="num">&ndash;</td></tr>
+          <tr><td>Rolled</td><td>both</td><td class="num">3.9</td><td class="num">27.3</td><td class="num">118 / 45 / 137</td><td class="num">3.2</td></tr>
+        </table></div>
+        <ul>
+          <li>With no coach every match is identical to before, seed for seed. With coaches on both sides all pass marks are met.</li>
+          <li>Coaches make draws rarer (74 to 60, 64 to 45): the team that falls behind changes something. Goals drop a little, and with identical squads 3.1 is close to the floor of 3.</li>
+          <li>One coached team against an uncoached one, paired by seed: better in 59 matches and worse in 52 with identical squads, 56 against 40 with rolled ones. A modest help at most.</li>
+          <li>Three deliberate breakages each made a scenario fail: no delay, a look every tick, the controller never letting the coach watch. The third one passed at first, which showed the wiring had no check; it has one now.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised</p>
+        <ul>
+          <li>Whether a person can tell that the opponent changed tactic, or feels it as fair.</li>
+          <li><code>--opponent-coach</code> in the running game. It builds and the same coach runs in the match runner; nobody has played against it.</li>
+          <li>A coach that reads the play (who has the ball where, shots conceded) rather than the scoreboard. That is still not built.</li>
+        </ul>
+      </div>
+    </article>
 
     <article class="entry">
       <header>

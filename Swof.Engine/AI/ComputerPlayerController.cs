@@ -11,6 +11,7 @@ public sealed class ComputerPlayerController
     private readonly Dictionary<TeamSide, TacticalPriorities> _teamPriorities = new();
     private readonly Dictionary<TeamSide, TeamTactic> _teamTactics = new();
     private readonly Dictionary<TeamSide, TacticByScore> _tacticsByScore = new();
+    private readonly Dictionary<TeamSide, Coach> _coaches = new();
     private IReadOnlyDictionary<int, PlayerDecision> _lastDecisions =
         new ReadOnlyDictionary<int, PlayerDecision>(new Dictionary<int, PlayerDecision>());
 
@@ -110,6 +111,18 @@ public sealed class ComputerPlayerController
         _tacticsByScore[team] = rule;
     }
 
+    /// <summary>Gives one team a coach, who chooses its tactic from then on. Never give one to a person's team.</summary>
+    /// <param name="team">The affected team.</param>
+    /// <param name="coach">The coach, who starts from the tactic the team was given.</param>
+    public void SetCoach(TeamSide team, Coach coach)
+    {
+        ArgumentNullException.ThrowIfNull(coach);
+        _coaches[team] = coach;
+    }
+
+    /// <summary>How many times each coached team has been given a different tactic.</summary>
+    public int CoachChanges => _coaches.Values.Sum(coach => coach.Changes);
+
     /// <summary>
     /// Preserves assigned inputs and fills every remaining registered outfield slot with an independent AI decision.
     /// </summary>
@@ -122,6 +135,11 @@ public sealed class ComputerPlayerController
     {
         ArgumentNullException.ThrowIfNull(match);
         ArgumentNullException.ThrowIfNull(assignedInputs);
+
+        foreach (var (team, coach) in _coaches)
+        {
+            coach.Watch(match, _teamTactics.GetValueOrDefault(team) ?? TeamTactic.HighPress);
+        }
 
         var playersById = match.Players.ToDictionary(player => player.Id);
         var inputs = new Dictionary<int, PlayerInput>(assignedInputs);
@@ -154,9 +172,15 @@ public sealed class ComputerPlayerController
         return new PlayerControlFrame(inputs);
     }
 
-    private TeamTactic TacticNow(MatchSnapshot match, TeamSide team)
+    /// <summary>The tactic one team's computer players are given at this moment.</summary>
+    public TeamTactic TacticNow(MatchSnapshot match, TeamSide team)
     {
         var usual = _teamTactics.GetValueOrDefault(team) ?? TeamTactic.HighPress;
+        if (_coaches.TryGetValue(team, out var coach))
+        {
+            return coach.Tactic(usual);
+        }
+
         return _tacticsByScore.TryGetValue(team, out var rule) ? rule.Choose(match, team, usual) : usual;
     }
 }
