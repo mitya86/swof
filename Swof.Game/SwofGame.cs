@@ -50,7 +50,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private bool _showDebugHud;
     private bool _cameraEffectsEnabled;
 
-    private const double CaptureAfterSeconds = 2d;
+    private readonly double _captureAfterSeconds;
+    private readonly IReadOnlyList<ScriptedInput> _script;
 
     private static readonly TeamTactic[] TeamTactics = [TeamTactic.HighPress, TeamTactic.HalfCourt, TeamTactic.PushUp];
     // Below TeamTactics on purpose: static fields are set in the order they are written.
@@ -91,6 +92,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         StartMatch();
         _demoAction = launchOptions.DemoAction;
         _capturePath = launchOptions.CapturePath;
+        _captureAfterSeconds = launchOptions.CaptureAfterSeconds;
+        _script = launchOptions.Script;
         if (launchOptions.StartPaused && _demoAction == MatchDemoAction.None)
         {
             _pauseMenu.Open();
@@ -150,7 +153,9 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     protected override void Update(GameTime gameTime)
     {
         _runtimeSeconds += gameTime.ElapsedGameTime.TotalSeconds;
-        var keyboard = Keyboard.GetState();
+        var keyboard = _script.Count == 0
+            ? Keyboard.GetState()
+            : new KeyboardState(_script.Where(item => item.Key is not null && item.IsHeldAt(_runtimeSeconds)).Select(item => item.Key!.Value).ToArray());
         var gamePad = GamePad.GetState(PlayerIndex.One, GamePadDeadZone.Circular);
 
         if (IsNewKeyPress(Keys.Escape, keyboard) || IsNewButtonPress(Buttons.Back, gamePad))
@@ -260,7 +265,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
 
         var deltaSeconds = Math.Min((float)gameTime.ElapsedGameTime.TotalSeconds, MaxFrameDeltaSeconds);
         var input = _demoAction == MatchDemoAction.None
-            ? IsActive ? ReadInput(keyboard, gamePad) : PlayerInput.Empty
+            ? IsActive || _script.Count > 0 ? ReadInput(keyboard, gamePad) : PlayerInput.Empty
             : ReadDemoInput(deltaSeconds);
         if (_demoAction == MatchDemoAction.None)
         {
@@ -325,7 +330,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             _demoAction == MatchDemoAction.None ? _pauseMenu : null,
             _showingResult ? NewMatchItem : 1 + Array.IndexOf(TeamTactics, _teamTactic));
         base.Draw(gameTime);
-        if (_capturePath is not null && _runtimeSeconds >= CaptureAfterSeconds)
+        if (_capturePath is not null && _runtimeSeconds >= _captureAfterSeconds)
         {
             SaveFrameAndExit(_capturePath);
         }
@@ -367,6 +372,14 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
 
     private TouchPoint[] ReadTouches()
     {
+        if (_script.Count > 0)
+        {
+            return _script
+                .Where(item => item.Touch is not null && item.IsHeldAt(_runtimeSeconds))
+                .Select(item => new TouchPoint(item.Finger, item.Touch!.Value * ScreenSize()))
+                .ToArray();
+        }
+
         var mouse = Mouse.GetState();
         return IsActive
             && mouse.LeftButton == ButtonState.Pressed

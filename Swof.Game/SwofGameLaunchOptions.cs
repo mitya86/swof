@@ -11,6 +11,12 @@ internal sealed record SwofGameLaunchOptions(
     bool StartPaused = false,
     string? CapturePath = null)
 {
+    /// <summary>Seconds after launch at which the frame for <see cref="CapturePath"/> is written.</summary>
+    public double CaptureAfterSeconds { get; init; } = 2d;
+
+    /// <summary>Keys and touches played back as if a person made them, so a captured frame can show a state only input reaches.</summary>
+    public IReadOnlyList<ScriptedInput> Script { get; init; } = [];
+
     public static SwofGameLaunchOptions Default { get; } = new(
         MatchFeedbackMode.Connected,
         MatchDemoAction.None,
@@ -27,8 +33,19 @@ internal sealed record SwofGameLaunchOptions(
         var opponentFollowsScore = false;
         var startPaused = false;
         string? capturePath = null;
+        var captureAfterSeconds = 2d;
+        IReadOnlyList<ScriptedInput> script = [];
         foreach (var argument in arguments)
         {
+            if (argument.StartsWith("--capture-after=", StringComparison.OrdinalIgnoreCase))
+            {
+                captureAfterSeconds = ParseSeconds(argument["--capture-after=".Length..]);
+            }
+            else if (argument.StartsWith("--script=", StringComparison.OrdinalIgnoreCase))
+            {
+                script = argument["--script=".Length..].Split(',', StringSplitOptions.RemoveEmptyEntries).Select(ScriptedInput.Parse).ToArray();
+            }
+
             if (argument.StartsWith("--feedback=", StringComparison.OrdinalIgnoreCase))
             {
                 var value = argument["--feedback=".Length..];
@@ -69,8 +86,17 @@ internal sealed record SwofGameLaunchOptions(
             }
         }
 
-        return new SwofGameLaunchOptions(feedbackMode, demoAction, opponentTactic, teamTactic, opponentFollowsScore, startPaused, capturePath);
+        return new SwofGameLaunchOptions(feedbackMode, demoAction, opponentTactic, teamTactic, opponentFollowsScore, startPaused, capturePath)
+        {
+            CaptureAfterSeconds = captureAfterSeconds,
+            Script = script
+        };
     }
+
+    internal static double ParseSeconds(string value) =>
+        double.TryParse(value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seconds) && seconds >= 0d
+            ? seconds
+            : throw new ArgumentException($"'{value}' is not a time in seconds.", nameof(value));
 
     private static TeamTactic ParseTactic(string value) => value.ToLowerInvariant() switch
     {

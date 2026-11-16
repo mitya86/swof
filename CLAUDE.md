@@ -74,6 +74,7 @@ tools/check.sh matches 100 1 equal away-behind=up away-ahead=half   # a team swa
 dotnet run --project Swof.Game/Swof.Game.csproj -- --opponent-tactic=half   # play against it (also up; --team-tactic= sets your own team's; --opponent-follows-score makes the opponent push up when losing and wait when winning late)
 dotnet run --project Swof.Game/Swof.Game.csproj   # play it
 dotnet run --project Swof.Game/Swof.Game.csproj -- --start-paused --capture=/tmp/frame.png   # write the frame drawn after two seconds to a PNG and exit (--start-paused shows the pause menu)
+dotnet run --project Swof.Game/Swof.Game.csproj -- --capture=/tmp/frame.png --capture-after=3 --script=0.5-0.6:P,1-1.1:0.5x0.62   # play back keys and touches first: from-to:Key, or from-to:XxY as fractions of the screen; touches ending in the same #n are one finger, so two of them make a drag. With a script the real keyboard and mouse are ignored
 ```
 
 If bare `dotnet` fails (a mise shim with no version set), prefix it: `mise exec dotnet@10 -- dotnet ...`.
