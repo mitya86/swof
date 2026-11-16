@@ -69,7 +69,7 @@ td.num, th.num { text-align: right; }
     <h2>Where each milestone stands</h2>
     <div class="board" id="board">
       <div class="row"><strong>1. A real futsal match</strong><span class="state done">closed for this run</span><p>Kickoffs, halves with a change of ends, one foul, free kicks, 5 m at restarts, the four-second count, penalties and accumulated fouls with the 10 m kick exist. Cards, advantage and extra time are decided against for now, with the numbers in the entry below; cards are to be looked at again after a person has played.</p></div>
-      <div class="row"><strong>2. Touch</strong><span class="state todo">prototype</span><p>A mouse stands in for one finger. A build for a real device has not started.</p></div>
+      <div class="row"><strong>2. Touch</strong><span class="state part">builds, never run on a device</span><p>The game reads real fingers and CI packages it as an Android app on every change. Nobody has installed that package on a phone. What a phone will show first is in the entry below.</p></div>
       <div class="row"><strong>3. Tactics as data</strong><span class="state done">closed for this run</span><p>Three defensive tactics, chosen from the pause menu, and a coach for a computer team that changes its tactic by the score. The coach is off until the difficulty choice turns it on. A fix for two waiting teams was tried once and decided against.</p></div>
       <div class="row"><strong>4. Product shell</strong><span class="state done">closed for this run</span><p>A start screen, three difficulty levels, a pause menu with a way out, and a result at full time. The whole flow lives in the engine with scenarios, so new graphics only replace the drawing. No settings, no team choice, nothing saved between launches.</p></div>
       <div class="row"><strong>5. Release preparation</strong><span class="state todo">not started</span><p>Ends, for this run, at packaged builds that CI can reproduce.</p></div>
@@ -89,6 +89,44 @@ td.num, th.num { text-align: right; }
   <section class="entries">
     <h2>Entries, newest first</h2>
     <!-- NEW-ENTRIES-HERE -->
+
+    <article class="entry">
+      <header>
+        <div class="meta"><span class="label">16 Nov 2026</span><span class="tag">Milestone 2</span><span class="label">pull request 37</span></div>
+        <h3>Real fingers, and an Android package nobody has installed yet</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The idea</p>
+        <p>The controls were designed for a phone from the start: a stick under the left thumb, one button under the right. Until now a mouse played the part of one finger, which cannot hold the stick and press the button at once. Two things were missing: reading real fingers, and a build of the game that a phone can install.</p>
+      </div>
+      <div class="part-block">
+        <p class="label">What was built</p>
+        <ul>
+          <li><strong>Real touches.</strong> The game asks the screen for every finger that is down and hands each one, with the id the screen gave it, to the touch controls that already existed. Those controls and the menus were written against finger ids and already tested with two fingers, so nothing in the engine changed. The mouse stays as one more finger for trying things at a desk.</li>
+          <li><strong>An Android launcher, <code>Swof.Droid</code>.</strong> It is one small file. Everything else is the same source as the desktop game, compiled against the Android version of the framework. On a phone the game asks for full screen and landscape.</li>
+          <li><strong>A third CI job, <code>build-android</code>.</strong> Every pull request now compiles the game for Android, packages it and keeps the package as a download. The first green run produced an 11 MB package holding the game, the engine and all three content files, for 64-bit ARM phones and for emulators.</li>
+        </ul>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>Android first, because of what could be checked.</strong> This machine has no Xcode and no Android kit, so nothing mobile compiles here. An iPhone build needs a Mac build machine with Xcode and an Apple signing identity. An Android build needs only tools that CI machines already carry. I did not install an Android kit here: that means accepting licences in the owner's name, which is not a code decision.</li>
+          <li><strong>One set of game sources, no copy.</strong> The Android project compiles the desktop project's files in place. The three spots where a phone must differ ask the operating system at run time. A second copy of the game would drift within a week.</li>
+          <li><strong>The app's identity is a placeholder</strong> (<code>com.example.swof</code>). The real one belongs with the store account and the name, which are the owner's. The package is signed with a throwaway debug key, which is enough to install by hand and not enough for a store.</li>
+          <li><strong>The name on the phone's home screen comes from the same single constant</strong> as the window title and the start screen.</li>
+          <li><strong>The content tool's manifest moved to the repository root</strong> so both projects find it. That was the one failure on the way: the first Android run compiled the code and then could not find the tool that packs the font and the sprites.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised, and what to expect on a first install</p>
+        <ul>
+          <li><strong>The package has never been installed.</strong> "It builds" means the code compiles and the files are inside. It does not mean it starts.</li>
+          <li>Likely first findings on a phone, none of them handled: the game does not pause itself when the app goes to the background; nothing keeps clear of a notch or rounded corners; the scoreboard text was sized for a desktop window; the sound was only ever heard on a desktop.</li>
+          <li>Two thumbs at once have only been played by scripted touches. Missed taps, a thumb sliding off the stick, and the size of the pause button under a real finger are all unknown.</li>
+          <li>The touch reading itself runs on the desktop build too, where it reports no fingers on this machine. Scripted touches and the mouse still work there; that was checked with a captured frame.</li>
+        </ul>
+      </div>
+    </article>
 
     <article class="entry">
       <header>

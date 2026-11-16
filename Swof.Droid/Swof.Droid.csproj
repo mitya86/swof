@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The Android launcher. It compiles the same game sources as Swof.Game against MonoGame's Android
+    framework; only GameActivity.cs is its own. Needs the android workload (dotnet workload install android)
+    and an Android SDK, so it is not in Swof.sln and CI builds it in its own job.
+    Named Droid because a namespace called Swof.Android would hide the Android.* namespaces from the game code.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <SupportedOSPlatformVersion>24</SupportedOSPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Swof.Droid</RootNamespace>
+    <!-- A placeholder identity. The real one belongs to whoever owns the store account; set it before any upload. -->
+    <ApplicationId>com.example.swof</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion>
+    <ApplicationDisplayVersion>0.1</ApplicationDisplayVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\Swof.Game\*.cs" Exclude="..\Swof.Game\Program.cs" LinkBase="Game" />
+    <MonoGameContentReference Include="..\Swof.Game\Content\Content.mgcb" Link="Content\Content.mgcb" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="MonoGame.Framework.Android" Version="3.8.5" />
+    <PackageReference Include="MonoGame.Content.Builder.Task" Version="3.8.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Swof.Engine\Swof.Engine.csproj" />
+  </ItemGroup>
+</Project>
