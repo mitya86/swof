@@ -1,0 +1,44 @@
+name: Package
+
+# Builds the game as it would be handed to a player: one self-contained folder per desktop system,
+# with the .NET runtime inside, so nothing has to be installed first. The Android package comes from
+# the build-android job in ci.yml. Nothing here is signed, notarized or published anywhere.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/package.yml
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            runner: windows-latest
+          # The Linux folder is published from the macOS runner: the content build needs the Arial
+          # font, which Linux runners lack, and a Unix runner keeps the launcher's executable bit.
+          - rid: linux-x64
+            runner: macos-latest
+          - rid: osx-arm64
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet publish Swof.Game/Swof.Game.csproj -c Release -r ${{ matrix.rid }} --self-contained -o package/swof-${{ matrix.rid }} --nologo
+      # A tar keeps the executable bit, which the artifact store's own zip drops.
+      - run: tar -czf swof-${{ matrix.rid }}.tar.gz -C package swof-${{ matrix.rid }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swof-${{ matrix.rid }}-${{ github.sha }}
+          path: swof-${{ matrix.rid }}.tar.gz
+          if-no-files-found: error
