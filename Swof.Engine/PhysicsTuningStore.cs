@@ -17,6 +17,7 @@ public static class PhysicsTuningStore
 
     public static string DefaultPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        // A folder on disk, not the product's name on purpose: a rename must not lose saved tuning.
         "SWOF",
         "physics-tuning.json");
 

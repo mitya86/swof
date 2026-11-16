@@ -20,17 +20,11 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private ComputerPlayerController _computerPlayers;
     private readonly PlayerInputBuffer _inputBuffer = new();
     private readonly TouchControls _touchControls = new();
-    private const int NewMatchItem = 1;
-    private readonly PauseMenu _pauseMenu = new(PauseLabels);
-    // At full time the same menu shows the result and the way to a new match, so a finger that is
-    // still down when the new match starts stays the menu's and does not pass the kickoff.
-    private bool _showingResult;
-    private double _resultShownAtSeconds;
-    // A touch meant for a last shot must not start the next match before the result has been seen.
-    private const double ResultHoldSeconds = 1d;
+    // The start screen, the pause menu and the result all live here; this class only draws them and obeys.
+    private readonly MatchFlow _flow;
     private readonly MatchDemoAction _demoAction;
-    private readonly TeamTactic _opponentTactic;
-    private TeamTactic _teamTactic;
+    // Null leaves the opponent's tactic to the chosen difficulty.
+    private readonly TeamTactic? _opponentTactic;
     private IReadOnlyList<TouchPoint> _remainingTouches = [];
     private readonly string? _capturePath;
     private readonly bool _opponentCoach;
@@ -53,10 +47,6 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private readonly double _captureAfterSeconds;
     private readonly IReadOnlyList<ScriptedInput> _script;
 
-    private static readonly TeamTactic[] TeamTactics = [TeamTactic.HighPress, TeamTactic.HalfCourt, TeamTactic.PushUp];
-    // Below TeamTactics on purpose: static fields are set in the order they are written.
-    private static readonly string[] PauseLabels = ["Resume", .. TeamTactics.Select(tactic => $"Tactic: {tactic.Name}")];
-
     private static readonly MatchFeedbackMode[] FeedbackModes =
     [
         MatchFeedbackMode.Dry,
@@ -69,34 +59,47 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     {
         // A different seed each match, so the computer players do not replay the same one.
         var tuning = PhysicsTuningStore.LoadOrDefault();
-        _showingResult = false;
-        _pauseMenu.Labels = PauseLabels;
-        _pauseMenu.Close();
-        _engine = MatchEngine.CreateDefault(tuning, seed: Environment.TickCount, startWithKickoff: true);
+        var level = _flow.Difficulty;
+        _engine = MatchEngine.CreateDefault(
+            tuning,
+            outfieldAttributes: level.Squad(MatchEngine.DefaultSquad, TeamSide.Away),
+            seed: Environment.TickCount,
+            startWithKickoff: true);
         _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
-        _computerPlayers.SetTactic(TeamSide.Away, _opponentTactic);
-        _computerPlayers.SetTactic(TeamSide.Home, _teamTactic);
-        if (_opponentCoach)
+        // ponytail: the match length is read once here; reloading the tuning with F1 mid-match leaves the coach on the old length.
+        var matchSeconds = tuning.HalfLengthSeconds * 2f;
+        level.Brief(_computerPlayers, TeamSide.Away, matchSeconds);
+        // What was asked for at launch wins over the level.
+        if (_opponentTactic is not null)
         {
-            // ponytail: the match length is read once here; reloading the tuning with F1 mid-match leaves the rule on the old length.
-            _computerPlayers.SetCoach(TeamSide.Away, new Coach(TeamSide.Away, TacticByScore.ChaseAndHold(tuning.HalfLengthSeconds * 2f)));
+            _computerPlayers.SetTactic(TeamSide.Away, _opponentTactic);
         }
+
+        if (_opponentCoach && !level.OpponentCoach)
+        {
+            _computerPlayers.SetCoach(TeamSide.Away, new Coach(TeamSide.Away, TacticByScore.ChaseAndHold(matchSeconds)));
+        }
+
+        _computerPlayers.SetTactic(TeamSide.Home, _flow.Tactic);
     }
 
     public SwofGame(SwofGameLaunchOptions? launchOptions = null)
     {
         launchOptions ??= SwofGameLaunchOptions.Default;
         _opponentTactic = launchOptions.OpponentTactic;
-        _teamTactic = launchOptions.TeamTactic;
         _opponentCoach = launchOptions.OpponentCoach;
-        StartMatch();
         _demoAction = launchOptions.DemoAction;
+        // Demos, captured frames and --start-paused open in a match, as they did before there was a start screen.
+        var startScreen = _demoAction == MatchDemoAction.None
+            && (launchOptions.StartScreen || (launchOptions.CapturePath is null && !launchOptions.StartPaused));
+        _flow = new MatchFlow(startScreen, launchOptions.TeamTactic);
+        StartMatch();
         _capturePath = launchOptions.CapturePath;
         _captureAfterSeconds = launchOptions.CaptureAfterSeconds;
         _script = launchOptions.Script;
         if (launchOptions.StartPaused && _demoAction == MatchDemoAction.None)
         {
-            _pauseMenu.Open();
+            _flow.Pause();
         }
 
         _feedbackModeIndex = Array.IndexOf(FeedbackModes, launchOptions.FeedbackMode);
@@ -124,7 +127,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
 
     protected override void Initialize()
     {
-        Window.Title = "SWOF";
+        Window.Title = Product.Name;
         Window.AllowUserResizing = true;
         if (_demoAction == MatchDemoAction.None)
         {
@@ -195,78 +198,59 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             SetNotice(_cameraEffectsEnabled ? "Camera feedback enabled" : "Camera feedback disabled", 1.5d);
         }
 
-        if (IsNewKeyPress(Keys.T, keyboard) || IsNewButtonPress(Buttons.Y, gamePad))
+        if ((IsNewKeyPress(Keys.T, keyboard) || IsNewButtonPress(Buttons.Y, gamePad)) && _flow.Screen != MatchScreen.Start)
         {
-            SetTeamTactic(TeamTactics[(Array.IndexOf(TeamTactics, _teamTactic) + 1) % TeamTactics.Length]);
+            var tactics = MatchFlow.Tactics;
+            _flow.SetTactic(tactics[(tactics.ToList().IndexOf(_flow.Tactic) + 1) % tactics.Count]);
+            ApplyTeamTactic();
         }
 
-        var wasPaused = _pauseMenu.IsOpen;
+        var wasPaused = _flow.IsMenuOpen;
+        // The stick and button as they are on the screen: the menus read them before any turn for changed ends.
+        var screenInput = _demoAction == MatchDemoAction.None && (IsActive || _script.Count > 0)
+            ? ReadInput(keyboard, gamePad)
+            : PlayerInput.Empty;
         if (_demoAction == MatchDemoAction.None)
         {
-            var result = _engine.CurrentSnapshot;
-            if (result.IsMatchOver && !_showingResult)
+            var flowEvent = _flow.Update(
+                _engine.CurrentSnapshot,
+                screenInput,
+                IsNewKeyPress(Keys.P, keyboard),
+                ReadTouches(),
+                ScreenSize(),
+                (float)_runtimeSeconds,
+                out var touches);
+            if (flowEvent is FlowEvent.StartMatch or FlowEvent.LeaveMatch)
             {
-                _showingResult = true;
-                _resultShownAtSeconds = _runtimeSeconds;
-                _pauseMenu.Labels = [$"Full time   Home {result.HomeScore} - {result.AwayScore} Away", "New match   (R or Start)"];
-                _pauseMenu.Open();
+                // Leaving also makes a fresh match, which waits behind the start screen.
+                StartMatch();
             }
-
-            if (IsNewKeyPress(Keys.P, keyboard) && !_showingResult)
+            else if (flowEvent == FlowEvent.TacticChanged)
             {
-                if (wasPaused)
-                {
-                    _pauseMenu.Close();
-                }
-                else
-                {
-                    _pauseMenu.Open();
-                }
-            }
-
-            var chosen = _pauseMenu.Read(ReadTouches(), ScreenSize(), out var touches);
-            if (_showingResult)
-            {
-                if (chosen == NewMatchItem && _runtimeSeconds - _resultShownAtSeconds >= ResultHoldSeconds)
-                {
-                    StartMatch();
-                }
-            }
-            else if (chosen == 0)
-            {
-                _pauseMenu.Close();
-            }
-            else if (chosen is int item)
-            {
-                SetTeamTactic(TeamTactics[item - 1]);
+                ApplyTeamTactic();
             }
 
             _remainingTouches = touches;
         }
 
-        if (wasPaused && !_pauseMenu.IsOpen)
+        screenInput = _flow.ForMatch(screenInput);
+        if (wasPaused && !_flow.IsMenuOpen)
         {
             // Nothing pressed while the menu was open may reach the match as a pass or a shot.
-            _inputBuffer.Reset(ReadInput(keyboard, gamePad));
+            _inputBuffer.Reset(screenInput);
             _touchControls.Reset();
         }
 
         if (IsNewKeyPress(Keys.R, keyboard) || IsNewButtonPress(Buttons.Start, gamePad))
         {
-            if (_engine.CurrentSnapshot.IsMatchOver)
-            {
-                StartMatch();
-            }
-            else
+            if (!_engine.CurrentSnapshot.IsMatchOver)
             {
                 _engine.ResumeFromRestart();
             }
         }
 
         var deltaSeconds = Math.Min((float)gameTime.ElapsedGameTime.TotalSeconds, MaxFrameDeltaSeconds);
-        var input = _demoAction == MatchDemoAction.None
-            ? IsActive || _script.Count > 0 ? ReadInput(keyboard, gamePad) : PlayerInput.Empty
-            : ReadDemoInput(deltaSeconds);
+        var input = _demoAction == MatchDemoAction.None ? screenInput : ReadDemoInput(deltaSeconds);
         if (_demoAction == MatchDemoAction.None)
         {
             input = AddTouchInput(input);
@@ -275,7 +259,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         // The view is turned in the second half, so the stick is turned with it.
         input = _engine.CurrentSnapshot.FromScreen(input);
 
-        if (!_pauseMenu.IsOpen)
+        if (!_flow.IsMenuOpen)
         {
             _inputBuffer.Capture(input);
             _engine.Step(deltaSeconds, _inputBuffer, _computerPlayers);
@@ -327,8 +311,9 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
                 _cameraEffectsEnabled,
                 _showDebugHud),
             _touchControls,
-            _demoAction == MatchDemoAction.None ? _pauseMenu : null,
-            _showingResult ? NewMatchItem : 1 + Array.IndexOf(TeamTactics, _teamTactic));
+            _demoAction == MatchDemoAction.None ? _flow.Menu : null,
+            _flow.Cursor,
+            _flow.Heading);
         base.Draw(gameTime);
         if (_capturePath is not null && _runtimeSeconds >= _captureAfterSeconds)
         {
@@ -403,11 +388,10 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
 
     // ponytail: changed outside the per-tick control frame, so a replay or a network peer would not see it;
     // put the tactic in the frame when either exists.
-    private void SetTeamTactic(TeamTactic tactic)
+    private void ApplyTeamTactic()
     {
-        _teamTactic = tactic;
-        _computerPlayers.SetTactic(TeamSide.Home, _teamTactic);
-        SetNotice($"Team tactic: {_teamTactic.Name}", 2d);
+        _computerPlayers.SetTactic(TeamSide.Home, _flow.Tactic);
+        SetNotice($"Team tactic: {_flow.Tactic.Name}", 2d);
     }
 
     private PlayerInput ReadInput(KeyboardState keyboard, GamePadState gamePad)

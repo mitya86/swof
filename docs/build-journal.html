@@ -71,7 +71,7 @@ td.num, th.num { text-align: right; }
       <div class="row"><strong>1. A real futsal match</strong><span class="state done">closed for this run</span><p>Kickoffs, halves with a change of ends, one foul, free kicks, 5 m at restarts, the four-second count, penalties and accumulated fouls with the 10 m kick exist. Cards, advantage and extra time are decided against for now, with the numbers in the entry below; cards are to be looked at again after a person has played.</p></div>
       <div class="row"><strong>2. Touch</strong><span class="state todo">prototype</span><p>A mouse stands in for one finger. A build for a real device has not started.</p></div>
       <div class="row"><strong>3. Tactics as data</strong><span class="state done">closed for this run</span><p>Three defensive tactics, chosen from the pause menu, and a coach for a computer team that changes its tactic by the score. The coach is off until the difficulty choice turns it on. A fix for two waiting teams was tried once and decided against.</p></div>
-      <div class="row"><strong>4. Product shell</strong><span class="state todo">just started</span><p>Pause menu and a full-time result. No start screen, difficulty choice or way to leave a match.</p></div>
+      <div class="row"><strong>4. Product shell</strong><span class="state done">closed for this run</span><p>A start screen, three difficulty levels, a pause menu with a way out, and a result at full time. The whole flow lives in the engine with scenarios, so new graphics only replace the drawing. No settings, no team choice, nothing saved between launches.</p></div>
       <div class="row"><strong>5. Release preparation</strong><span class="state todo">not started</span><p>Ends, for this run, at packaged builds that CI can reproduce.</p></div>
     </div>
   </section>
@@ -89,6 +89,81 @@ td.num, th.num { text-align: right; }
   <section class="entries">
     <h2>Entries, newest first</h2>
     <!-- NEW-ENTRIES-HERE -->
+
+    <article class="entry">
+      <header>
+        <div class="meta"><span class="label">16 Nov 2026</span><span class="tag">Milestone 4</span><span class="label">pull request 36</span></div>
+        <h3>A start screen, a way out, and three levels that were measured before they were named</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The idea</p>
+        <p>A game is a product once a stranger can start it, lose, pick an easier opponent and try again without being told a key. Until now the game opened straight into a match and the only way out was to close the window. The other half of this entry is difficulty: what can make a computer team easier or harder without cheating, and how to find out before a person has played.</p>
+      </div>
+      <div class="part-block">
+        <p class="label">What was built</p>
+        <ul>
+          <li><strong>The match flow, in the engine.</strong> <code>MatchFlow</code> knows four screens: start, playing, paused, full time. It holds the heading, the menu items, the cursor, the chosen difficulty and the person's tactic. The game host draws what it is given and obeys three events: start a match, the match was left, the tactic changed. When the graphics are redone, none of this logic moves.</li>
+          <li><strong>Start screen:</strong> the product's name, Play, and a difficulty that goes round normal, hard, easy. <strong>Pause:</strong> resume, the three tactics with the one in use marked, Leave match. <strong>Full time:</strong> the result, New match, Leave match.</li>
+          <li><strong>One stick and one button work every menu</strong>, the same two controls as the match, so a pad or a keyboard needs nothing extra. A held stick moves the cursor one item; a held button chooses once. Touching an item chooses it directly.</li>
+          <li><strong>The product's name is written once</strong>, in <code>Product.Name</code>. The folder where tuning is saved keeps its own literal on purpose: a rename must not lose a saved file.</li>
+          <li><strong>Difficulty as data:</strong> <code>Difficulty.Easy</code>, <code>Normal</code>, <code>Hard</code>. The match runner can play a level (<code>away-difficulty=hard</code>), so the numbers below are for exactly what the game uses.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">A bug the captured frames caught</p>
+        <p>The first press of the button on Play started the match and, a tenth of a second later, passed the kickoff away: letting go of the button was read by the match as the end of a tap. A finger did not do this, because a touch that lands on a menu stays the menu's until it lifts. The button now follows the same rule: a button that was down while a menu was open is not the match's until it has been let go. A scenario plays the kickoff through the input buffer to hold it.</p>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions on difficulty, each from a measurement</p>
+        <div class="tablewrap"><table>
+          <tr><th>What was changed for the away team (identical squads otherwise, 300 matches)</th><th class="num">Home / draw / away</th><th>Reading</th></tr>
+          <tr><td>Nothing</td><td class="num">109 / 74 / 117</td><td>The level game</td></tr>
+          <tr><td>Decides from the match as it was 1 tick ago (16 ms)</td><td class="num">237 / 32 / 31</td><td>Collapse</td></tr>
+          <tr><td>The same, 3 ticks</td><td class="num">300 / 0 / 0</td><td>Collapse</td></tr>
+          <tr><td>Ball control and tackling one band lower</td><td class="num">245 / 39 / 16</td><td>A cliff</td></tr>
+          <tr><td>Ball control and tackling one band higher</td><td class="num">14 / 39 / 247</td><td>A cliff</td></tr>
+          <tr><td>Speed one band lower</td><td class="num">146 / 64 / 90</td><td>A slope</td></tr>
+          <tr><td>Speed two bands lower</td><td class="num">180 / 64 / 56</td><td>A slope</td></tr>
+          <tr><td>Speed one band higher</td><td class="num">94 / 65 / 141</td><td>A slope</td></tr>
+          <tr><td>Waits at halfway</td><td class="num">114 / 91 / 95</td><td>1.8 goals a match: dull</td></tr>
+          <tr><td>Pushes up, with a coach</td><td class="num">96 / 52 / 152</td><td>Stronger, all marks met</td></tr>
+        </table></div>
+        <ul>
+          <li><strong>Slower thinking is not a level yet.</strong> The textbook lever for difficulty is reaction time. My prototype gave a team the whole match one tick late, including where its own feet and the ball at its feet were, and it lost 237 to 31. That is a finding about the prototype and about how exactly the computer players depend on the present tick, not proof that reaction time cannot work. A version that delays only what a player sees of others was not built. The prototype is not in the code.</li>
+          <li><strong>The engine reads three of the seven attributes</strong>: speed, ball control and tackling. Fifteen levels fold into ten bands, so level 7 plays exactly like level 8. Worth knowing before squads become data.</li>
+          <li><strong>Technique is a cliff, speed is a slope.</strong> One band of ball control and tackling decides nine matches in ten. Speed moves the result gradually. So speed is the handicap that can be dosed.</li>
+          <li><strong>Easy: the opponent's outfielders are slower</strong> (speed minus four levels, about two bands). Nothing about how they decide changes, and a person can see why it is easier.</li>
+          <li><strong>Hard: the opponent pushes up and has the coach</strong> from the last entry. Its players are not faster or better than on normal. The project's rule is that a harder computer may think and organise better but never gets better bodies than the person's; no level raises an attribute, and a scenario checks it.</li>
+          <li><strong>Normal changes nothing.</strong> It replays the earlier baselines seed for seed, for identical and for rolled squads.</li>
+          <li><strong>Options given at launch win over the level</strong> (<code>--opponent-tactic</code>, <code>--opponent-coach</code>).</li>
+          <li><strong>Captured frames and <code>--start-paused</code> still open in a match</strong>, so every documented command keeps working; <code>--start-screen</code> shows the start screen in a capture.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">The three levels as shipped, 300 matches each</p>
+        <div class="tablewrap"><table>
+          <tr><th>Level of the away team</th><th>Squads</th><th class="num">Home / draw / away</th><th class="num">Goals a match</th><th class="num">Shots a match</th></tr>
+          <tr><td>Easy</td><td>Identical</td><td class="num">180 / 64 / 56</td><td class="num">3.4</td><td class="num">30.7</td></tr>
+          <tr><td>Normal</td><td>Identical</td><td class="num">109 / 74 / 117</td><td class="num">3.3</td><td class="num">32.4</td></tr>
+          <tr><td>Hard</td><td>Identical</td><td class="num">96 / 52 / 152</td><td class="num">3.5</td><td class="num">31.3</td></tr>
+          <tr><td>Easy</td><td>Rolled</td><td class="num">176 / 45 / 79</td><td class="num">4.3</td><td class="num">27.5</td></tr>
+          <tr><td>Normal</td><td>Rolled</td><td class="num">110 / 64 / 126</td><td class="num">4.2</td><td class="num">28.4</td></tr>
+          <tr><td>Hard</td><td>Rolled</td><td class="num">92 / 56 / 152</td><td class="num">3.9</td><td class="num">28.2</td></tr>
+        </table></div>
+        <ul>
+          <li>Goals and shots stay inside the pass marks at every level, so each level is still the same game. The balance mark (neither team 25 wins in 100 ahead) is missed on easy, as it should be: that mark describes a level game.</li>
+          <li>The steps are real but not large: the home team wins 60% of easy matches, 36% of normal ones and 32% of hard ones. Hard is closer to normal than easy is.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised</p>
+        <ul>
+          <li><strong>No person has played any level.</strong> Every number is one computer team against another. A person is not a computer team: easy may still be hard for a beginner, and hard may be easy for someone who has learned to pass round a press. The levels are a measured first guess.</li>
+          <li>The menus were driven by scripted keys and one scripted touch, and looked at in captured frames. Nobody has held a pad or tapped through them. With five items the pause heading sits close to the top of the screen; that is left for the graphics rework.</li>
+          <li>The full-time screen in the running game was not captured (a match takes six minutes); its logic is covered by a scenario.</li>
+        </ul>
+      </div>
+    </article>
 
     <article class="entry">
       <header>

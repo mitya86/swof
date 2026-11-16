@@ -60,7 +60,10 @@ internal static class MatchRunner
         Func<float, TacticByScore>? homeRule = null,
         Func<float, TacticByScore>? awayRule = null,
         bool homeCoach = false,
-        bool awayCoach = false)
+        bool awayCoach = false,
+        byte awaySpeed = 0,
+        byte awayTechnique = 0,
+        Difficulty? awayDifficulty = null)
     {
         var random = new Random(seed);
         // 4 to 15 is the range the default squads already use.
@@ -76,10 +79,31 @@ internal static class MatchRunner
             Array.Fill(squad, PlayerAttributes.DefaultOutfield);
         }
 
+        if (awaySpeed > 0 || awayTechnique > 0)
+        {
+            // Every Away outfielder gets this speed, and this ball control and tackling, to measure a weaker or
+            // stronger opponent. The engine reads no other attribute yet.
+            var speed = awaySpeed > 0 ? awaySpeed : PlayerAttributes.DefaultOutfield.Speed;
+            var technique = awayTechnique > 0 ? awayTechnique : PlayerAttributes.DefaultOutfield.BallControl;
+            Array.Fill(squad, PlayerAttributes.DefaultOutfield with { Speed = speed, BallControl = technique, Tackling = technique }, 4, 4);
+        }
+
+        if (awayDifficulty is not null)
+        {
+            squad = [.. awayDifficulty.Squad(squad, TeamSide.Away)];
+        }
+
         var engine = MatchEngine.CreateDefault(tuning, outfieldAttributes: squad, seed: seed, userControlledTeam: userControlledTeam, startWithKickoff: true);
         var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
         computers.SetTactic(TeamSide.Home, homeTactic ?? TeamTactic.HighPress);
         computers.SetTactic(TeamSide.Away, awayTactic ?? TeamTactic.HighPress);
+        // The level's own tactic and coach, unless a tactic was asked for by name.
+        awayDifficulty?.Brief(computers, TeamSide.Away, tuning.HalfLengthSeconds * 2f);
+        if (awayDifficulty is not null && awayTactic is not null)
+        {
+            computers.SetTactic(TeamSide.Away, awayTactic);
+        }
+
         if (homeRule is not null)
         {
             computers.SetTacticByScore(TeamSide.Home, homeRule(tuning.HalfLengthSeconds * 2f));
@@ -301,10 +325,13 @@ internal static class MatchRunner
         Func<float, TacticByScore>? homeRule = null,
         Func<float, TacticByScore>? awayRule = null,
         bool homeCoach = false,
-        bool awayCoach = false)
+        bool awayCoach = false,
+        byte awaySpeed = 0,
+        byte awayTechnique = 0,
+        Difficulty? awayDifficulty = null)
     {
         var results = Enumerable.Range(firstSeed, count)
-            .Select(seed => Play(seed, equalSquads: equalSquads, homeTactic: homeTactic, awayTactic: awayTactic, homeRule: homeRule, awayRule: awayRule, homeCoach: homeCoach, awayCoach: awayCoach))
+            .Select(seed => Play(seed, equalSquads: equalSquads, homeTactic: homeTactic, awayTactic: awayTactic, homeRule: homeRule, awayRule: awayRule, homeCoach: homeCoach, awayCoach: awayCoach, awaySpeed: awaySpeed, awayTechnique: awayTechnique, awayDifficulty: awayDifficulty))
             .ToArray();
         foreach (var r in results)
         {

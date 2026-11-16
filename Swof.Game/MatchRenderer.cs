@@ -61,7 +61,8 @@ internal sealed class MatchRenderer : IDisposable
         MatchPresentationSettings settings,
         TouchControls? touchControls = null,
         PauseMenu? pauseMenu = null,
-        int selectedPauseItem = -1)
+        int selectedPauseItem = -1,
+        string menuHeading = "")
     {
         var bounds = _graphicsDevice.Viewport.Bounds;
         var hudHeight = settings.ShowDebugHud ? DebugHudHeight : CleanHudHeight;
@@ -212,13 +213,13 @@ internal sealed class MatchRenderer : IDisposable
 
         if (pauseMenu is not null)
         {
-            DrawPauseMenu(pauseMenu, selectedPauseItem, font, bounds);
+            DrawPauseMenu(pauseMenu, selectedPauseItem, menuHeading, font, bounds);
         }
 
         _primitives.Batch.End();
     }
 
-    private void DrawPauseMenu(PauseMenu menu, int selectedItem, SpriteFont font, Rectangle bounds)
+    private void DrawPauseMenu(PauseMenu menu, int selectedItem, string heading, SpriteFont font, Rectangle bounds)
     {
         var screen = new NumericsVector2(bounds.Width, bounds.Height);
         if (!menu.IsOpen)
@@ -233,6 +234,13 @@ internal sealed class MatchRenderer : IDisposable
         }
 
         _primitives.FillRectangle(bounds, new Color(10, 12, 16, 170));
+        var headingSize = font.MeasureString(heading);
+        var top = menu.ItemBounds(0, screen).Min.Y;
+        _primitives.Batch.DrawString(
+            font,
+            heading,
+            new Vector2(bounds.Center.X - headingSize.X * 0.5f, top - headingSize.Y * 2f),
+            ActiveColor);
         for (var index = 0; index < menu.Labels.Count; index++)
         {
             var item = ToRectangle(menu.ItemBounds(index, screen));
