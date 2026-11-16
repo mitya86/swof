@@ -1,0 +1,213 @@
+<title>SWOF Build Journal</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; a status board of five milestones on top, then journal entries newest first, each a labelled lesson. */
+:root {
+  --bg: #f3f6f8; --surface: #ffffff; --ink: #14222e; --muted: #5a6b79; --line: #d5dee5;
+  --court: #0f6e84; --court-soft: #dff0f3; --call: #c2570c; --call-soft: #fbeadb;
+  --done: #1f7a4d; --part: #9a6b00; --todo: #7a8894;
+  --display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0d171e; --surface: #15232c; --ink: #e4edf2; --muted: #93a5b2; --line: #2a3c48;
+  --court: #58c1d6; --court-soft: #143a44; --call: #f0a160; --call-soft: #3d2a18;
+  --done: #5fce97; --part: #e2b84c; --todo: #8496a3; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0d171e; --surface: #15232c; --ink: #e4edf2; --muted: #93a5b2; --line: #2a3c48;
+  --court: #58c1d6; --court-soft: #143a44; --call: #f0a160; --call-soft: #3d2a18;
+  --done: #5fce97; --part: #e2b84c; --todo: #8496a3; color-scheme: dark }
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.6;
+  padding-block: 40px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.page { max-width: 760px; margin-inline: auto; display: flex; flex-direction: column; gap: 40px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.2; }
+h1 { font-size: 2.1rem; font-weight: 700; }
+h2 { font-size: 1.3rem; font-weight: 700; }
+h3 { font-size: 1.25rem; font-weight: 700; }
+p { margin: 0; }
+.lede { color: var(--muted); max-width: 62ch; margin-top: 10px; }
+.label { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+section { display: flex; flex-direction: column; gap: 14px; }
+.board { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: 9.5rem 6.5rem 1fr; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+.row > * { min-width: 0; }
+.row strong { font-weight: 600; }
+.state { font-family: var(--mono); font-size: 0.78rem; font-weight: 600; }
+.state.done { color: var(--done); } .state.part { color: var(--part); } .state.todo { color: var(--todo); }
+.row p { color: var(--muted); font-size: 0.93rem; }
+@media (max-width: 560px) { .row { grid-template-columns: 1fr auto; } .row p { grid-column: 1 / -1; } }
+ul { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 6px; }
+.entries { gap: 28px; }
+.entry { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 22px 24px; display: flex; flex-direction: column; gap: 16px; }
+.entry header { display: flex; flex-direction: column; gap: 6px; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.tag { font-family: var(--mono); font-size: 0.72rem; font-weight: 600; color: var(--court); background: var(--court-soft); padding: 2px 8px; border-radius: 3px; }
+.part-block { display: flex; flex-direction: column; gap: 6px; }
+.decision { background: var(--call-soft); border-radius: 4px; padding: 12px 14px; }
+.decision .label { color: var(--call); }
+code { font-family: var(--mono); font-size: 0.86em; background: var(--court-soft); padding: 1px 5px; border-radius: 3px; overflow-wrap: anywhere; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+a { color: var(--court); }
+a:focus-visible { outline: 2px solid var(--call); outline-offset: 2px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 0.9rem; width: 100%; }
+th, td { text-align: left; padding: 6px 12px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+td.num, th.num { text-align: right; }
+</style>
+
+<div class="page">
+  <div>
+    <p class="label">5v5 futsal &middot; 40 m &times; 20 m court &middot; one stick, one button</p>
+    <h1>SWOF Build Journal</h1>
+    <p class="lede">A running record of what gets built on the way to a releasable game, written so that each entry teaches the futsal rule or design idea behind it, the decision taken, what the numbers said, and what nobody has tried by hand yet.</p>
+  </div>
+
+  <section>
+    <h2>Where each milestone stands</h2>
+    <div class="board" id="board">
+      <div class="row"><strong>1. A real futsal match</strong><span class="state part">in progress</span><p>Kickoffs, halves, one foul, free kicks, 5 m at restarts and the four-second count exist. Next: accumulated fouls and the 10 m kick, penalty, changing ends.</p></div>
+      <div class="row"><strong>2. Touch</strong><span class="state todo">prototype</span><p>A mouse stands in for one finger. A build for a real device has not started.</p></div>
+      <div class="row"><strong>3. Tactics as data</strong><span class="state part">about half</span><p>Three defensive tactics, chosen from the pause menu. No coach that chooses one, no fix for two waiting teams.</p></div>
+      <div class="row"><strong>4. Product shell</strong><span class="state todo">just started</span><p>Pause menu and a full-time result. No start screen, difficulty choice or way to leave a match.</p></div>
+      <div class="row"><strong>5. Release preparation</strong><span class="state todo">not started</span><p>Ends, for this run, at packaged builds that CI can reproduce.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What finished means for this run</h2>
+    <ul>
+      <li>Every item in the board above ends as merged, or as decided against with the measured reason written here.</li>
+      <li>Code decisions are taken without asking. The product name, the business model, legal review, store accounts and signing stay with the owner; the code is built up to them and no further.</li>
+      <li>Nothing here is a claim about how the game feels. A person has not played any of it. Each entry lists what was never exercised.</li>
+      <li>The look of the game is reworked after this run, so no effort goes into visuals now, and new screens keep their logic apart from their drawing.</li>
+    </ul>
+  </section>
+
+  <section class="entries">
+    <h2>Entries, newest first</h2>
+    <!-- NEW-ENTRIES-HERE -->
+
+    <article class="entry">
+      <header>
+        <div class="meta"><span class="label">15 Nov 2026</span><span class="tag">Milestone 1</span><span class="label">pull request 31</span></div>
+        <h3>Five metres at a restart, and the four-second count</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The futsal rule</p>
+        <p>At a kick-in, a corner or a free kick, opponents must stand at least 5 m from the ball until it is played. In return the taker has four seconds. Take longer and the ball goes to the other side: their kick-in, their free kick, or for a corner their goalkeeper's clearance. The two rules only make sense as a pair. Distance without a clock lets a team waste time; a clock without distance punishes a taker who was never given room.</p>
+      </div>
+      <div class="part-block">
+        <p class="label">What was built</p>
+        <ul>
+          <li>The wall that already held opponents outside the centre circle at a kickoff became a general one: a spot, a radius, a team and a count. It blocks whoever moves the player, so a person and a computer are held alike, running or sliding.</li>
+          <li>The wall drops the moment the restart is played: the taker lets go of the ball, or carries it 3.5 m from the spot.</li>
+          <li>If the count reaches four seconds with the taker still there, play stops and the other team gets the restart. The banner reads FOUR SECONDS.</li>
+          <li>The match runner now counts four-second calls and goals scored soon after a restart.</li>
+        </ul>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>One wall, not four.</strong> The kickoff version was renamed and given a spot and radius instead of writing a second copy. Kickoff behaviour is unchanged.</li>
+          <li><strong>"Played" is measured by distance, 3.5 m.</strong> A taker on a line stands a body inside it with the ball at its feet, which already puts the ball 2.3 m from the spot. My first value of 2 m switched the wall off before play began; the scenario caught it.</li>
+          <li><strong>A taker may still dribble the ball in.</strong> The real rule says it must be kicked. Forcing a kick is a control change a person has to feel first, so it is left as a marked shortcut.</li>
+          <li><strong>The kickoff keeps its softer rule.</strong> After four seconds the ball is open to a challenge and is not handed over. The laws have no four-second count for a kickoff.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Measured over 300 matches, before and after</p>
+        <div class="tablewrap"><table>
+          <tr><th>Squads</th><th class="num">Goals a match</th><th class="num">Shots a match</th><th class="num">Home / draw / away</th><th class="num">Four-second calls</th></tr>
+          <tr><td>Rolled, before</td><td class="num">4.9</td><td class="num">27.5</td><td class="num">131 / 39 / 130</td><td class="num">&ndash;</td></tr>
+          <tr><td>Rolled, after</td><td class="num">4.2</td><td class="num">28.4</td><td class="num">110 / 64 / 126</td><td class="num">0</td></tr>
+          <tr><td>Identical, before</td><td class="num">4.6</td><td class="num">31.9</td><td class="num">108 / 56 / 136</td><td class="num">&ndash;</td></tr>
+          <tr><td>Identical, after</td><td class="num">3.3</td><td class="num">32.3</td><td class="num">109 / 76 / 115</td><td class="num">0</td></tr>
+        </table></div>
+        <ul>
+          <li>Every match finishes and every pass mark is met.</li>
+          <li><strong>Goals fell while shots did not.</strong> With identical squads one shot in seven went in before; one in ten does now.</li>
+          <li><strong>Where the goals went.</strong> A probe of 40 matches with identical squads followed every restart. A match has about 60 kick-ins, and the taking team shoots within five seconds of about 25 of them. Those shots produced 3.2 goals a match before and 1.9 after, from slightly more shots. Corners fell the same way (22 goals to 8). The other team's goals were unchanged, so nobody was being robbed at a kick-in to begin with.</li>
+          <li><strong>What the computer taker does.</strong> It carries the ball in at once and is 3.5 m from the spot a third of a second after play resumes, so between computers the wall stands for a third of a second. That, and defenders starting a body further back, is enough to make the first shot harder. Before, most goals in this game were a kick-in, three steps and a shot past defenders standing next to the taker.</li>
+          <li><strong>Rule off, as a control.</strong> With the count set to zero only the starting distance changes (5 m to the edge of the body instead of to its centre). That alone took identical squads from 4.6 to 4.2 goals; the wall took them to 3.3.</li>
+          <li><strong>A measurement I added and removed.</strong> "Goals within 10 s of a restart" said nothing, because play stops about 70 times in six minutes and nearly every goal falls inside that window. The probe with a five-second window, split by kind of restart, did the job.</li>
+          <li>Computer takers always play the ball in time. The count only ever stops a person who waits.</li>
+          <li>Identical squads at 3.3 goals sit near the floor of 3, and draws rose (56 to 76 in 300). Nothing planned lifts this: fouls are about one a match, so penalties and the 10 m kick will be rare. The lever, if a person finds matches too dry, is how computer defenders set up at a kick-in, not the pass marks.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised</p>
+        <ul>
+          <li>A person taking or defending any restart. Whether being held at 5 m reads as a rule or as an invisible wall is a feel question.</li>
+          <li>The FOUR SECONDS banner was never drawn in a frame I looked at.</li>
+          <li>Which player a person controls after a four-second call goes against them.</li>
+          <li>Near a corner the edge of the court can leave a defender closer than 5 m.</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="entry">
+      <header>
+        <div class="meta"><span class="label">15 Nov 2026</span><span class="tag">Plan</span></div>
+        <h3>How the rest of the work is ordered, and why</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The idea</p>
+        <p>A long run with nobody watching fails in two ways: work stops at a question, or work drifts and nobody can tell what was decided. So the rules for both are fixed before the first line of code.</p>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>Rules first, in dependency order.</strong> Earlier I skipped the four-second count and accumulated fouls because nothing kept opponents away from a restart: a taker who waits is robbed in under a second, so a count would only punish. The fix is to keep opponents 5 m away until the ball is played. That comes first; the count and the foul tally follow from it.</li>
+          <li><strong>Scripted clicks before the screens.</strong> Three menus have shipped that I could draw but never click, because an agent has no hands. Before building a start screen, the frame-capture option learns to replay key and pointer events, so each new screen is driven end to end.</li>
+          <li><strong>Platform for the touch build is chosen by what compiles.</strong> Whichever of Android or iOS builds on this machine and in CI goes first. It will be reported as never run on a device.</li>
+          <li><strong>The kickoff tap question is closed</strong> in its own entry once measured, not left open.</li>
+          <li><strong>Graphics are left alone.</strong> The run ends with a list of everything the renderer draws, as the starting point for the rework.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">How every change is checked</p>
+        <ul>
+          <li>Each new behaviour gets a scenario, and the scenario is shown to fail when the behaviour is broken on purpose.</li>
+          <li>Anything that changes the simulation is run over 300 seeded computer matches with rolled squads and 300 with identical squads, and compared seed by seed with the same matches before the change. 100 matches cannot tell two sides apart: identical teams once showed a win gap of 19.</li>
+          <li>The pass marks are goals 3&ndash;9 and shots 15&ndash;35 a match, at most 200 possessions, at least 3.5 m forward per possession; with identical squads also a win gap of at most 25 per 100 and no more than twice the shots for the team that just scored. A change that misses one has changed the game, so the cause is looked at before any mark moves.</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="entry">
+      <header>
+        <div class="meta"><span class="label">Before this journal</span><span class="tag">Background</span></div>
+        <h3>What was already in place</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The shape of the code</p>
+        <p>The match is a simulation that advances 60 times a second and contains no randomness in its physics. The same seed always replays the same match, which is what makes before-and-after comparison possible. Computer players send the same stick-and-button input a person does; they have no private way to move or tackle. The game window only reads input, steps the simulation and draws.</p>
+      </div>
+      <div class="part-block">
+        <p class="label">Built in pull requests 13 to 30</p>
+        <div class="tablewrap"><table>
+          <tr><th>Piece</th><th>What it does</th><th>Left untested by hand</th></tr>
+          <tr><td>Pass marks</td><td>100 unattended matches must land inside agreed ranges or the check fails.</td><td>&ndash;</td></tr>
+          <tr><td>Touch prototype</td><td>Left half of the screen is a floating stick, right half is the button.</td><td>Any real finger.</td></tr>
+          <tr><td>Three defensive tactics</td><td>Full-court press, wait at halfway, markers pushed up 6 m.</td><td>Whether a person can see the difference.</td></tr>
+          <tr><td>Score rule</td><td>Optional: a computer team pushes up when losing and waits when winning late.</td><td>Whether it feels like cheating.</td></tr>
+          <tr><td>One foul</td><td>A slide through the carrier's back with the ball out of reach gives a free kick.</td><td>Whether the call reads as fair.</td></tr>
+          <tr><td>Pause menu</td><td>Resume and the three tactics, by key, pad or touch.</td><td>Every click.</td></tr>
+          <tr><td>Frame capture</td><td>The game writes one drawn frame to a picture, so overlays can be looked at.</td><td>&ndash;</td></tr>
+          <tr><td>Real kickoff</td><td>Matches open on the centre spot; the other team waits outside the circle for up to 4 s; the taker faces its own half.</td><td>A person taking it.</td></tr>
+          <tr><td>Full-time screen</td><td>Result and a New match row.</td><td>The touch on the row.</td></tr>
+        </table></div>
+      </div>
+      <div class="part-block">
+        <p class="label">Two findings worth remembering</p>
+        <ul>
+          <li><strong>Pushing the markers up is stronger, not a trade.</strong> With identical squads the pushed-up side won <span class="num">55</span> of 100 against <span class="num">25</span>. The default marks too deep. The owner said not to change the default yet; a coach that chooses per match makes the question smaller.</li>
+          <li><strong>Moving attackers' positions as data did nothing useful.</strong> Every variant of the attacking shape lost to the default. A real second shape needs rotations and pivot play, not different coordinates. Dropped.</li>
+        </ul>
+      </div>
+    </article>
+  </section>
+</div>

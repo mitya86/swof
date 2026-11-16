@@ -173,6 +173,11 @@ internal sealed class MatchRenderer : IDisposable
             var restartText = snapshot.LastEvent.Team is TeamSide restartTeam
                 ? $"{restartLabel} - {restartTeam.ToString().ToUpperInvariant()}"
                 : restartLabel;
+            if (snapshot.LastEvent.Type == MatchEventType.FourSeconds)
+            {
+                restartText = "FOUR SECONDS  " + restartText;
+            }
+
             var size = font.MeasureString(restartText);
             var position = new Vector2(
                 gameView.Center.X - size.X * 0.5f,

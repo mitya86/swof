@@ -60,8 +60,18 @@ public sealed record PhysicsTuning
     /// or carries it out first (0 turns it off). Four seconds, like the count on a futsal restart.
     /// </summary>
     public int KickoffProtectionTicks { get; init; } = 240;
-    /// <summary>Distance opponents are moved back from a kick-in or corner (5 m in the futsal laws).</summary>
+    /// <summary>Distance opponents are kept from a kick-in, corner or free kick (5 m in the futsal laws).</summary>
     public float RestartOpponentDistance { get; init; } = 5f;
+    /// <summary>
+    /// Ticks opponents are kept that far away once the restart is live, unless the taker plays the
+    /// ball first (0 turns it off, and they are only moved back once).
+    /// </summary>
+    public int RestartProtectionTicks { get; init; } = 240;
+    /// <summary>
+    /// A restart counts as played once the ball is this far from the spot or the taker has let go of it.
+    /// A taker on a line stands a body inside it with the ball at its feet, about 2.3 m from the spot.
+    /// </summary>
+    public float RestartPlayedDistance { get; init; } = 3.5f;
     public float BallRadius { get; init; } = 0.42f;
     public float BallFrictionPerTick { get; init; } = 5.2f / (60f * 60f);
     public float MinBallSpeedPerTick { get; init; } = 0.03f / 60f;
