@@ -143,7 +143,13 @@ var tests = new (string Name, Action Test)[]
     ("goalkeeper smothers a ball dribbled straight at it", GoalkeeperSmothersBallDribbledStraightAtIt),
     ("adjacent opponents do not swap the ball every tick", AdjacentOpponentsDoNotSwapBallEveryTick),
     ("a pass goes past an opponent standing beside its line", PassGoesPastOpponentBesideItsLine),
-    ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds)
+    ("unattended match repeats for a seed and differs between seeds", UnattendedMatchRepeatsForSeedAndDiffersBetweenSeeds),
+    ("the start screen picks a difficulty and starts a match", StartScreenPicksDifficultyAndStartsMatch),
+    ("a button pressed in a menu never reaches the match", MenuButtonNeverReachesMatch),
+    ("the pause menu changes the tactic and leaves the match", PauseMenuChangesTacticAndLeavesMatch),
+    ("full time shows the result and waits before a new match", FullTimeShowsResultAndWaits),
+    ("a touch on Play starts the match and stays the menu's", TouchOnPlayStartsMatchAndStaysMenus),
+    ("an easier opponent is slower and a harder one is better led", DifficultyChangesOpponentOnly)
 };
 
 // "matches [count] [firstSeed] [equal] [home=half|up] [away=half|up] [home-up=metres] [away-up=metres] [home-behind=up] [home-ahead=half] [home-coach] ..." plays unattended matches instead of the scenarios.
@@ -161,7 +167,17 @@ if (args.FirstOrDefault() == "matches")
         homeRule: RuleFor("home"),
         awayRule: RuleFor("away"),
         homeCoach: args.Contains("home-coach"),
-        awayCoach: args.Contains("away-coach")) == 0 ? 0 : 1;
+        awayCoach: args.Contains("away-coach"),
+        awaySpeed: Level("away-speed="),
+        awayTechnique: Level("away-technique="),
+        // "away-difficulty=easy" plays Away as the opponent of that level.
+        awayDifficulty: Difficulty.All.FirstOrDefault(level => args.Contains($"away-difficulty={level.Name}"))) == 0 ? 0 : 1;
+
+    // "away-speed=6" gives every Away outfielder that speed; "away-technique=6" that ball control and tackling.
+    byte Level(string option)
+    {
+        return byte.Parse(args.FirstOrDefault(argument => argument.StartsWith(option, StringComparison.Ordinal))?[option.Length..] ?? "0");
+    }
 
     // "home-behind=up" and "home-ahead=half" swap Home's tactic while it is losing, or winning late.
     Func<float, TacticByScore>? RuleFor(string side)
@@ -172,13 +188,14 @@ if (args.FirstOrDefault() == "matches")
     }
 
     // "home=half" or "home=up" picks a preset; "home-up=12" sets how far up Home's markers stand, for measuring.
-    TeamTactic TacticFor(string side)
+    // Null when neither is given, so a difficulty level's own tactic is not replaced.
+    TeamTactic? TacticFor(string side)
     {
         var tactic = args.Contains($"{side}=half") ? TeamTactic.HalfCourt
             : args.Contains($"{side}=up") ? TeamTactic.PushUp
-            : TeamTactic.HighPress;
+            : null;
         var up = args.FirstOrDefault(argument => argument.StartsWith($"{side}-up=", StringComparison.Ordinal));
-        return up is null ? tactic : tactic with { MarkersUpMetres = float.Parse(up[(side.Length + 4)..]) };
+        return up is null ? tactic : (tactic ?? TeamTactic.HighPress) with { MarkersUpMetres = float.Parse(up[(side.Length + 4)..]) };
     }
     return;
 }
@@ -4570,6 +4587,213 @@ static void SecondHalfIsSeenFromTheOtherEnd()
                 && MathF.Abs(back.Players[index].Facing.NormalizedDegrees - second.Players[index].Facing.NormalizedDegrees) < 0.01f,
             "Turning twice should give the same view back.");
     }
+}
+
+// One frame of the flow with keys only, on a 1280 by 720 screen.
+static FlowEvent FlowFrame(MatchFlow flow, MatchSnapshot match, float stickY = 0f, bool button = false, bool pause = false, float seconds = 0f)
+{
+    return flow.Update(match, new PlayerInput(new Vector2(0f, stickY), button), pause, [], new Vector2(1280f, 720f), seconds, out _);
+}
+
+static void StartScreenPicksDifficultyAndStartsMatch()
+{
+    var match = MatchEngine.CreateDefault(startWithKickoff: true).CurrentSnapshot;
+    var flow = new MatchFlow();
+    Assert(flow.Screen == MatchScreen.Start && flow.IsMenuOpen && flow.Heading == Product.Name, "The game should open on a start screen headed by the product's name.");
+    Assert(flow.Menu.Labels.SequenceEqual(["Play", "Difficulty: normal"]), "The start screen should offer Play and the difficulty, normal first.");
+
+    // A held stick moves the cursor once, and a held button chooses once.
+    FlowFrame(flow, match, stickY: 1f);
+    FlowFrame(flow, match, stickY: 1f);
+    Assert(flow.Cursor == 1, "A stick held down should move the cursor one item, not run to the end or past it.");
+    FlowFrame(flow, match, button: true);
+    FlowFrame(flow, match, button: true);
+    Assert(flow.Difficulty == Difficulty.Hard && flow.Menu.Labels[1] == "Difficulty: hard", "A held button should step the difficulty once.");
+    FlowFrame(flow, match);
+    FlowFrame(flow, match, button: true);
+    FlowFrame(flow, match);
+    FlowFrame(flow, match, button: true);
+    Assert(flow.Difficulty == Difficulty.Normal, "The difficulty should go round: normal, hard, easy, normal.");
+    FlowFrame(flow, match);
+    FlowFrame(flow, match, stickY: -1f);
+    FlowFrame(flow, match, stickY: -1f);
+    Assert(flow.Cursor == 0, "A stick held up should stop on the first item.");
+    Assert(FlowFrame(flow, match, button: true) == FlowEvent.StartMatch, "The button on Play should ask the host for a match.");
+    Assert(flow.Screen == MatchScreen.Playing && !flow.IsMenuOpen && !flow.Menu.IsOpen, "After Play the match should be on screen with no menu.");
+
+    Assert(new MatchFlow(startScreen: false).Screen == MatchScreen.Playing, "A flow asked for no start screen should open in a match.");
+}
+
+static void MenuButtonNeverReachesMatch()
+{
+    var engine = MatchEngine.CreateDefault(startWithKickoff: true);
+    var flow = new MatchFlow();
+    var held = new PlayerInput(Vector2.Zero, ActionDown: true);
+    Assert(FlowFrame(flow, engine.CurrentSnapshot, button: true) == FlowEvent.StartMatch, "The button on Play should start the match.");
+    Assert(!flow.ForMatch(held).ActionDown, "The press that chose Play should not be the match's.");
+
+    // The host's order: the buffer starts from what the match may see, then the button is let go.
+    var buffer = new PlayerInputBuffer();
+    buffer.Reset(flow.ForMatch(held));
+    var taker = engine.State.Players.Single(player => player.HasPossession);
+    for (var tick = 0; tick < 30; tick++)
+    {
+        var input = new PlayerInput(Vector2.Zero, ActionDown: tick < 6);
+        FlowFrame(flow, engine.CurrentSnapshot, button: input.ActionDown);
+        buffer.Capture(flow.ForMatch(input));
+        engine.StepTick(buffer.ConsumeForTick());
+        Assert(taker.HasPossession, $"Letting go of the button that chose Play should not pass the kickoff (tick {tick}).");
+    }
+
+    FlowFrame(flow, engine.CurrentSnapshot, button: true);
+    Assert(flow.ForMatch(held).ActionDown, "A press made after the button was let go should be the match's.");
+
+    // The same for the pause key closing the menu while the button is down.
+    FlowFrame(flow, engine.CurrentSnapshot);
+    FlowFrame(flow, engine.CurrentSnapshot, pause: true);
+    FlowFrame(flow, engine.CurrentSnapshot, stickY: 1f);
+    FlowFrame(flow, engine.CurrentSnapshot, button: true);
+    Assert(flow.Screen == MatchScreen.Paused, "Choosing a tactic should leave the pause menu open.");
+    FlowFrame(flow, engine.CurrentSnapshot, button: true, pause: true);
+    Assert(flow.Screen == MatchScreen.Playing && !flow.ForMatch(held).ActionDown, "A button down when the pause menu closes should wait to be let go.");
+}
+
+static void PauseMenuChangesTacticAndLeavesMatch()
+{
+    var match = MatchEngine.CreateDefault(startWithKickoff: true).CurrentSnapshot;
+    var flow = new MatchFlow(startScreen: false);
+    FlowFrame(flow, match, pause: true);
+    Assert(flow.Screen == MatchScreen.Paused && flow.Heading == "Paused" && flow.Menu.IsOpen, "The pause key should open the pause menu.");
+    Assert(
+        flow.Menu.Labels.SequenceEqual(["Resume", "Tactic: high press (on)", "Tactic: half court", "Tactic: push up", "Leave match"]),
+        "The pause menu should offer resume, the three tactics with the one in use marked, and leaving.");
+
+    void Down(int times)
+    {
+        for (var i = 0; i < times; i++)
+        {
+            FlowFrame(flow, match, stickY: 1f);
+            FlowFrame(flow, match);
+        }
+    }
+
+    FlowFrame(flow, match, stickY: 1f);
+    FlowFrame(flow, match, stickY: 1f);
+    FlowFrame(flow, match, stickY: 1f);
+    Assert(flow.Cursor == 1, "A stick held down should move the cursor one item, not one a frame.");
+    FlowFrame(flow, match);
+    Down(2);
+    Assert(FlowFrame(flow, match, button: true) == FlowEvent.TacticChanged && flow.Tactic == TeamTactic.PushUp, "Choosing a tactic should change it and tell the host.");
+    Assert(flow.Screen == MatchScreen.Paused && flow.Menu.Labels[3] == "Tactic: push up (on)", "The menu should stay open and mark the new tactic.");
+    FlowFrame(flow, match);
+    Down(5);
+    Assert(flow.Cursor == 4, "The cursor should stop on the last item.");
+    Assert(FlowFrame(flow, match, button: true) == FlowEvent.LeaveMatch && flow.Screen == MatchScreen.Start, "Leave match should go back to the start screen.");
+    Assert(flow.Tactic == TeamTactic.PushUp, "The tactic chosen should be kept for the next match.");
+
+    // Resume, and the pause key as a toggle.
+    flow = new MatchFlow(startScreen: false);
+    FlowFrame(flow, match, pause: true);
+    Assert(FlowFrame(flow, match, button: true) == FlowEvent.None && flow.Screen == MatchScreen.Playing, "Resume should go back to the match.");
+    FlowFrame(flow, match);
+    FlowFrame(flow, match, pause: true);
+    FlowFrame(flow, match, pause: true);
+    Assert(flow.Screen == MatchScreen.Playing, "The pause key should close the menu it opened.");
+
+    // The stick does nothing to a menu that is not open, and the pause key does nothing on the start screen.
+    FlowFrame(flow, match, stickY: 1f);
+    Assert(flow.Cursor == 0, "The stick should not move a cursor during play.");
+    var start = new MatchFlow();
+    FlowFrame(start, match, pause: true);
+    Assert(start.Screen == MatchScreen.Start, "The pause key should do nothing on the start screen.");
+}
+
+static void FullTimeShowsResultAndWaits()
+{
+    var match = MatchEngine.CreateDefault(startWithKickoff: true).CurrentSnapshot with { HomeScore = 2, AwayScore = 1, IsMatchOver = true };
+    var flow = new MatchFlow(startScreen: false);
+    FlowFrame(flow, match, seconds: 100f);
+    Assert(flow.Screen == MatchScreen.FullTime && flow.Heading == "Full time   Home 2 - 1 Away", "Full time should show the result.");
+    Assert(flow.Menu.Labels.SequenceEqual(["New match", "Leave match"]), "Full time should offer a new match and leaving.");
+
+    // A press meant for a last shot lands in the first second and must not start the next match.
+    Assert(FlowFrame(flow, match, button: true, seconds: 100.5f) == FlowEvent.None && flow.Screen == MatchScreen.FullTime, "Nothing should be chosen in the first second of the result.");
+    FlowFrame(flow, match, seconds: 100.6f);
+    FlowFrame(flow, match, pause: true, seconds: 100.7f);
+    Assert(flow.Screen == MatchScreen.FullTime, "The pause key should not close the result.");
+    Assert(FlowFrame(flow, match, button: true, seconds: 101.1f) == FlowEvent.StartMatch && flow.Screen == MatchScreen.Playing, "After a second the button should start a new match.");
+
+    // The other item leaves.
+    flow = new MatchFlow(startScreen: false);
+    FlowFrame(flow, match);
+    FlowFrame(flow, match, stickY: 1f, seconds: 2f);
+    Assert(FlowFrame(flow, match, button: true, seconds: 2.1f) == FlowEvent.LeaveMatch && flow.Screen == MatchScreen.Start, "Leave match at full time should go to the start screen.");
+    FlowFrame(flow, match, seconds: 3f);
+    Assert(flow.Screen == MatchScreen.Start, "A finished match behind the start screen should not bring the result back.");
+}
+
+static void TouchOnPlayStartsMatchAndStaysMenus()
+{
+    var match = MatchEngine.CreateDefault(startWithKickoff: true).CurrentSnapshot;
+    var screen = new Vector2(1280f, 720f);
+    var flow = new MatchFlow();
+    var play = flow.Menu.ItemBounds(0, screen);
+    var finger = new TouchPoint(0, (play.Min + play.Max) / 2f);
+
+    var result = flow.Update(match, PlayerInput.Empty, false, [finger], screen, 0f, out var remaining);
+    Assert(result == FlowEvent.StartMatch && flow.Screen == MatchScreen.Playing, "A touch on Play should start the match.");
+    Assert(remaining.Count == 0, "The touch that chose Play should not also be the stick or the button.");
+    flow.Update(match, PlayerInput.Empty, false, [finger], screen, 0.1f, out remaining);
+    Assert(remaining.Count == 0 && flow.Screen == MatchScreen.Playing, "A finger still down after Play should stay the menu's and choose nothing more.");
+    flow.Update(match, PlayerInput.Empty, false, [], screen, 0.2f, out _);
+    flow.Update(match, PlayerInput.Empty, false, [finger], screen, 0.3f, out remaining);
+    Assert(remaining.Count == 1, "A new touch during play should be the match's.");
+
+    // The pause button in the corner opens the pause menu.
+    flow.Update(match, PlayerInput.Empty, false, [], screen, 0.4f, out _);
+    var corner = PauseMenu.ButtonBounds(screen);
+    flow.Update(match, PlayerInput.Empty, false, [new TouchPoint(1, (corner.Min + corner.Max) / 2f)], screen, 0.5f, out remaining);
+    Assert(flow.Screen == MatchScreen.Paused && remaining.Count == 0, "A touch on the pause button should open the pause menu.");
+}
+
+static void DifficultyChangesOpponentOnly()
+{
+    var squad = MatchEngine.DefaultSquad;
+    foreach (var level in Difficulty.All)
+    {
+        var changed = level.Squad(squad, TeamSide.Away);
+        Assert(changed.Take(4).SequenceEqual(squad.Take(4)), $"{level.Name}: the person's players should be as they were.");
+        for (var i = 4; i < 8; i++)
+        {
+            Assert(changed[i].Speed <= squad[i].Speed, $"{level.Name}: no level should make an opponent faster than it is.");
+            Assert(changed[i] with { Speed = squad[i].Speed } == squad[i], $"{level.Name}: only speed should change.");
+        }
+    }
+
+    Assert(Difficulty.Easy.Squad(squad, TeamSide.Away).Skip(4).Zip(squad.Skip(4)).All(pair => pair.First.Speed < pair.Second.Speed || pair.Second.Speed == 0), "Easy opponents should be slower.");
+    Assert(Difficulty.Normal.Squad(squad, TeamSide.Away).SequenceEqual(squad), "Normal should change nobody.");
+
+    var match = MatchEngine.CreateDefault(startWithKickoff: true).CurrentSnapshot;
+    var computers = ComputerPlayerController.CreateDefault(match);
+    Difficulty.Hard.Brief(computers, TeamSide.Away, 360f);
+    Assert(computers.TacticNow(match, TeamSide.Away) == TeamTactic.PushUp, "A hard opponent should push up.");
+    Assert(computers.TacticNow(match, TeamSide.Home) == TeamTactic.HighPress, "The person's team should keep its own tactic.");
+
+    // Its coach: a hard opponent that leads late waits at halfway, which no tactic alone does.
+    match = match with { AwayScore = 1 };
+    var nobody = new Dictionary<int, PlayerInput>();
+    for (var tick = 0; tick < 330 * 60; tick += 30)
+    {
+        match = match with { Tick = tick + 1, ClockSeconds = tick / 60f };
+        computers.CreateControlFrame(match, nobody);
+    }
+
+    Assert(computers.TacticNow(match, TeamSide.Away) == TeamTactic.HalfCourt, "A hard opponent should have a coach that changes its tactic by the score.");
+
+    var easy = ComputerPlayerController.CreateDefault(match);
+    Difficulty.Easy.Brief(easy, TeamSide.Away, 360f);
+    easy.CreateControlFrame(match, nobody);
+    Assert(easy.TacticNow(match, TeamSide.Away) == TeamTactic.HighPress, "An easy opponent should have no coach.");
 }
 
 static void Assert(bool condition, string message)

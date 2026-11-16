@@ -5,7 +5,7 @@ namespace Swof.Game;
 internal sealed record SwofGameLaunchOptions(
     MatchFeedbackMode FeedbackMode,
     MatchDemoAction DemoAction,
-    TeamTactic OpponentTactic,
+    TeamTactic? OpponentTactic,
     TeamTactic TeamTactic,
     bool OpponentCoach,
     bool StartPaused = false,
@@ -17,10 +17,13 @@ internal sealed record SwofGameLaunchOptions(
     /// <summary>Keys and touches played back as if a person made them, so a captured frame can show a state only input reaches.</summary>
     public IReadOnlyList<ScriptedInput> Script { get; init; } = [];
 
+    /// <summary>Shows the start screen even with <see cref="CapturePath"/>, which otherwise opens in a match.</summary>
+    public bool StartScreen { get; init; }
+
     public static SwofGameLaunchOptions Default { get; } = new(
         MatchFeedbackMode.Connected,
         MatchDemoAction.None,
-        TeamTactic.HighPress,
+        OpponentTactic: null,
         TeamTactic.HighPress,
         OpponentCoach: false);
 
@@ -28,7 +31,8 @@ internal sealed record SwofGameLaunchOptions(
     {
         var feedbackMode = MatchFeedbackMode.Connected;
         var demoAction = MatchDemoAction.None;
-        var opponentTactic = TeamTactic.HighPress;
+        TeamTactic? opponentTactic = null;
+        var startScreen = false;
         var teamTactic = TeamTactic.HighPress;
         var opponentCoach = false;
         var startPaused = false;
@@ -76,6 +80,10 @@ internal sealed record SwofGameLaunchOptions(
             {
                 capturePath = argument["--capture=".Length..];
             }
+            else if (argument.Equals("--start-screen", StringComparison.OrdinalIgnoreCase))
+            {
+                startScreen = true;
+            }
             else if (argument.Equals("--start-paused", StringComparison.OrdinalIgnoreCase))
             {
                 startPaused = true;
@@ -89,7 +97,8 @@ internal sealed record SwofGameLaunchOptions(
         return new SwofGameLaunchOptions(feedbackMode, demoAction, opponentTactic, teamTactic, opponentCoach, startPaused, capturePath)
         {
             CaptureAfterSeconds = captureAfterSeconds,
-            Script = script
+            Script = script,
+            StartScreen = startScreen
         };
     }
 

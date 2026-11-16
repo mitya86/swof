@@ -78,6 +78,16 @@ public sealed class MatchEngine
     public MatchSnapshot CurrentSnapshot { get; private set; }
     public float RenderAlpha => Math.Clamp(_accumulatedSeconds / Tuning.TickSeconds, 0f, 1f);
 
+    /// <summary>
+    /// The eight outfielders a default match has, in the order they are created: Home fixo, left ala, right ala,
+    /// pivo, then Away the same. Squads are not data yet, so this is the only way in.
+    /// </summary>
+    public static IReadOnlyList<PlayerAttributes> DefaultSquad { get; } =
+    [
+        new(4, 4, 4, 4, 4, 4, 4), PlayerAttributes.DefaultOutfield, new(15, 15, 15, 15, 15, 15, 15), PlayerAttributes.DefaultOutfield,
+        new(4, 4, 4, 4, 4, 4, 4), PlayerAttributes.DefaultOutfield, new(15, 15, 15, 15, 15, 15, 15), PlayerAttributes.DefaultOutfield
+    ];
+
     public static MatchEngine CreateDefault(
         PhysicsTuning? tuning = null,
         bool opponentMovementEnabled = true,
@@ -88,12 +98,7 @@ public sealed class MatchEngine
     {
         tuning ??= PhysicsTuning.Default;
         var field = FieldDimensions.Default;
-        var poor = new PlayerAttributes(4, 4, 4, 4, 4, 4, 4);
-        var moderate = new PlayerAttributes(8, 8, 8, 8, 8, 8, 8);
-        var elite = new PlayerAttributes(15, 15, 15, 15, 15, 15, 15);
-        // Eight outfielders in the order created below: Home fixo, left ala, right ala,
-        // pivo, then Away the same. Squads are not data yet, so this is the only way in.
-        var squad = outfieldAttributes ?? [poor, moderate, elite, moderate, poor, moderate, elite, moderate];
+        var squad = outfieldAttributes ?? DefaultSquad;
         if (squad.Count != 8)
         {
             throw new ArgumentException("Eight outfield attribute sets are required.", nameof(outfieldAttributes));
