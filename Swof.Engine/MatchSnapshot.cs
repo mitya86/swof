@@ -19,6 +19,10 @@ public sealed record MatchSnapshot(
     /// <summary>The match seed, for computer decisions that vary from match to match.</summary>
     public int Seed { get; init; }
 
+    /// <summary>Fouls each team has committed in the current half.</summary>
+    public int HomeFouls { get; init; }
+    public int AwayFouls { get; init; }
+
     /// <summary>The foul rule for slides that the engine applies.</summary>
     public SlideFoulRule SlideFoul { get; init; } = SlideFoulRule.Off;
 
@@ -43,6 +47,8 @@ public sealed record MatchSnapshot(
             state.FeedbackEvents.ToArray())
         {
             Seed = state.Seed,
+            HomeFouls = state.HomeFouls,
+            AwayFouls = state.AwayFouls,
             SlideFoul = state.SlideFoul
         };
     }

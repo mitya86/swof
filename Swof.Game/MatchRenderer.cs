@@ -166,6 +166,8 @@ internal sealed class MatchRenderer : IDisposable
                     RestartKind.KickIn => "KICK-IN",
                     RestartKind.Corner => "CORNER",
                     RestartKind.FreeKick => "FREE KICK",
+                    RestartKind.Penalty => "PENALTY",
+                    RestartKind.TenMetreKick => "10 M KICK",
                     RestartKind.GoalClearance => "GOAL CLEARANCE",
                     _ => "PLAY STOPPED"
                 }
@@ -500,7 +502,8 @@ internal sealed class MatchRenderer : IDisposable
         SpriteFont font,
         Rectangle bounds)
     {
-        var score = $"HOME  {snapshot.HomeScore}  -  {snapshot.AwayScore}  AWAY";
+        // The foul counts sit beside each name: from the sixth in a half every foul is a 10 m kick.
+        var score = $"F{snapshot.HomeFouls}  HOME  {snapshot.HomeScore}  -  {snapshot.AwayScore}  AWAY  F{snapshot.AwayFouls}";
         var minutes = (int)(snapshot.ClockSeconds / 60f);
         var seconds = (int)snapshot.ClockSeconds % 60;
         var clock = $"{minutes:00}:{seconds:00}";

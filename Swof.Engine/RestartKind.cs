@@ -7,5 +7,7 @@ public enum RestartKind
     KickIn,
     GoalClearance,
     Corner,
-    FreeKick
+    FreeKick,
+    Penalty,
+    TenMetreKick
 }

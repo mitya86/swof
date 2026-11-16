@@ -62,6 +62,8 @@ public sealed record PhysicsTuning
     public int KickoffProtectionTicks { get; init; } = 240;
     /// <summary>Distance opponents are kept from a kick-in, corner or free kick (5 m in the futsal laws).</summary>
     public float RestartOpponentDistance { get; init; } = 5f;
+    /// <summary>Fouls a team may commit in a half before each further one gives a 10 m kick (5 in the futsal laws).</summary>
+    public int AccumulatedFoulLimit { get; init; } = 5;
     /// <summary>
     /// Ticks opponents are kept that far away once the restart is live, unless the taker plays the
     /// ball first (0 turns it off, and they are only moved back once).
