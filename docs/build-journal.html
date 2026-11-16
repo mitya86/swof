@@ -72,7 +72,7 @@ td.num, th.num { text-align: right; }
       <div class="row"><strong>2. Touch</strong><span class="state part">builds, never run on a device</span><p>The game reads real fingers and CI packages it as an Android app on every change. Nobody has installed that package on a phone. What a phone will show first is in the entry below.</p></div>
       <div class="row"><strong>3. Tactics as data</strong><span class="state done">closed for this run</span><p>Three defensive tactics, chosen from the pause menu, and a coach for a computer team that changes its tactic by the score. The coach is off until the difficulty choice turns it on. A fix for two waiting teams was tried once and decided against.</p></div>
       <div class="row"><strong>4. Product shell</strong><span class="state done">closed for this run</span><p>A start screen, three difficulty levels, a pause menu with a way out, and a result at full time. The whole flow lives in the engine with scenarios, so new graphics only replace the drawing. No settings, no team choice, nothing saved between launches.</p></div>
-      <div class="row"><strong>5. Release preparation</strong><span class="state done">packaged builds from CI</span><p>Every change to main produces four downloads: Windows, macOS, Linux and Android. Signing, store listings and a public release are the owner's and were not touched.</p></div>
+      <div class="row"><strong>5. Release preparation</strong><span class="state done">packaged builds from CI</span><p>The build machines can produce four downloads on request: Windows, macOS, Linux and Android. They are stopped by the account's billing at the moment, so none exists yet for the final commit. Signing, store listings and a public release are the owner's and were not touched.</p></div>
     </div>
   </section>
 
@@ -91,6 +91,43 @@ td.num, th.num { text-align: right; }
     <!-- NEW-ENTRIES-HERE -->
     <article class="entry">
       <header>
+        <div class="meta"><span class="label">16 Nov 2026</span><span class="tag">Handover to graphics</span><span class="label">pull request 39</span></div>
+        <h3>Everything the game draws, written down before anyone redraws it</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The idea</p>
+        <p>The planned development work is finished, and the next piece is yours: the look. A rework goes faster when it starts from a list of what exists rather than from a blank page, because the list shows what is art, what is code pretending to be art, and what the game knows but never shows. The list is in the repository as <code>docs/renderer-inventory.md</code>. Nothing about the look was changed.</p>
+      </div>
+      <div class="part-block">
+        <p class="label">What the inventory found</p>
+        <ul>
+          <li><strong>Three image files are all the art.</strong> One font and two player sheets with frames of 24 by 32 pixels: one standing frame and four running frames for each team. On screen each frame is enlarged about five times.</li>
+          <li><strong>Everything else is drawn by code</strong> from a white pixel, a disc and a ring: the court, the ball, shadows, rings, every effect, the scoreboard and the menus.</li>
+          <li><strong>A player has two states.</strong> Standing and running. A kick, a slide, a save and a goal celebration have no pictures; a kick is the same picture squashed and nudged.</li>
+          <li><strong>Teams are painted into the sheets.</strong> Home is red, Away is blue, goalkeepers are the same picture tinted. No two team-mates look different.</li>
+          <li><strong>The game knows things nothing shows</strong>: the officials, each player's role, and a sentence for every stoppage.</li>
+          <li><strong>One door.</strong> All drawing goes through one call from one place. A new renderer that accepts the same information can replace the old one without touching the match itself.</li>
+        </ul>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>Oddities were listed, not fixed.</strong> Nine were found, among them a banner that still names a key that no longer works, a developer's note shown to every player when the game opens, and a font whose right to be shipped as a file has not been established. Each would be a small fix today and a wasted one if the rework replaces the thing it sits in, so the rework settles them once.</li>
+          <li><strong>The last two pull requests were merged on local evidence.</strong> GitHub stopped starting build jobs part-way through this entry: the account's Actions spending limit or payment needs the owner's attention. The code in pull request 38 had already passed every job before only its notes changed; pull request 39 adds documents only. The full local gate (every scenario, the game build, the format check) passed on the final commit. The build machines will start again once billing is sorted.</li>
+          <li><strong>Packaging now runs only when asked.</strong> The repository is private, and a private repository pays for build minutes; a macOS machine costs ten times a Linux one, and two of the three desktop builds use it. Packaging on every change cost roughly 24 paid minutes each time, on top of about 26 for the ordinary checks, and this run pushed many times. A package is wanted when someone is about to hand the game out, not on every change, so it is now one command: <code>gh workflow run Package --ref main</code>.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised</p>
+        <ul>
+          <li>The inventory was read from the source and from a few captured frames. Nobody compared each item with the running game by eye.</li>
+          <li>One oddity (light see-through colours coming out too bright) is a reading of the code, not something seen. A tenth, a supposed slip in how players react to an event, was struck after checking how the language reads that line: the code is right.</li>
+          <li>No packaged build exists for the final commit, on any system. The ones checked in the entry below were made from the same game code one commit earlier. After billing is fixed: <code>gh workflow run Package --ref main</code> for the desktop folders and <code>gh workflow run CI --ref main</code>, or any new push, for the checks and the Android package.</li>
+        </ul>
+      </div>
+    </article>
+    <article class="entry">
+      <header>
         <div class="meta"><span class="label">16 Nov 2026</span><span class="tag">Milestone 5</span><span class="label">pull request 38</span></div>
         <h3>A folder you can hand to someone, built the same way every time</h3>
       </header>
@@ -101,8 +138,8 @@ td.num, th.num { text-align: right; }
       <div class="part-block">
         <p class="label">What was built</p>
         <ul>
-          <li><strong>A second workflow, Package.</strong> On every change to main (and on demand) it publishes the game three times, for Windows, macOS on Apple chips, and Linux, and stores each as a download named after the system and the commit.</li>
-          <li><strong>The Android package</strong> already comes from the build added in the last entry. Together that is four downloads for each commit on main.</li>
+          <li><strong>A second workflow, Package.</strong> On demand it publishes the game three times, for Windows, macOS on Apple chips, and Linux, and stores each as a download named after the system and the commit.</li>
+          <li><strong>The Android package</strong> already comes from the build added in the last entry. Together that is four downloads for any commit you ask for.</li>
         </ul>
         <div class="tablewrap"><table>
           <thead><tr><th>Download</th><th>Size</th><th>Checked</th></tr></thead>
@@ -118,7 +155,7 @@ td.num, th.num { text-align: right; }
         <p class="label">Decisions</p>
         <ul>
           <li><strong>The runtime travels inside the folder.</strong> It triples the size, and in exchange the player installs nothing. For a first hand-out to testers, "unpack and run" is worth 25 MB.</li>
-          <li><strong>The Linux folder is made on a Mac build machine.</strong> Building the game's font file needs Arial, which Linux build machines do not have. Any system can publish for any other, so the Linux folder comes from the machine that has the font. The font itself is one of the things the graphics rework should replace with one the project may ship.</li>
+          <li><strong>The Linux folder is made on a Mac build machine.</strong> Building the game's font file needs Arial, which Linux build machines do not have. Any system can publish for any other, so the Linux folder comes from the machine that has the font. The font itself is one of the things the graphics rework should replace with one the project is known to be free to ship.</li>
           <li><strong>Packed as a tar file.</strong> The download store's own zip forgets which file is the program, and on macOS and Linux a program that has lost that mark will not start. A tar file keeps it.</li>
           <li><strong>Stopped before anything in the owner's name.</strong> No signing, no notarizing, no store listing, no public release page. Each needs an account, an identity or a licence that only the owner can accept, and a name that is not final yet.</li>
         </ul>

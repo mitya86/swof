@@ -3,9 +3,9 @@ name: Package
 # Builds the game as it would be handed to a player: one self-contained folder per desktop system,
 # with the .NET runtime inside, so nothing has to be installed first. The Android package comes from
 # the build-android job in ci.yml. Nothing here is signed, notarized or published anywhere.
+# Run on demand (gh workflow run Package --ref main): the repository is private, macOS build minutes are
+# billed at ten times the Linux rate, and two of the three jobs here run on macOS.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
   pull_request:
     paths:
