@@ -92,6 +92,39 @@ td.num, th.num { text-align: right; }
 
     <article class="entry">
       <header>
+        <div class="meta"><span class="label">16 Nov 2026</span><span class="tag">Tooling</span><span class="label">pull request 34</span></div>
+        <h3>Frames of states that only input can reach</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The idea</p>
+        <p>Nobody is at the screen during this run, so the only way to look at a menu is to have the game write a drawn frame to a picture. Until now that picture was always the match two seconds in. The start screen, the difficulty choice and the way out of a match all sit behind a key press or a touch, so before building them the game needed a way to be pressed.</p>
+      </div>
+      <div class="part-block">
+        <p class="label">What was built</p>
+        <ul>
+          <li><code>--script=0.5-0.6:P,1-1.1:0.5x0.62</code> plays back keys and touches at given times as if a person made them. A touch is written as fractions of the screen, so the same script works at any window size.</li>
+          <li>Two touches that end in the same <code>#number</code> are one finger, which makes a drag, and so the touch stick.</li>
+          <li><code>--capture-after=3</code> chooses when the picture is taken.</li>
+        </ul>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>Feed the script in where the keyboard and mouse are read, not further in.</strong> Everything after that point, including the menu's own handling of touches, runs exactly as it does for a person. A script that called the menu directly would have tested less.</li>
+          <li><strong>Host only, with no scenario.</strong> It is a tool for looking, and the scenario runner cannot open a window. It was checked by three pictures: a key opened the pause menu, a touch chose a tactic in it, and a drag on the left half moved the player.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised</p>
+        <ul>
+          <li>A gamepad cannot be scripted. Pad-only paths stay unseen.</li>
+          <li>A picture shows layout, never timing or feel.</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="entry">
+      <header>
         <div class="meta"><span class="label">16 Nov 2026</span><span class="tag">Milestone 1</span><span class="label">pull request 33</span></div>
         <h3>Changing ends, a kickoff a person cannot fumble, and three rules left out</h3>
       </header>
