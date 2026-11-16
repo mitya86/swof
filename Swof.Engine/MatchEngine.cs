@@ -17,8 +17,14 @@ public sealed class MatchEngine
     private int? _aftertouchPlayerId;
     private int _dribbleSecureTicksRemaining;
     private int _newPossessionProtectionTicks;
-    private int _kickoffProtectionTicks;
-    private TeamSide _kickoffTeam;
+    // While these ticks last, the other team is held away from the spot a restart is taken from.
+    private int _restartWallTicks;
+    private TeamSide _restartWallTeam;
+    private Vector2 _restartWallSpot;
+    private float _restartWallRadius;
+    private float _restartPlayedDistance;
+    private RestartKind _restartWallKind;
+    private Vector2 _restartWallInward;
     private float _dribbleRisk;
     private float _dribbleSustain01;
     private Vector2 _previousDribbleMoveDirection = Vector2.Zero;
@@ -337,24 +343,30 @@ public sealed class MatchEngine
             _releasedByPlayerId = null;
         }
 
-        if (_kickoffProtectionTicks > 0)
+        if (_restartWallTicks > 0)
         {
-            // ponytail: after the count the ball is simply open to a challenge; a real four-second
-            // count would give the other team a kick-in.
-            var takerStillOnTheSpot = State.Players.Any(player => player.HasPossession && player.Team == _kickoffTeam)
-                && State.Ball.Position.Length() <= State.Field.CenterCircleRadius;
-            _kickoffProtectionTicks = takerStillOnTheSpot ? _kickoffProtectionTicks - 1 : 0;
+            var takerStillOnTheSpot = State.Players.Any(player => player.HasPossession && player.Team == _restartWallTeam)
+                && Vector2.Distance(State.Ball.Position, _restartWallSpot) <= _restartPlayedDistance;
+            _restartWallTicks = takerStillOnTheSpot ? _restartWallTicks - 1 : 0;
+            // ponytail: a kickoff has no count; after the wait the ball is simply open to a challenge.
+            if (takerStillOnTheSpot && _restartWallTicks == 0 && _restartWallKind != RestartKind.Kickoff)
+            {
+                GiveRestartToOtherTeam();
+                return;
+            }
         }
 
         foreach (var playerId in frame.PlayerIds)
         {
             var controlledPlayer = State.Players.Single(player => player.Id == playerId);
             MoveControlledPlayer(controlledPlayer, frame.GetInputOrEmpty(playerId).NormalizedMove);
-            ResolvePlayerBounds(controlledPlayer);
-            if (_kickoffProtectionTicks > 0 && controlledPlayer.Team != _kickoffTeam)
+            if (_restartWallTicks > 0 && controlledPlayer.Team != _restartWallTeam)
             {
-                KeepOutOfCentreCircle(controlledPlayer);
+                KeepAwayFromRestart(controlledPlayer);
             }
+
+            // After the wall: beside a line it can push a player off the court.
+            ResolvePlayerBounds(controlledPlayer);
         }
 
         MoveGoalkeepers();
@@ -1954,8 +1966,8 @@ public sealed class MatchEngine
     /// </summary>
     // ponytail: the taker is teleported, players stand still during the stoppage, and the taker may
     // dribble the ball in rather than having to kick it. Near a corner the court edge can leave a
-    // moved opponent closer than the required distance. Walk-to-ball, repositioning runs and the
-    // four-second count are the upgrade path once restarts have been playtested.
+    // moved opponent closer than the required distance. Walk-to-ball and repositioning runs are
+    // the upgrade path once restarts have been playtested.
     private void PlaceRestartTaker(TeamSide team, Vector2 spot, Vector2 inward)
     {
         var taker = State.Players
@@ -1974,18 +1986,57 @@ public sealed class MatchEngine
                      player.Team != team && player.Role == PlayerRole.Outfield))
         {
             var offset = opponent.Position - spot;
-            if (offset.Length() >= Tuning.RestartOpponentDistance)
+            var nearest = Tuning.RestartOpponentDistance + opponent.Radius;
+            if (offset.Length() >= nearest)
             {
                 continue;
             }
 
-            opponent.Position = ClampToField(
-                spot + SafeNormalize(offset, inward) * Tuning.RestartOpponentDistance);
+            opponent.Position = ClampToField(spot + SafeNormalize(offset, inward) * nearest);
             opponent.Velocity = Vector2.Zero;
         }
 
+        _restartWallTeam = team;
+        _restartWallSpot = spot;
+        _restartWallRadius = Tuning.RestartOpponentDistance;
+        _restartWallKind = State.LastEvent.Restart;
+        _restartWallInward = inward;
+        _restartPlayedDistance = Tuning.RestartPlayedDistance;
+        _restartWallTicks = Tuning.RestartProtectionTicks;
+
         taker.HasPossession = true;
         BeginControlledPossession(taker);
+    }
+
+    /// <summary>
+    /// The four-second count: a kick-in or free kick not played in time goes to the other team at the
+    /// same spot, and a corner becomes their goal clearance.
+    /// </summary>
+    private void GiveRestartToOtherTeam()
+    {
+        var team = Opponent(_restartWallTeam);
+        var spot = _restartWallSpot;
+        if (_restartWallKind == RestartKind.Corner)
+        {
+            StopForRestart(new MatchEvent(
+                MatchEventType.FourSeconds,
+                RestartKind.GoalClearance,
+                team,
+                spot,
+                Description: $"Four seconds. Goal clearance to {team}."));
+            BeginGoalkeeperHandsPossession(State.Players.First(player => player.Team == team && player.IsGoalkeeper));
+            return;
+        }
+
+        var kind = _restartWallKind;
+        var inward = kind == RestartKind.FreeKick ? FacingForTeam(team).ToUnitVector() : _restartWallInward;
+        StopForRestart(new MatchEvent(
+            MatchEventType.FourSeconds,
+            kind,
+            team,
+            spot,
+            Description: $"Four seconds. The ball goes to {team}."));
+        PlaceRestartTaker(team, spot, inward);
     }
 
     private void StopForRestart(MatchEvent matchEvent)
@@ -2007,6 +2058,7 @@ public sealed class MatchEngine
         _shotTeamWhileActionHeld = null;
         _shotActionPlayerId = null;
 
+        _restartWallTicks = 0;
         State.IsBallOutOfPlay = true;
         State.RestartTicksRemaining = Tuning.RestartDelayTicks;
         State.LastEvent = matchEvent;
@@ -2085,32 +2137,38 @@ public sealed class MatchEngine
         _lastPossessionTeam = kickoffTeam;
         State.LastTouchTeam = kickoffTeam;
 
-        _kickoffTeam = kickoffTeam;
-        _kickoffProtectionTicks = Tuning.KickoffProtectionTicks;
-        if (_kickoffProtectionTicks > 0)
+        _restartWallTeam = kickoffTeam;
+        _restartWallSpot = Vector2.Zero;
+        _restartWallRadius = State.Field.CenterCircleRadius;
+        _restartWallKind = RestartKind.Kickoff;
+        _restartPlayedDistance = State.Field.CenterCircleRadius;
+        _restartWallTicks = Tuning.KickoffProtectionTicks;
+        if (_restartWallTicks > 0)
         {
             foreach (var opponent in State.Players.Where(candidate => candidate.Team != kickoffTeam))
             {
-                KeepOutOfCentreCircle(opponent);
+                KeepAwayFromRestart(opponent);
             }
         }
     }
 
     /// <summary>
-    /// The other team waits outside the centre circle (3 m in the futsal laws) until the kickoff is played.
-    /// It is a wall for whoever moves the player, so a person and a computer player are held alike.
+    /// The other team waits at a distance (the centre circle at a kickoff, 5 m at a kick-in, corner or
+    /// free kick) until the restart is played. It is a wall for whoever moves the player, so a person
+    /// and a computer player are held alike.
     /// </summary>
-    private void KeepOutOfCentreCircle(PlayerState player)
+    private void KeepAwayFromRestart(PlayerState player)
     {
-        var nearest = State.Field.CenterCircleRadius + player.Radius;
-        var distance = player.Position.Length();
+        var nearest = _restartWallRadius + player.Radius;
+        var offset = player.Position - _restartWallSpot;
+        var distance = offset.Length();
         if (distance >= nearest)
         {
             return;
         }
 
-        var outward = distance > 0.0001f ? player.Position / distance : -FacingForTeam(player.Team).ToUnitVector();
-        player.Position = outward * nearest;
+        var outward = distance > 0.0001f ? offset / distance : -FacingForTeam(player.Team).ToUnitVector();
+        player.Position = _restartWallSpot + outward * nearest;
         var outwardSpeed = Vector2.Dot(player.Velocity, outward);
         if (outwardSpeed < 0f)
         {

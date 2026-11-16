@@ -103,6 +103,8 @@ var tests = new (string Name, Action Test)[]
     ("goal-line exit is a corner or a goal clearance by last touch", GoalLineExitIsCornerOrGoalClearance),
     ("stopped play resumes on its own with the clock held", StoppedPlayResumesOnItsOwnWithClockHeld),
     ("opponents are moved back from a kick-in", OpponentsAreMovedBackFromKickIn),
+    ("opponents stay five metres from a kick-in until it is played", OpponentsStayAwayFromKickInUntilPlayed),
+    ("a restart not played in four seconds goes to the other team", RestartNotPlayedInFourSecondsGoesToOtherTeam),
     ("button held through a stoppage does not kick on resume", ButtonHeldThroughStoppageDoesNotKickOnResume),
     ("unattended match keeps resuming after forced outs", UnattendedMatchKeepsResumingAfterForcedOuts),
     ("sliding player takes a restart on their feet", SlidingPlayerTakesRestartOnTheirFeet),
@@ -2880,6 +2882,110 @@ static void OpponentsAreMovedBackFromKickIn()
 
     StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + 1);
     Assert(taker.HasPossession, "A crowding opponent should not win the ball as play resumes.");
+}
+
+static void OpponentsStayAwayFromKickInUntilPlayed()
+{
+    // A person who waits on a kick-in keeps the ball for the whole count, then is open to a challenge.
+    var engine = PutBallOut(TeamSide.Away, new Vector2(3f, FieldDimensions.Default.Top - 1f));
+    var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    var state = engine.State;
+    var spot = state.LastEvent.Position;
+    var taker = state.Players.Single(player => player.HasPossession);
+    var away = state.Players.Where(player => player.Team == TeamSide.Away && !player.IsGoalkeeper).ToArray();
+    bool Crowded() => away.Any(player =>
+        Vector2.Distance(player.Position, spot) < engine.Tuning.RestartOpponentDistance + player.Radius - 0.001f);
+    for (var tick = 1; tick < engine.Tuning.RestartDelayTicks + engine.Tuning.RestartProtectionTicks; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        Assert(!Crowded(), $"Away should stay five metres from the kick-in (tick {tick}).");
+    }
+
+    Assert(taker.HasPossession, "A taker who waits should still have the ball until the count ends.");
+
+    // The wall holds a person too. Nobody moves Home in the first run, so its taker never plays the ball;
+    // in the second the computer taker plays it, and the person closes in long before the count would end.
+    foreach (var takerPlays in new[] { false, true })
+    {
+        engine = MatchEngine.CreateDefault(userControlledTeam: TeamSide.Away);
+        ClearPossession(engine);
+        engine.State.LastTouchTeam = TeamSide.Away;
+        engine.State.Ball.Position = new Vector2(3f, FieldDimensions.Default.Top - 1f);
+        engine.StepTick(PlayerInput.Empty);
+        computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+        state = engine.State;
+        spot = state.LastEvent.Position;
+        var entered = false;
+        for (var tick = 0; tick < engine.Tuning.RestartDelayTicks + 200 && !entered; tick++)
+        {
+            var person = state.Players.Single(player => player.Id == state.ActivePlayerId);
+            var input = new PlayerInput(Vector2.Normalize(spot - person.Position), ActionDown: !takerPlays && tick % 40 < 20);
+            if (takerPlays)
+            {
+                engine.StepTick(input, computers);
+            }
+            else
+            {
+                engine.StepTick(input);
+            }
+
+            entered = Vector2.Distance(person.Position, spot) < engine.Tuning.RestartOpponentDistance + person.Radius - 0.001f;
+        }
+
+        Assert(
+            entered == takerPlays,
+            takerPlays
+                ? "A person should be able to close in once the kick-in has been played."
+                : "A person's player should be held five metres off while the taker waits.");
+    }
+}
+
+static void RestartNotPlayedInFourSecondsGoesToOtherTeam()
+{
+    // Nobody moves anyone here, so no taker ever plays the ball.
+    static void WaitOutTheCount(MatchEngine engine)
+    {
+        StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + engine.Tuning.RestartProtectionTicks - 1);
+        Assert(engine.State.LastEvent.Type != MatchEventType.FourSeconds, "The count should not end early.");
+        engine.StepTick(PlayerInput.Empty);
+        Assert(
+            engine.State.IsBallOutOfPlay && engine.State.LastEvent.Type == MatchEventType.FourSeconds,
+            $"Four seconds without playing the ball should stop play, got {engine.State.LastEvent.Type}.");
+    }
+
+    var engine = PutBallOut(TeamSide.Away, new Vector2(3f, FieldDimensions.Default.Top - 1f));
+    var spot = engine.State.LastEvent.Position;
+    WaitOutTheCount(engine);
+    var taker = engine.State.Players.Single(player => player.HasPossession);
+    Assert(
+        engine.State.LastEvent is { Restart: RestartKind.KickIn, Team: TeamSide.Away } && taker.Team == TeamSide.Away,
+        "A kick-in not taken in time should become the other team's kick-in.");
+    Assert(engine.State.LastEvent.Position == spot && taker.Position == spot, "It is taken from the same spot.");
+    WaitOutTheCount(engine);
+    Assert(engine.State.LastEvent.Team == TeamSide.Home, "The count applies to the new taker as well.");
+
+    engine = PutBallOut(TeamSide.Home, new Vector2(FieldDimensions.Default.Left - 1f, 3f));
+    Assert(engine.State.LastEvent is { Restart: RestartKind.Corner, Team: TeamSide.Away }, "Expected a corner to Away.");
+    WaitOutTheCount(engine);
+    var keeper = engine.State.Players.Single(player => player.HasPossession);
+    Assert(
+        engine.State.LastEvent is { Restart: RestartKind.GoalClearance, Team: TeamSide.Home }
+            && keeper is { IsGoalkeeper: true, Team: TeamSide.Home },
+        "A corner not taken in time should become the defending team's goal clearance.");
+
+    var (foulEngine, _, carrier) = CreateSlideFromBehind(PhysicsTuning.Default, TeamSide.Away);
+    foulEngine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: true));
+    for (var tick = 0; tick < 8 && !foulEngine.State.IsBallOutOfPlay; tick++)
+    {
+        foulEngine.StepTick(PlayerInput.Empty);
+    }
+
+    Assert(foulEngine.State.LastEvent is { Restart: RestartKind.FreeKick, Team: TeamSide.Home }, "Expected a free kick to Home.");
+    Assert(carrier.Team == TeamSide.Home, "The fouled carrier is Home's.");
+    WaitOutTheCount(foulEngine);
+    Assert(
+        foulEngine.State.LastEvent is { Restart: RestartKind.FreeKick, Team: TeamSide.Away },
+        "A free kick not taken in time should become the other team's free kick.");
 }
 
 static void ButtonHeldThroughStoppageDoesNotKickOnResume()
