@@ -118,6 +118,7 @@ var tests = new (string Name, Action Test)[]
     ("a foul in the area is a penalty with everyone else behind the ball", FoulInAreaIsPenalty),
     ("the sixth foul of a half is a 10 m kick and the count starts again at half-time", SixthFoulOfHalfIsTenMetreKick),
     ("a computer taker shoots a penalty and a 10 m kick in time", ComputerTakerShootsSpotKicksInTime),
+    ("the second half is seen from the other end", SecondHalfIsSeenFromTheOtherEnd),
     ("computer presser does not slide through a carrier's back", ComputerPresserDoesNotSlideThroughCarriersBack),
     ("releasing the button without the ball does not steal it", ReleasingButtonWithoutBallDoesNotStealIt),
     ("touches give a stick and one button", TouchesGiveStickAndOneButton),
@@ -144,6 +145,7 @@ var tests = new (string Name, Action Test)[]
 };
 
 // "matches [count] [firstSeed] [equal] [home=half|up] [away=half|up] [home-up=metres] [away-up=metres] [home-behind=up] [home-ahead=half] ..." plays unattended matches instead of the scenarios.
+
 if (args.FirstOrDefault() == "matches")
 {
     var count = args.Length > 1 ? int.Parse(args[1]) : 100;
@@ -3194,20 +3196,35 @@ static void OtherTeamWaitsOutsideCentreCircleAtKickoff()
 
 static void TapAtKickoffReachesTeamMate()
 {
-    var engine = MatchEngine.CreateDefault(startWithKickoff: true);
-    var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
-    var state = engine.State;
-    var taker = state.Players.Single(player => player.HasPossession);
-    PlayerState? receiver = null;
-    for (var tick = 0; tick < 120 && receiver is null; tick++)
+    // The stick pushed forward carries the ball; it is not left behind or knocked to the other team.
+    var carried = MatchEngine.CreateDefault(startWithKickoff: true);
+    var carrier = carried.State.Players.Single(player => player.HasPossession);
+    for (var tick = 0; tick < 20; tick++)
     {
-        engine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: tick is >= 20 and < 23), computers);
-        receiver = state.Players.SingleOrDefault(player => player.HasPossession && player.Id != taker.Id);
+        carried.StepTick(new PlayerInput(Vector2.UnitX, ActionDown: false));
+        Assert(carrier.HasPossession, $"The kickoff taker should keep the ball when the stick is pushed forward (tick {tick}).");
     }
 
-    Assert(
-        receiver is { Team: TeamSide.Home },
-        $"A tap with no direction at the kickoff should reach a team-mate, not {receiver?.Team.ToString() ?? "nobody"}.");
+    Assert(carried.State.Ball.Position.X > 1f, "The stick pushed forward at the kickoff should carry the ball forward.");
+
+    // Every team-mate is behind the taker, whatever the stick says.
+    foreach (var stick in new[] { Vector2.Zero, Vector2.UnitX, -Vector2.UnitX, Vector2.UnitY })
+    {
+        var engine = MatchEngine.CreateDefault(startWithKickoff: true);
+        var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+        var state = engine.State;
+        var taker = state.Players.Single(player => player.HasPossession);
+        PlayerState? receiver = null;
+        for (var tick = 0; tick < 120 && receiver is null; tick++)
+        {
+            engine.StepTick(new PlayerInput(tick < 23 ? stick : Vector2.Zero, ActionDown: tick is >= 20 and < 23), computers);
+            receiver = state.Players.SingleOrDefault(player => player.HasPossession && player.Id != taker.Id);
+        }
+
+        Assert(
+            receiver is { Team: TeamSide.Home },
+            $"A tap at the kickoff with the stick at {stick} should reach a team-mate, not {receiver?.Team.ToString() ?? "nobody"}.");
+    }
 }
 
 static void KickoffTakerStandsOverTheBallAndKeepsIt()
@@ -4441,6 +4458,55 @@ static float ProjectedYAtX(BallState ball, float targetX)
     Assert(MathF.Abs(ball.Velocity.X) > 0.0001f, "The test shot must travel toward a goal line.");
     var ticksToTarget = (targetX - ball.Position.X) / ball.Velocity.X;
     return ball.Position.Y + ball.Velocity.Y * ticksToTarget;
+}
+
+static void SecondHalfIsSeenFromTheOtherEnd()
+{
+    var tuning = PhysicsTuning.Default with { HalfLengthSeconds = 1f };
+    var engine = MatchEngine.CreateDefault(tuning);
+    var first = engine.CurrentSnapshot;
+    Assert(!first.EndsChanged, "The first half should be seen as it is simulated.");
+    var halfTicks = (int)MathF.Round(tuning.HalfLengthSeconds / tuning.TickSeconds);
+    for (var tick = 0; tick <= halfTicks; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty);
+    }
+
+    var second = engine.CurrentSnapshot;
+    Assert(second.Period == 2 && second.EndsChanged, "Teams should change ends for the second half.");
+
+    var turned = second.TurnedAround();
+    var keeper = second.Players.First(player => player.Team == TeamSide.Home && player.Role == PlayerRole.Goalkeeper);
+    var turnedKeeper = turned.Players.Single(player => player.Id == keeper.Id);
+    Assert(keeper.Position.X < 0f && turnedKeeper.Position.X > 0f, "After the turn Home should defend the east goal.");
+    Assert(
+        Vector2.Distance(turnedKeeper.Facing.ToUnitVector(), -keeper.Facing.ToUnitVector()) < 0.001f,
+        "A turned player should face the opposite way.");
+    Assert(turned.Ball.Position == -second.Ball.Position, "The ball should turn with the court.");
+    Assert(turned.LastEvent.Position == -second.LastEvent.Position, "The restart spot should turn with the court.");
+    Assert(turned.HomeScore == second.HomeScore && turned.Tick == second.Tick, "A turn should change nothing but directions.");
+
+    Assert(first.AsSeen() == first && first.FromScreen(new PlayerInput(Vector2.UnitX, false)).Move == Vector2.UnitX, "Nothing should turn in the first half.");
+
+    // A stick pushed right on the screen moves the person's player right on the screen in both halves.
+    engine.ResumeFromRestart();
+    var before = engine.CurrentSnapshot.AsSeen().ActivePlayer.Position;
+    for (var tick = 0; tick < 30; tick++)
+    {
+        engine.StepTick(engine.CurrentSnapshot.FromScreen(new PlayerInput(Vector2.UnitX, ActionDown: false)));
+    }
+
+    var after = engine.CurrentSnapshot.AsSeen().ActivePlayer.Position;
+    Assert(engine.CurrentSnapshot.Period == 2 && after.X > before.X + 1f, $"A stick pushed right in the second half should move the player right as seen, not from {before.X} to {after.X}.");
+
+    var back = turned.TurnedAround();
+    for (var index = 0; index < second.Players.Count; index++)
+    {
+        Assert(
+            Vector2.Distance(back.Players[index].Position, second.Players[index].Position) < 0.0001f
+                && MathF.Abs(back.Players[index].Facing.NormalizedDegrees - second.Players[index].Facing.NormalizedDegrees) < 0.01f,
+            "Turning twice should give the same view back.");
+    }
 }
 
 static void Assert(bool condition, string message)
