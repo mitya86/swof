@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+using Microsoft.Xna.Framework.Input.Touch;
 using Swof.Engine;
 using Swof.Engine.AI;
 using NumericsVector2 = System.Numerics.Vector2;
@@ -117,6 +118,13 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             HardwareModeSwitch = false
         };
 
+        if (OperatingSystem.IsAndroid())
+        {
+            // A phone has no window: the game fills the screen, on its side.
+            _graphics.IsFullScreen = true;
+            _graphics.SupportedOrientations = DisplayOrientation.LandscapeLeft | DisplayOrientation.LandscapeRight;
+        }
+
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
         // Let VSync present at the display refresh rate. The engine keeps its own fixed-step
@@ -127,8 +135,12 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
 
     protected override void Initialize()
     {
-        Window.Title = Product.Name;
-        Window.AllowUserResizing = true;
+        if (!OperatingSystem.IsAndroid())
+        {
+            Window.Title = Product.Name;
+            Window.AllowUserResizing = true;
+        }
+
         if (_demoAction == MatchDemoAction.None)
         {
             SetNotice("Both teams active: support runs and structured marking", 4.5d);
@@ -339,8 +351,6 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         base.OnActivated(sender, args);
     }
 
-    // ponytail: the left mouse button stands in for one finger, so stick and button cannot be held together
-    // with the mouse alone (use it with the keyboard). Read TouchPanel here once there is a touch device to try.
     /// <summary>Writes what was just drawn to a PNG, so a layout can be looked at without anyone at the screen.</summary>
     private void SaveFrameAndExit(string path)
     {
@@ -355,6 +365,9 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         Exit();
     }
 
+    // No touchscreen gives a finger this id.
+    private const int MouseTouchId = -1;
+
     private TouchPoint[] ReadTouches()
     {
         if (_script.Count > 0)
@@ -365,12 +378,20 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
                 .ToArray();
         }
 
+        // Fingers on a touchscreen, each with the id the screen gave it for as long as it stays down.
+        var touches = TouchPanel.GetState()
+            .Where(touch => touch.State is TouchLocationState.Pressed or TouchLocationState.Moved)
+            .Select(touch => new TouchPoint(touch.Id, new NumericsVector2(touch.Position.X, touch.Position.Y)))
+            .ToList();
+
+        // The left mouse button is one more finger, for trying the touch controls at a desk.
         var mouse = Mouse.GetState();
-        return IsActive
-            && mouse.LeftButton == ButtonState.Pressed
-            && GraphicsDevice.Viewport.Bounds.Contains(mouse.Position)
-                ? [new TouchPoint(0, new NumericsVector2(mouse.X, mouse.Y))]
-                : [];
+        if (IsActive && mouse.LeftButton == ButtonState.Pressed && GraphicsDevice.Viewport.Bounds.Contains(mouse.Position))
+        {
+            touches.Add(new TouchPoint(MouseTouchId, new NumericsVector2(mouse.X, mouse.Y)));
+        }
+
+        return [.. touches];
     }
 
     private NumericsVector2 ScreenSize()
