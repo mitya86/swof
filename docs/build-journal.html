@@ -72,7 +72,7 @@ td.num, th.num { text-align: right; }
       <div class="row"><strong>2. Touch</strong><span class="state part">builds, never run on a device</span><p>The game reads real fingers and CI packages it as an Android app on every change. Nobody has installed that package on a phone. What a phone will show first is in the entry below.</p></div>
       <div class="row"><strong>3. Tactics as data</strong><span class="state done">closed for this run</span><p>Three defensive tactics, chosen from the pause menu, and a coach for a computer team that changes its tactic by the score. The coach is off until the difficulty choice turns it on. A fix for two waiting teams was tried once and decided against.</p></div>
       <div class="row"><strong>4. Product shell</strong><span class="state done">closed for this run</span><p>A start screen, three difficulty levels, a pause menu with a way out, and a result at full time. The whole flow lives in the engine with scenarios, so new graphics only replace the drawing. No settings, no team choice, nothing saved between launches.</p></div>
-      <div class="row"><strong>5. Release preparation</strong><span class="state todo">not started</span><p>Ends, for this run, at packaged builds that CI can reproduce.</p></div>
+      <div class="row"><strong>5. Release preparation</strong><span class="state done">packaged builds from CI</span><p>Every change to main produces four downloads: Windows, macOS, Linux and Android. Signing, store listings and a public release are the owner's and were not touched.</p></div>
     </div>
   </section>
 
@@ -89,6 +89,50 @@ td.num, th.num { text-align: right; }
   <section class="entries">
     <h2>Entries, newest first</h2>
     <!-- NEW-ENTRIES-HERE -->
+    <article class="entry">
+      <header>
+        <div class="meta"><span class="label">16 Nov 2026</span><span class="tag">Milestone 5</span><span class="label">pull request 38</span></div>
+        <h3>A folder you can hand to someone, built the same way every time</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The idea</p>
+        <p>Until now the game ran only from its source code, on a machine with the .NET kit installed. A player has neither. A packaged build is the game as a player receives it: one folder holding the program, its three content files and the .NET runtime itself, so nothing has to be installed first. "Reproducible from CI" means no person builds it by hand: a build machine makes it from a named commit, the same way each time, and anyone can download the result.</p>
+      </div>
+      <div class="part-block">
+        <p class="label">What was built</p>
+        <ul>
+          <li><strong>A second workflow, Package.</strong> On every change to main (and on demand) it publishes the game three times, for Windows, macOS on Apple chips, and Linux, and stores each as a download named after the system and the commit.</li>
+          <li><strong>The Android package</strong> already comes from the build added in the last entry. Together that is four downloads for each commit on main.</li>
+        </ul>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Download</th><th>Size</th><th>Checked</th></tr></thead>
+          <tbody>
+            <tr><td>Windows, 64-bit</td><td>36 MB</td><td>listed: program and three content files present</td></tr>
+            <tr><td>macOS, Apple chips</td><td>34 MB</td><td>listed, then started here: it drew the start screen</td></tr>
+            <tr><td>Linux, 64-bit</td><td>36 MB</td><td>listed: program is marked runnable</td></tr>
+            <tr><td>Android</td><td>11 MB</td><td>listed in the last entry; never installed</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>The runtime travels inside the folder.</strong> It triples the size, and in exchange the player installs nothing. For a first hand-out to testers, "unpack and run" is worth 25 MB.</li>
+          <li><strong>The Linux folder is made on a Mac build machine.</strong> Building the game's font file needs Arial, which Linux build machines do not have. Any system can publish for any other, so the Linux folder comes from the machine that has the font. The font itself is one of the things the graphics rework should replace with one the project may ship.</li>
+          <li><strong>Packed as a tar file.</strong> The download store's own zip forgets which file is the program, and on macOS and Linux a program that has lost that mark will not start. A tar file keeps it.</li>
+          <li><strong>Stopped before anything in the owner's name.</strong> No signing, no notarizing, no store listing, no public release page. Each needs an account, an identity or a licence that only the owner can accept, and a name that is not final yet.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised</p>
+        <ul>
+          <li>The Windows and Linux folders were never started, only listed.</li>
+          <li>The macOS folder is not signed or notarized and is not an app bundle. Fetched through a browser, macOS will refuse to open it until the owner allows it by hand. It started here because the command-line download does not carry that mark.</li>
+          <li>There is no Intel Mac build and no iPhone build.</li>
+          <li>No icon, version number or installer work was done beyond what was already there.</li>
+        </ul>
+      </div>
+    </article>
 
     <article class="entry">
       <header>
