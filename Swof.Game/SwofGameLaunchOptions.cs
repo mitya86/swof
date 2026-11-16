@@ -7,7 +7,7 @@ internal sealed record SwofGameLaunchOptions(
     MatchDemoAction DemoAction,
     TeamTactic OpponentTactic,
     TeamTactic TeamTactic,
-    bool OpponentFollowsScore,
+    bool OpponentCoach,
     bool StartPaused = false,
     string? CapturePath = null)
 {
@@ -22,7 +22,7 @@ internal sealed record SwofGameLaunchOptions(
         MatchDemoAction.None,
         TeamTactic.HighPress,
         TeamTactic.HighPress,
-        OpponentFollowsScore: false);
+        OpponentCoach: false);
 
     public static SwofGameLaunchOptions Parse(IEnumerable<string> arguments)
     {
@@ -30,7 +30,7 @@ internal sealed record SwofGameLaunchOptions(
         var demoAction = MatchDemoAction.None;
         var opponentTactic = TeamTactic.HighPress;
         var teamTactic = TeamTactic.HighPress;
-        var opponentFollowsScore = false;
+        var opponentCoach = false;
         var startPaused = false;
         string? capturePath = null;
         var captureAfterSeconds = 2d;
@@ -68,9 +68,9 @@ internal sealed record SwofGameLaunchOptions(
             {
                 opponentTactic = ParseTactic(argument["--opponent-tactic=".Length..]);
             }
-            else if (argument.Equals("--opponent-follows-score", StringComparison.OrdinalIgnoreCase))
+            else if (argument.Equals("--opponent-coach", StringComparison.OrdinalIgnoreCase))
             {
-                opponentFollowsScore = true;
+                opponentCoach = true;
             }
             else if (argument.StartsWith("--capture=", StringComparison.OrdinalIgnoreCase))
             {
@@ -86,7 +86,7 @@ internal sealed record SwofGameLaunchOptions(
             }
         }
 
-        return new SwofGameLaunchOptions(feedbackMode, demoAction, opponentTactic, teamTactic, opponentFollowsScore, startPaused, capturePath)
+        return new SwofGameLaunchOptions(feedbackMode, demoAction, opponentTactic, teamTactic, opponentCoach, startPaused, capturePath)
         {
             CaptureAfterSeconds = captureAfterSeconds,
             Script = script

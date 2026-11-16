@@ -33,7 +33,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private TeamTactic _teamTactic;
     private IReadOnlyList<TouchPoint> _remainingTouches = [];
     private readonly string? _capturePath;
-    private readonly bool _opponentFollowsScore;
+    private readonly bool _opponentCoach;
     private MatchRenderer? _renderer;
     private MatchFeedbackPlayer? _feedbackPlayer;
     private SpriteFont? _font;
@@ -76,10 +76,10 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
         _computerPlayers.SetTactic(TeamSide.Away, _opponentTactic);
         _computerPlayers.SetTactic(TeamSide.Home, _teamTactic);
-        if (_opponentFollowsScore)
+        if (_opponentCoach)
         {
             // ponytail: the match length is read once here; reloading the tuning with F1 mid-match leaves the rule on the old length.
-            _computerPlayers.SetTacticByScore(TeamSide.Away, TacticByScore.ChaseAndHold(tuning.HalfLengthSeconds * 2f));
+            _computerPlayers.SetCoach(TeamSide.Away, new Coach(TeamSide.Away, TacticByScore.ChaseAndHold(tuning.HalfLengthSeconds * 2f)));
         }
     }
 
@@ -88,7 +88,7 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         launchOptions ??= SwofGameLaunchOptions.Default;
         _opponentTactic = launchOptions.OpponentTactic;
         _teamTactic = launchOptions.TeamTactic;
-        _opponentFollowsScore = launchOptions.OpponentFollowsScore;
+        _opponentCoach = launchOptions.OpponentCoach;
         StartMatch();
         _demoAction = launchOptions.DemoAction;
         _capturePath = launchOptions.CapturePath;
