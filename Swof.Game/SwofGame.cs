@@ -267,6 +267,9 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             input = AddTouchInput(input);
         }
 
+        // The view is turned in the second half, so the stick is turned with it.
+        input = _engine.CurrentSnapshot.FromScreen(input);
+
         if (!_pauseMenu.IsOpen)
         {
             _inputBuffer.Capture(input);
@@ -294,7 +297,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         }
 
         UpdateFramesPerSecond(gameTime);
-        var snapshot = _engine.GetRenderSnapshot();
+        var snapshot = _engine.GetRenderSnapshot().AsSeen();
+
         var active = _engine.State.ActivePlayer;
         var ballOwner = snapshot.Ball.PossessorId is int possessorId ? $"P{possessorId}" : "loose";
         var primaryStatus =

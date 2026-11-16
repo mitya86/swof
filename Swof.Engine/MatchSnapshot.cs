@@ -26,6 +26,21 @@ public sealed record MatchSnapshot(
     /// <summary>The foul rule for slides that the engine applies.</summary>
     public SlideFoulRule SlideFoul { get; init; } = SlideFoulRule.Off;
 
+    /// <summary>Teams change ends at half-time, so the second half is seen from the other side.</summary>
+    public bool EndsChanged => Period % 2 == 0;
+
+    /// <summary>The match as the person sees it: turned around once the teams have changed ends.</summary>
+    public MatchSnapshot AsSeen()
+    {
+        return EndsChanged ? TurnedAround() : this;
+    }
+
+    /// <summary>Turns a stick read on the screen into the simulation's directions, so up on the screen stays up.</summary>
+    public PlayerInput FromScreen(PlayerInput input)
+    {
+        return EndsChanged ? input with { Move = -input.Move } : input;
+    }
+
     public PlayerSnapshot ActivePlayer => Players.Single(player => player.Id == ActivePlayerId);
 
     public static MatchSnapshot FromState(MatchState state)
@@ -90,6 +105,33 @@ public sealed record MatchSnapshot(
             Ball = BallSnapshot.Interpolate(from.Ball, to.Ball, alpha),
             ClockSeconds = Lerp(from.ClockSeconds, to.ClockSeconds, alpha)
         };
+    }
+
+    /// <summary>
+    /// The same moment seen from the other side of the court. The court is symmetric, so changing ends is a
+    /// half turn of the view: the simulation keeps Home defending the west goal for the whole match.
+    /// </summary>
+    public MatchSnapshot TurnedAround()
+    {
+        return this with
+        {
+            Players = Players
+                .Select(player => player with { Position = -player.Position, Velocity = -player.Velocity, Facing = Turned(player.Facing) })
+                .ToArray(),
+            Officials = Officials
+                .Select(official => official with { Position = -official.Position, Velocity = -official.Velocity, Facing = Turned(official.Facing) })
+                .ToArray(),
+            Ball = Ball with { Position = -Ball.Position, Velocity = -Ball.Velocity },
+            LastEvent = LastEvent with { Position = -LastEvent.Position },
+            FeedbackEvents = FeedbackEvents
+                .Select(feedback => feedback with { Position = -feedback.Position, Direction = -feedback.Direction })
+                .ToArray()
+        };
+    }
+
+    private static Azimuth Turned(Azimuth facing)
+    {
+        return new Azimuth((facing.NormalizedDegrees + 180f) % 360f);
     }
 
     private static float Lerp(float from, float to, float alpha)
