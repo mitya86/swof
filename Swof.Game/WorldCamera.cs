@@ -8,7 +8,7 @@ internal readonly record struct WorldCamera(float Left, float Right, float Top, 
 {
     public const float BoundaryMargin = 3f;
 
-    private const float VisibleCourtLengthRatio = 0.7f;
+    private const float VisibleCourtLengthRatio = 0.5f;
     private const float BallWeight = 0.72f;
     private const float FocusPadding = 2.25f;
     private const float LookaheadTicks = 14f;

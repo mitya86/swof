@@ -2,7 +2,7 @@ namespace Swof.Engine;
 
 public sealed record PhysicsTuning
 {
-    public const int CurrentProfileVersion = 3;
+    public const int CurrentProfileVersion = 4;
 
     public static PhysicsTuning Default { get; } = new();
 
@@ -20,13 +20,21 @@ public sealed record PhysicsTuning
     /// <summary>Maximum velocity change when reversing against the current run direction.</summary>
     public float PlayerReverseAccelerationPerTick { get; init; } = 0.085f;
     public float PlayerDecelerationPerTick { get; init; } = 0.09f;
-    public float PlayerRadius { get; init; } = 1.05f;
+    /// <summary>Half the width of a player's body. It is what is drawn and what stops at the boards; reaching the ball adds FootReach.</summary>
+    public float PlayerRadius { get; init; } = 0.53f;
+    /// <summary>
+    /// How far past the two bodies touching a player's feet reach the ball. Collecting, dribbling, the standing
+    /// contest and the slide all add it, so a smaller number makes every one of them need a closer approach.
+    /// </summary>
+    public float FootReach { get; init; } = 0.73f;
     /// <summary>Maximum goalkeeper travel speed while the AI guards its goal.</summary>
     public float GoalkeeperMaxSpeedPerTick { get; init; } = 12f / 60f;
     /// <summary>Maximum goalkeeper velocity change per simulation tick.</summary>
     public float GoalkeeperAccelerationPerTick { get; init; } = 75f / (60f * 60f);
     /// <summary>Resting distance between a goalkeeper and the defended goal line.</summary>
     public float GoalkeeperGoalLineOffset { get; init; } = 1.4f;
+    /// <summary>Closest a goalkeeper stands to its own goal line. Deeper than this it saves more than a body that size should.</summary>
+    public float GoalkeeperMinLineDistance { get; init; } = 1.05f;
     /// <summary>Furthest distance a goalkeeper AI may advance from its goal line. Kept inside the penalty area, where it can use its hands.</summary>
     public float GoalkeeperMaxAdvanceDistance { get; init; } = 4.5f;
     /// <summary>Ball distance from goal at which the goalkeeper has fully retreated to its resting depth.</summary>
@@ -74,7 +82,7 @@ public sealed record PhysicsTuning
     /// A taker on a line stands a body inside it with the ball at its feet, about 2.3 m from the spot.
     /// </summary>
     public float RestartPlayedDistance { get; init; } = 3.5f;
-    public float BallRadius { get; init; } = 0.42f;
+    public float BallRadius { get; init; } = 0.21f;
     public float BallFrictionPerTick { get; init; } = 5.2f / (60f * 60f);
     public float MinBallSpeedPerTick { get; init; } = 0.03f / 60f;
     public float BallGravityPerTick { get; init; } = 46f / (60f * 60f);
