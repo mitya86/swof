@@ -33,7 +33,7 @@ public sealed record PhysicsTuning
     public float GoalkeeperAccelerationPerTick { get; init; } = 75f / (60f * 60f);
     /// <summary>Resting distance between a goalkeeper and the defended goal line.</summary>
     public float GoalkeeperGoalLineOffset { get; init; } = 1.4f;
-    /// <summary>Closest a goalkeeper stands to its own goal line. Deeper than this it saves more than a body that size should.</summary>
+    /// <summary>Closest a goalkeeper stands to its own goal line. The distance its body allowed when bodies were twice the size; nearer the line, measured goals fall.</summary>
     public float GoalkeeperMinLineDistance { get; init; } = 1.05f;
     /// <summary>Furthest distance a goalkeeper AI may advance from its goal line. Kept inside the penalty area, where it can use its hands.</summary>
     public float GoalkeeperMaxAdvanceDistance { get; init; } = 4.5f;
