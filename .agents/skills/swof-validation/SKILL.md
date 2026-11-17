@@ -19,6 +19,7 @@ tools/check.sh fast "tackle"  # only scenarios whose name contains the filter
 tools/check.sh full           # fast + MonoGame host build + format verification
 tools/check.sh matches        # 100 unattended computer-versus-computer matches (liveness, plus the match-shape pass marks in MatchRunner.FailedMarks)
 tools/check.sh matches 100 1 equal   # identical squads: adds the balance pass marks
+tools/check.sh diff           # the same 100 matches on main and on this working tree; any difference fails
 ```
 
 On Windows, the PowerShell script additionally builds the whole solution (including the WPF host) and has the startup smoke mode:
@@ -42,7 +43,7 @@ On Windows, the PowerShell script additionally builds the whole solution (includ
 - `NU1900` can be unreachable vulnerability metadata; report it, but distinguish a warning from a compiler failure.
 - Missing `mgcb` after `--no-restore` means the local MonoGame tool may need `dotnet tool restore --tool-manifest Swof.Game\.config\dotnet-tools.json`.
 - On macOS/Linux the start-up smoke is `mise exec dotnet@10 -- perl -e 'alarm 8; exec @ARGV' Swof.Game/bin/Debug/net10.0/Swof.Game` after a build (exit 142 means it was still running). Do not put the alarm around `dotnet run`: it kills the wrapper and leaves the game window open.
-- Run from an agent session with no visible window, that smoke stops after one drawn frame (vertical sync never arrives), so it proves start-up and one frame only. To see a frame, add `--capture=/absolute/path.png`: the game runs two seconds with vertical sync off, writes the frame and exits 0; open the PNG to check layout. Combine with `--start-paused` for the pause menu.
+- Run from an agent session with no visible window, that smoke stops after one drawn frame (vertical sync never arrives), so it proves start-up and one frame only. To see a frame, add `--capture=/absolute/path.png`: the game runs two seconds with vertical sync off, writes the frame and exits 0; open the PNG to check layout. Combine with `--start-paused` for the pause menu. To reach a screen by input, add `--script=from-to:Key,...` (or `from-to:XxY` touches as fractions of the screen) and `--capture-after=<seconds>`; with a script the real keyboard and mouse are ignored.
 - A build or eight-second smoke cannot prove that motion is smooth, tempo is readable, or touch feels good. Mark those as awaiting play confirmation.
 - If changed defaults appear ignored, inspect the loaded profile, `SWOF/physics-tuning.json` under the OS local application-data folder (`%LOCALAPPDATA%` on Windows), and `PhysicsTuning.CurrentProfileVersion`.
 

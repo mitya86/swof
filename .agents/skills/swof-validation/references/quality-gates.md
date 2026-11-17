@@ -47,6 +47,9 @@ dotnet run --project Swof.Game\Swof.Game.csproj --no-build -- --feedback=arcade 
 | Change | Required evidence |
 | --- | --- |
 | Engine physics, controls, rules | Focused deterministic scenarios, full checks |
+| Refactor, rename, renderer or docs change meant not to alter play | `tools/check.sh diff main` shows no difference |
+| Any gameplay change | `matches`, `matches 100 1 equal`, and `diff main` to name the seeds that moved |
+| The gates themselves | Shown to fail on a deliberately broken tree as well as pass on a good one; see `REVIEW.md` |
 | AI pattern/instruction/tactics | Positive, negative, competition, deterministic tie, human-slot scenarios; full checks; live two-team play |
 | Possession or active-player handoff | Both-team transitions, passes, interception/tackle/GK collection, camera/marker play check |
 | Renderer, camera, content | Full checks, captured-stderr smoke, hands-on visual confirmation |

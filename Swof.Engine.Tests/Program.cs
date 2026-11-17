@@ -149,7 +149,9 @@ var tests = new (string Name, Action Test)[]
     ("the pause menu changes the tactic and leaves the match", PauseMenuChangesTacticAndLeavesMatch),
     ("full time shows the result and waits before a new match", FullTimeShowsResultAndWaits),
     ("a touch on Play starts the match and stays the menu's", TouchOnPlayStartsMatchAndStaysMenus),
-    ("an easier opponent is slower and a harder one is better led", DifficultyChangesOpponentOnly)
+    ("an easier opponent is slower and a harder one is better led", DifficultyChangesOpponentOnly),
+    ("controls worked at random never break a match", RandomControlsNeverBreakAMatch),
+    ("the match runner notices a broken rule", MatchRunnerNoticesABrokenRule)
 };
 
 // "matches [count] [firstSeed] [equal] [home=half|up] [away=half|up] [home-up=metres] [away-up=metres] [home-behind=up] [home-ahead=half] [home-coach] ..." plays unattended matches instead of the scenarios.
@@ -2783,6 +2785,35 @@ static void ScriptedMatchWithLiveAiReplaysIdentically()
 // ponytail: compares two runs in one process, so it catches hidden state and
 // randomness but not cross-CPU float drift. Pin a golden fingerprint once CI
 // logs show Linux, Windows and macOS agree.
+static void RandomControlsNeverBreakAMatch()
+{
+    // Short halves keep the fast gate fast; "matches" replays ten full ones the same way.
+    foreach (var seed in Enumerable.Range(1, 4))
+    {
+        var result = MatchRunner.Play(seed, halfLengthSeconds: 30f, userControlledTeam: TeamSide.Home, randomPersonSeed: seed);
+        Assert(result.Fault is null, $"Seed {seed} with random controls broke: {result.Fault}");
+    }
+}
+
+static void MatchRunnerNoticesABrokenRule()
+{
+    var engine = MatchEngine.CreateDefault();
+    engine.StepTick(PlayerInput.Empty);
+    var state = engine.State;
+    var before = (state.Tick - 1, state.HomeScore, state.AwayScore, state.Period);
+    Assert(MatchRunner.BrokenRule(state, before) is null, "One ordinary tick should keep every rule.");
+    Assert(MatchRunner.BrokenRule(state, before with { Item1 = state.Tick - 2 }) is not null, "A skipped tick should be noticed.");
+    Assert(MatchRunner.BrokenRule(state, before with { Item2 = state.HomeScore + 1 }) is not null, "A score going down should be noticed.");
+
+    state.Players[0].HasPossession = true;
+    state.Players[1].HasPossession = true;
+    Assert(MatchRunner.BrokenRule(state, before) is not null, "Two players on the ball should be noticed.");
+    state.Players[1].HasPossession = false;
+
+    state.Ball.Velocity = new Vector2(float.NaN, 0f);
+    Assert(MatchRunner.BrokenRule(state, before) is not null, "A speed that is not a number should be noticed.");
+}
+
 static string RunScriptedMatch(int ticks)
 {
     var engine = MatchEngine.CreateDefault();

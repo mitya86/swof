@@ -63,7 +63,8 @@ internal static class MatchRunner
         bool awayCoach = false,
         byte awaySpeed = 0,
         byte awayTechnique = 0,
-        Difficulty? awayDifficulty = null)
+        Difficulty? awayDifficulty = null,
+        int? randomPersonSeed = null)
     {
         var random = new Random(seed);
         // 4 to 15 is the range the default squads already use.
@@ -126,6 +127,13 @@ internal static class MatchRunner
 
         var state = engine.State;
         var nobody = new Dictionary<int, PlayerInput>();
+        // A person working the controls at random: the stick held one way, or let go, for a
+        // while; the button tapped, held or left alone. It steers whichever player the engine
+        // gives the user team, so switching, kickoffs and restarts all meet a real input.
+        var person = randomPersonSeed is { } personSeed ? new Random(personSeed) : null;
+        var stick = System.Numerics.Vector2.Zero;
+        var button = false;
+        int stickFor = 0, buttonFor = 0;
         // Stoppages add to the clock; three times the playing time is far beyond any real match.
         var tickCap = (long)(tuning.HalfLengthSeconds * 2f * 3f / tuning.TickSeconds);
 
@@ -156,7 +164,27 @@ internal static class MatchRunner
 
         while (!state.IsMatchOver && fault is null)
         {
-            engine.StepTick(computers.CreateControlFrame(engine.CurrentSnapshot, nobody));
+            var before = (state.Tick, state.HomeScore, state.AwayScore, state.Period);
+            var inputs = nobody;
+            if (person is not null)
+            {
+                if (--stickFor <= 0)
+                {
+                    stickFor = person.Next(5, 60);
+                    var angle = person.NextSingle() * MathF.Tau;
+                    stick = person.Next(5) == 0 ? System.Numerics.Vector2.Zero : new System.Numerics.Vector2(MathF.Cos(angle), MathF.Sin(angle));
+                }
+
+                if (--buttonFor <= 0)
+                {
+                    button = !button;
+                    buttonFor = !button ? person.Next(1, 90) : person.Next(2) == 0 ? person.Next(1, 5) : person.Next(5, 70);
+                }
+
+                inputs = new Dictionary<int, PlayerInput> { [state.ActivePlayerId] = new PlayerInput(stick, button) };
+            }
+
+            engine.StepTick(computers.CreateControlFrame(engine.CurrentSnapshot, inputs));
 
             // Feedback events are the engine's own record of a struck ball.
             foreach (var feedback in state.FeedbackEvents.Where(e => e.Sequence > lastFeedback))
@@ -281,6 +309,8 @@ internal static class MatchRunner
             {
                 fault = $"no full time after {tickCap} ticks";
             }
+
+            fault ??= BrokenRule(state, before);
         }
 
         return new MatchResult(
@@ -383,17 +413,18 @@ internal static class MatchRunner
 
         // Every real match has Home as the person's team, which switches the active player and
         // makes Home's goalkeeper wait. Those paths must still finish a match, so a few seeds
-        // are replayed that way; they lean toward Away and stay out of the figures above.
+        // are replayed that way, with the controls worked at random; they stay out of the
+        // figures above.
         var withUserTeam = Enumerable.Range(firstSeed, Math.Min(count, 10))
-            .Select(seed => Play(seed, equalSquads: equalSquads, userControlledTeam: TeamSide.Home))
+            .Select(seed => Play(seed, equalSquads: equalSquads, userControlledTeam: TeamSide.Home, randomPersonSeed: seed))
             .ToArray();
         foreach (var r in withUserTeam.Where(r => r.Fault is not null))
         {
-            Console.WriteLine($"FAIL seed {r.Seed,4} with Home as the user team  {r.Fault}");
+            Console.WriteLine($"FAIL seed {r.Seed,4} with Home worked at random  {r.Fault}");
         }
 
         var broken = results.Concat(withUserTeam).Count(r => r.Fault is not null);
-        Console.WriteLine(broken == 0 ? $"All {count} matches reached full time, and {withUserTeam.Length} more with Home as the user team." : $"{broken} of {count + withUserTeam.Length} matches broke.");
+        Console.WriteLine(broken == 0 ? $"All {count} matches reached full time, and {withUserTeam.Length} more with Home's controls worked at random." : $"{broken} of {count + withUserTeam.Length} matches broke.");
         return broken + FailedMarks(results, equalSquads);
     }
 
@@ -437,6 +468,42 @@ internal static class MatchRunner
         Console.WriteLine($"{marks.Count(m => m.Met)} of {marks.Count} pass marks met.");
         return marks.Count(m => !m.Met);
     }
+
+    /// <summary>
+    /// Rules every tick of every match must keep, whatever the players do. A broken one is a
+    /// fault even when the match still reaches full time.
+    /// </summary>
+    internal static string? BrokenRule(MatchState state, (long Tick, int Home, int Away, int Period) before)
+    {
+        if (state.Tick != before.Tick + 1)
+        {
+            return $"the clock went from tick {before.Tick} to {state.Tick}";
+        }
+
+        if (state.HomeScore < before.Home || state.AwayScore < before.Away || state.HomeScore + state.AwayScore > before.Home + before.Away + 1)
+        {
+            return $"the score went from {before.Home}-{before.Away} to {state.HomeScore}-{state.AwayScore} at tick {state.Tick}";
+        }
+
+        if (state.Period < before.Period)
+        {
+            return $"the period went back from {before.Period} to {state.Period} at tick {state.Tick}";
+        }
+
+        if (state.Players.Count(player => player.HasPossession) > 1)
+        {
+            return $"two players had the ball at tick {state.Tick}";
+        }
+
+        if (state.Players.Any(player => !Finite(player.Velocity)) || !Finite(state.Ball.Velocity) || !float.IsFinite(state.Ball.Height) || !float.IsFinite(state.Ball.VerticalVelocity))
+        {
+            return $"a speed or height stopped being a number at tick {state.Tick}";
+        }
+
+        return null;
+    }
+
+    private static bool Finite(System.Numerics.Vector2 v) => float.IsFinite(v.X) && float.IsFinite(v.Y);
 
     private static bool InBounds(System.Numerics.Vector2 position, FieldDimensions field) =>
         float.IsFinite(position.X) && float.IsFinite(position.Y)
