@@ -15,6 +15,7 @@ var tests = new (string Name, Action Test)[]
     ("goalkeeper cannot be selected as a normal pass target", GoalkeeperCannotBeNormalPassTarget),
     ("off ball goalkeeper ignores direct movement input", OffBallGoalkeeperIgnoresDirectMovementInput),
     ("goalkeeper AI remains inside its keeper zone", GoalkeeperAiRemainsInsideKeeperZone),
+    ("goalkeeper does not stand on its own goal line", GoalkeeperKeepsOffItsLine),
     ("goalkeeper catches a low shot across a simulation tick", GoalkeeperCatchesSweptLowShot),
     ("goalkeeper does not catch a ball above reachable height", GoalkeeperDoesNotCatchHighBall),
     ("user aims but cannot move goalkeeper during distribution", UserAimsButCannotMoveGoalkeeperDuringDistribution),
@@ -437,6 +438,22 @@ static void GoalkeeperAiRemainsInsideKeeperZone()
     Assert(
         goalkeeper.Position.Y <= engine.State.Field.GoalBottom + engine.Tuning.GoalkeeperLateralPadding + 0.0001f,
         "Keeper AI must not chase laterally beyond its keeper zone.");
+}
+
+static void GoalkeeperKeepsOffItsLine()
+{
+    var engine = MatchEngine.CreateDefault();
+    var goalkeeper = engine.State.Players.Single(player =>
+        player.Team == TeamSide.Home && player.Role == PlayerRole.Goalkeeper);
+    ClearPossession(engine);
+    engine.State.Ball.Position = Vector2.Zero;
+    goalkeeper.Position = new Vector2(engine.State.Field.Left + goalkeeper.Radius, 0f);
+
+    StepMany(engine, PlayerInput.Empty, 1);
+
+    Assert(
+        goalkeeper.Position.X > engine.State.Field.Left + goalkeeper.Radius + 0.25f,
+        "A goalkeeper should be kept off its own line by more than its body.");
 }
 
 static void GoalkeeperCatchesSweptLowShot()
@@ -3187,10 +3204,10 @@ static void MatchOpensWithKickoff()
     Assert(plain.CurrentSnapshot.Ball.Position != Vector2.Zero, "A match not asked for a kickoff keeps the opening the scenarios are built on.");
 }
 
-// A player whose kickoff position is inside the centre circle waits on its edge when the other team kicks off.
+// A player whose kickoff position is inside the centre circle waits where not even its reach is inside it when the other team kicks off.
 static bool StandsForKickoff(MatchEngine engine, PlayerState player)
 {
-    var edge = engine.State.Field.CenterCircleRadius + player.Radius;
+    var edge = engine.State.Field.CenterCircleRadius + player.Radius + PhysicsTuning.Default.FootReach;
     var kickingOff = engine.State.Players.Single(candidate => candidate.HasPossession).Team;
     return player.Team != kickingOff && player.KickoffPosition.Length() < edge
         ? MathF.Abs(player.Position.Length() - edge) < 0.001f

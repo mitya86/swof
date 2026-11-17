@@ -52,7 +52,7 @@ public sealed class MatchEngine
     {
         State = state;
         Tuning = tuning ?? PhysicsTuning.Default;
-        State.SlideFoul = new SlideFoulRule(Tuning.SlideFoulBehindDot, Tuning.SlideTackleHitDistance);
+        State.SlideFoul = new SlideFoulRule(Tuning.SlideFoulBehindDot, Tuning.SlideTackleHitDistance + Tuning.FootReach);
         UserControlledTeam = userControlledTeam;
         OpponentMovementEnabled = opponentMovementEnabled;
         var initialPossessor = State.Ball.PossessorId is int possessorId
@@ -275,7 +275,7 @@ public sealed class MatchEngine
     public void ApplyTuning(PhysicsTuning tuning)
     {
         Tuning = tuning;
-        State.SlideFoul = new SlideFoulRule(tuning.SlideFoulBehindDot, tuning.SlideTackleHitDistance);
+        State.SlideFoul = new SlideFoulRule(tuning.SlideFoulBehindDot, tuning.SlideTackleHitDistance + tuning.FootReach);
         State.Ball.Radius = tuning.BallRadius;
 
         foreach (var player in State.Players)
@@ -944,7 +944,7 @@ public sealed class MatchEngine
         State.Ball.Position = Approach(State.Ball.Position, targetPosition, Tuning.StationaryBallSettlePositionPerTick);
         State.Ball.Velocity = Approach(State.Ball.Velocity, Vector2.Zero, Tuning.StationaryBallSettleVelocityPerTick);
 
-        var maxDistance = (player.Radius + State.Ball.Radius + Tuning.PossessionDistance) * Tuning.StationaryPossessionClampFactor;
+        var maxDistance = (Reach(player) + Tuning.PossessionDistance) * Tuning.StationaryPossessionClampFactor;
         var offset = State.Ball.Position - player.Position;
         var distance = offset.Length();
         if (distance > maxDistance)
@@ -1009,13 +1009,18 @@ public sealed class MatchEngine
         return turn01 * speed01 * Lerp(Tuning.DribbleLowControlTurnPenalty, Tuning.DribbleHighControlTurnPenalty, control01);
     }
 
+    /// <summary>How far from a player's centre its feet meet the ball: the two bodies touching, plus the reach of a leg.</summary>
+    private float Reach(PlayerState player)
+    {
+        return player.Radius + State.Ball.Radius + Tuning.FootReach;
+    }
+
     private bool IsBallInControlEnvelope(PlayerState player)
     {
         var offset = State.Ball.Position - player.Position;
         var distance = offset.Length();
         var control01 = player.Attributes.BallControl01;
-        var maxDistance = player.Radius
-            + State.Ball.Radius
+        var maxDistance = Reach(player)
             + Lerp(Tuning.DribbleLowControlMaxDistance, Tuning.DribbleHighControlMaxDistance, control01);
         if (distance > maxDistance)
         {
@@ -1027,7 +1032,7 @@ public sealed class MatchEngine
             return true;
         }
 
-        var closeControlDistance = player.Radius + State.Ball.Radius + Lerp(0.05f, 0.45f, control01);
+        var closeControlDistance = Reach(player) + Lerp(0.05f, 0.45f, control01);
         if (distance <= closeControlDistance)
         {
             return true;
@@ -1111,7 +1116,7 @@ public sealed class MatchEngine
 
         float playerBallContestDistance(PlayerState player)
         {
-            return player.Radius + State.Ball.Radius + Tuning.PassiveContestDistance;
+            return Reach(player) + Tuning.PassiveContestDistance;
         }
     }
 
@@ -1252,7 +1257,7 @@ public sealed class MatchEngine
         player.HasPossession = false;
         State.Ball.PossessorId = null;
         State.Ball.ControlKind = BallControlKind.None;
-        State.Ball.Position = player.Position + direction * (player.Radius + State.Ball.Radius + 0.2f);
+        State.Ball.Position = player.Position + direction * (Reach(player) + 0.2f);
         State.Ball.Velocity = impulseDirection * speed + runnerCarry;
         State.Ball.Height = 0f;
         State.Ball.VerticalVelocity = lift;
@@ -1530,7 +1535,7 @@ public sealed class MatchEngine
                 Player = player,
                 Distance = Vector2.Distance(player.Position, State.Ball.Position)
             })
-            .Where(candidate => candidate.Distance <= candidate.Player.Radius + State.Ball.Radius + Tuning.PossessionDistance)
+            .Where(candidate => candidate.Distance <= Reach(candidate.Player) + Tuning.PossessionDistance)
             .Where(candidate => CanReachFastBall(candidate.Player))
             .OrderBy(candidate => candidate.Distance)
             .FirstOrDefault()
@@ -1563,7 +1568,7 @@ public sealed class MatchEngine
         var toPlayer = player.Position - State.Ball.Position;
         var distanceFromLine = MathF.Abs(toPlayer.X * direction.Y - toPlayer.Y * direction.X);
         return Vector2.Dot(toPlayer, direction) >= 0f
-            && distanceFromLine <= player.Radius + State.Ball.Radius + Tuning.FastBallCollectionReach;
+            && distanceFromLine <= Reach(player) + Tuning.FastBallCollectionReach;
     }
 
     private void ApplyAftertouchInput(Vector2 move)
@@ -1637,7 +1642,7 @@ public sealed class MatchEngine
     private void HandleSlidingBallInteraction(PlayerState slider)
     {
         var slideDirection = SafeNormalize(slider.Velocity, slider.Facing.ToUnitVector());
-        var hitDistance = slider.Radius + State.Ball.Radius + Tuning.SlideTackleHitDistance;
+        var hitDistance = Reach(slider) + Tuning.SlideTackleHitDistance;
 
         var possessor = State.Players.FirstOrDefault(player => player.Id != slider.Id && player.HasPossession);
         if (possessor is not null)
@@ -1879,11 +1884,11 @@ public sealed class MatchEngine
     {
         var field = State.Field;
         var minX = goalkeeper.Team == TeamSide.Home
-            ? field.Left + goalkeeper.Radius
+            ? field.Left + Tuning.GoalkeeperMinLineDistance
             : field.Right - Tuning.GoalkeeperMaxAdvanceDistance;
         var maxX = goalkeeper.Team == TeamSide.Home
             ? field.Left + Tuning.GoalkeeperMaxAdvanceDistance
-            : field.Right - goalkeeper.Radius;
+            : field.Right - Tuning.GoalkeeperMinLineDistance;
         var minY = Math.Max(field.Top + goalkeeper.Radius, field.GoalTop - Tuning.GoalkeeperLateralPadding);
         var maxY = Math.Min(field.Bottom - goalkeeper.Radius, field.GoalBottom + Tuning.GoalkeeperLateralPadding);
         var clamped = new Vector2(
@@ -2064,7 +2069,7 @@ public sealed class MatchEngine
                      player.Team != team && player.Role == PlayerRole.Outfield))
         {
             var offset = opponent.Position - spot;
-            var nearest = Tuning.RestartOpponentDistance + opponent.Radius;
+            var nearest = Tuning.RestartOpponentDistance + opponent.Radius + Tuning.FootReach;
             if (offset.Length() >= nearest)
             {
                 continue;
@@ -2249,7 +2254,8 @@ public sealed class MatchEngine
     /// </summary>
     private void KeepAwayFromRestart(PlayerState player)
     {
-        var nearest = _restartWallRadius + player.Radius;
+        // Held so that not even a stretched leg is inside the distance.
+        var nearest = _restartWallRadius + player.Radius + Tuning.FootReach;
         var offset = player.Position - _restartWallSpot;
         if (_spotKickTakerId is not null)
         {
@@ -2474,12 +2480,12 @@ public sealed class MatchEngine
         var sideDistance = MathF.Abs(Vector2.Dot(offset, right));
         var sideChange01 = Math.Clamp(
             MathF.Abs(sideDistance - _previousDribbleSideDistance) /
-            MathF.Max(0.0001f, player.Radius + State.Ball.Radius + Tuning.PossessionDistance),
+            MathF.Max(0.0001f, Reach(player) + Tuning.PossessionDistance),
             0f,
             1f);
         _previousDribbleSideDistance = sideDistance;
         var sideDistance01 = Math.Clamp(
-            sideDistance / MathF.Max(0.0001f, player.Radius + State.Ball.Radius + Tuning.PossessionDistance),
+            sideDistance / MathF.Max(0.0001f, Reach(player) + Tuning.PossessionDistance),
             0f,
             1f);
         var careless01 = Math.Clamp(MathF.Max(turn01Adjusted, sideChange01 * 1.2f), 0f, 1f);

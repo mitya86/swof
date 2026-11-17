@@ -47,11 +47,11 @@ Layers 1 to 6 are clipped to the game view. Officials exist in the snapshot and 
 
 Made in code when the game starts: a 1 x 1 white pixel (every rectangle and line), a 64 px hard-edged disc, a 64 px hard-edged ring (its thickness grows with the radius it is drawn at), and the pitch texture.
 
-**How a player is drawn.** Running if speed is above 4% of a reference speed, otherwise standing. The frame is rotated so the head points along a blend of where the player is moving and where it faces. The run cycle advances at 8 to 14 frames a second with speed, on the renderer's own clock. On top of the frame: a small forward lean, a sway and a bob while running; winding up a kick pulls the sprite back and squashes it; the kick itself pushes it forward and stretches it. Sprite height is 3.4 player radii, which at the default window is about 160 px from a 32 px frame, a fivefold enlargement. Goalkeeper tints: Home (145,255,175), Away (255,220,130).
+**How a player is drawn.** Running if speed is above 4% of a reference speed, otherwise standing. The frame is rotated so the head points along a blend of where the player is moving and where it faces. The run cycle advances at 8 to 14 frames a second with speed, on the renderer's own clock. On top of the frame: a small forward lean, a sway and a bob while running; winding up a kick pulls the sprite back and squashes it; the kick itself pushes it forward and stretches it. Sprite height is 3.4 player radii, which at the default window is about 113 px from a 32 px frame, an enlargement of about three and a half times, so the pixels are uneven. Goalkeeper tints: Home (145,255,175), Away (255,220,130).
 
 ## 4. The pitch
 
-Painted once into a 2048 px wide texture (court plus 3 m all round, about 44 px per metre), then drawn as one image. At a 1280 x 720 window it is shown at about its own size; in a larger window it is stretched.
+Painted once into a 2048 px wide texture (court plus 3 m all round, about 44 px per metre), then drawn as one image. At a 1280 x 720 window it is stretched about 1.4 times, and more in a larger window. The texture cannot simply be made larger: the graphics profile in use caps a texture at 2048 px.
 
 In paint order: surround (17,25,32); apron 0.7 m wide (24,77,98); court (35,123,157); eight panels across the length, alternate ones (32,116,149); two goal nets (translucent fill, back and side lines, four mesh lines); two benches along the top side only (42,47,58) with a roof strip (78,88,108); then the lines in (242,242,242), 8 cm wide: boundary, halfway line, centre circle and spot, the two penalty areas, penalty marks at 6 m and 10 m with the two small marks 5 m either side, corner arcs, four substitution ticks on the top touchline, and both goal lines between the posts at double width.
 
@@ -59,7 +59,7 @@ The pitch is not turned at half-time, so benches and substitution ticks stay on 
 
 ## 5. The camera
 
-A rectangle in metres, no rotation, no tilt. It shows 70% of the court's length (28 m of 40) and whatever height the window's shape gives; it zooms out when needed to keep both the ball and the active player in view with 2.25 m to spare. Its centre is 72% ball, 28% active player, pushed ahead of the ball by 14 ticks of the ball's velocity (capped at 24% of the view), and held inside the court plus 3 m. It follows its target with a smoothing rate of 8 a second. At the default window that is 45 px per metre: a player's body is about 47 px in radius and the ball 19 px.
+A rectangle in metres, no rotation, no tilt. It shows half of the court's length (20 m of 40) and whatever height the window's shape gives; it zooms out when needed to keep both the ball and the active player in view with 2.25 m to spare. Its centre is 72% ball, 28% active player, pushed ahead of the ball by 14 ticks of the ball's velocity (capped at 24% of the view), and held inside the court plus 3 m. It follows its target with a smoothing rate of 8 a second. At the default window that is 63 px per metre: a player's body (0.53 m) is about 33 px in radius and the ball (0.21 m) 13 px. Until 17 Nov 2026 bodies were twice that size and the view 28 m.
 
 One effect exists: a 7 cm push away from a shot or a goalkeeper's catch, fading over 0.18 s. It is off unless F4 turns it on, and no launch option does.
 

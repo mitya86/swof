@@ -91,6 +91,57 @@ td.num, th.num { text-align: right; }
     <!-- NEW-ENTRIES-HERE -->
     <article class="entry">
       <header>
+        <div class="meta"><span class="label">17 Nov 2026</span><span class="tag">Look 1 of 5</span><span class="label">pull request 41</span></div>
+        <h3>Players at half the size, reaching the ball from as far as before</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The idea</p>
+        <p>You said play felt crowded and the players looked wrong against the court. They were: a body was 1.05 m in radius on a 40 by 20 m court, about four times as wide as a person, and the ball was 0.42 m against a real 0.10 m. You looked at three sizes and chose the middle one: a body of 0.53 m and a ball of 0.21 m, still chunky in the Sensible Soccer way, with room between the players.</p>
+        <p>The interesting part is what a body's size was doing inside the game. Every rule about reaching the ball was written as "the two bodies touching, plus a bit": collecting a loose ball, keeping it while dribbling, the standing contest, the slide. Halve the bodies and every one of those reaches shrinks by 0.73 m without anyone deciding it should.</p>
+      </div>
+      <div class="part-block">
+        <p class="label">What the numbers said</p>
+        <p>Each row is the computer playing itself with identical outfielders, per match.</p>
+        <div class="tablewrap"><table>
+          <thead><tr><th>Version</th><th>Matches</th><th>Goals</th><th>Shots</th><th>Possessions</th><th>Shots in the 10 s after a goal, per 100 matches: team kicking off, team that scored</th></tr></thead>
+          <tbody>
+            <tr><td>Today</td><td>100</td><td>3.2</td><td>32.6</td><td>124</td><td>60, 78</td></tr>
+            <tr><td>Bodies halved, nothing else</td><td>100</td><td>2.0</td><td>26.2</td><td>159</td><td>14, 62</td></tr>
+            <tr><td>Reach given back</td><td>100</td><td>2.3</td><td>32.5</td><td>126</td><td>52, 76</td></tr>
+            <tr><td>Reach back, keeper kept off its line</td><td>100</td><td>3.6</td><td>31.8</td><td>127</td><td>75, 118</td></tr>
+            <tr><td>As merged</td><td>300</td><td>3.6</td><td>32.7</td><td>126</td><td>77, 78</td></tr>
+          </tbody>
+        </table></div>
+        <ul>
+          <li><strong>Halving alone broke dribbling.</strong> Replaying one kickoff tick by tick showed the ball running loose from the carrier every second or so with no tackle anywhere near: the zone in which a dribbler keeps the ball had shrunk with the body.</li>
+          <li><strong>Giving the reach back restored everything except goals.</strong> Same shots, fewer goals. Keeping the goalkeeper as far off its line as its old body kept it brought the goals back. I did not trace why a keeper nearer its line concedes less; the number is what moved.</li>
+          <li><strong>The kickoff drifted</strong> until opponents were held at the circle by their reach instead of their body; after that the two teams shoot equally often after a goal. That is not how it was before: the team kicking off used to get 59 shots per 100 matches against 78, and now gets 77.</li>
+        </ul>
+        <p>With mixed squads the same comparison over 300 matches gives 3.9 goals against 4.2 and 148 possessions against 147. All pass marks are met for both.</p>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>Body and reach are now two numbers.</strong> The body is what you see and what stops at the boards. A new number, foot reach, is how far past the body a player's feet get to the ball, and it is set to exactly what the old large body used to supply. So the measurements are back inside the pass marks while the figures look half the size. The cost is plain: a half-size figure still takes the ball, and tackles, from the old distance, so there is a visible gap between a player and a ball it controls. That is close to "draw them small, keep the big bodies", which you turned down, and it is your call whether it stands.</li>
+          <li><strong>Why not shrink the reach too.</strong> I tried it: at two thirds of the old reach play still held up, at one third the ball changed hands 170 times a match and goals fell from 2.3 to 1.6 (both measured before the goalkeeper fix). More to the point, a shorter reach asks a person to steer closer and time later, and the computer playing itself cannot feel that. With every fix in, two thirds of the old reach (0.5 m) over 300 matches gives 3.3 goals, 33.5 shots and 128 possessions with all pass marks met, though the team kicking off shoots less after a goal (66 against 110 per 100 matches). So a shorter reach is available; it is one number.</li>
+          <li><strong>The camera shows 20 m of the court's length, not 28.</strong> That keeps a figure about as readable as before. Speeds are unchanged in metres, so the same run now crosses the screen about 1.4 times faster.</li>
+          <li><strong>Opponents at a kickoff or a restart stand a little further back</strong> than their bodies alone would need: far enough that a stretched leg is outside the distance.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised</p>
+        <ul>
+          <li>The Windows and Android builds were not run: the build service is still blocked by billing, so this is the first change to the match rules merged without them. Nothing in the Windows host names a body size.</li>
+          <li>The camera now has to pull back when the ball and your player are more than about 6 m apart across the court (it was about 10 m), so it may zoom in and out on cross-court passes. I looked at single frames only.</li>
+          <li>Nobody has played it. Whether a player now seems to pick the ball up from too far away, whether tackles look fair, and whether the faster-looking pace is welcome are all yours to judge.</li>
+          <li>The old player pictures are simply drawn smaller, about three and a half times their size instead of five, so their pixels are uneven. New pictures are the third job of the five.</li>
+          <li>The court picture is stretched a little more than before and its lines are slightly softer.</li>
+          <li>Not tried on a phone, where a 113-pixel figure on a desktop window becomes much smaller.</li>
+        </ul>
+      </div>
+    </article>
+    <article class="entry">
+      <header>
         <div class="meta"><span class="label">16 Nov 2026</span><span class="tag">Checks</span><span class="label">pull request 40</span></div>
         <h3>Checks that catch what a passing test can miss</h3>
       </header>

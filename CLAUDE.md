@@ -113,6 +113,7 @@ What the MonoGame host draws today (layers, art files, colours, camera, effects,
 - Keep game logic in `Swof.Engine`; hosts only read input, step the engine and draw.
 - Teams change ends at half-time as a turn of the view only: the simulation keeps Home defending the west goal all match. A host draws `snapshot.AsSeen()` and passes the stick through `snapshot.FromScreen(input)`; anything else that maps screen to court must do the same.
 - Gameplay numbers belong in `PhysicsTuning`, not inline constants.
+- A player's body (`PlayerRadius`, 0.53 m) is what is drawn and what stops at the boards. Reaching the ball is `MatchEngine.Reach(player)`: the two radii plus `FootReach`. Anything new that asks "can this player get to the ball" uses `Reach`, never the radius alone; `FootReach` is the one number to turn if reach should feel shorter.
 - New engine behavior needs a scenario in `Swof.Engine.Tests/Program.cs`.
 
 ## SWOF Knowledge Routing
