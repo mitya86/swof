@@ -9,6 +9,10 @@
 #            "=up" to push its markers up, "home-up=12" for any distance,
 #            "home-behind=up" / "home-ahead=half" to swap tactic by score and time;
 #            100 or more matches must also meet the runner's pass marks
+#   diff     the same matches on another commit (default main) and on this
+#            working tree, compared line by line: tools/check.sh diff [base] [count]
+#            [matches options...]. Any difference fails. A refactor, renderer or
+#            docs change must show none; a gameplay change shows which seeds moved
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -24,6 +28,32 @@ filter="${2:-}"
 
 if [ "$mode" = matches ]; then
     exec "${dotnet[@]}" run --project Swof.Engine.Tests/Swof.Engine.Tests.csproj -- matches "${@:2}"
+fi
+
+if [ "$mode" = diff ]; then
+    base="${2:-main}"
+    count="${3:-100}"
+    work="$(mktemp -d)"
+    trap 'git worktree remove --force "$work/base" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+    git worktree add --detach --quiet "$work/base" "$base"
+    # Only the per-seed lines: a failing match or a missed mark still prints one, so
+    # the exit code of either run is not what is compared.
+    seeds() {
+        (cd "$1" && "${dotnet[@]}" run --project Swof.Engine.Tests/Swof.Engine.Tests.csproj -- matches "$count" 1 "${@:2}" || true) |
+            grep -E '^(OK|FAIL) +seed' || true
+    }
+    seeds "$work/base" "${@:4}" >"$work/base.txt"
+    seeds . "${@:4}" >"$work/head.txt"
+    if [ ! -s "$work/head.txt" ]; then
+        echo "diff: no per-seed lines from this working tree" >&2
+        exit 1
+    fi
+    if diff "$work/base.txt" "$work/head.txt"; then
+        echo "diff: all $(wc -l <"$work/head.txt" | tr -d ' ') matches identical to $base"
+        exit 0
+    fi
+    echo "diff: matches differ from $base (< $base, > this working tree)" >&2
+    exit 1
 fi
 
 "${dotnet[@]}" run --project Swof.Engine.Tests/Swof.Engine.Tests.csproj -- ${filter:+"$filter"}

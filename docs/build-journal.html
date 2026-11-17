@@ -91,6 +91,42 @@ td.num, th.num { text-align: right; }
     <!-- NEW-ENTRIES-HERE -->
     <article class="entry">
       <header>
+        <div class="meta"><span class="label">16 Nov 2026</span><span class="tag">Checks</span><span class="label">pull request 40</span></div>
+        <h3>Checks that catch what a passing test can miss</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">The idea</p>
+        <p>A published account of how the Claude Code team checks its own work describes four kinds of check. Comparing a change with the code before it. Feeding in random input and checking rules that must always hold. Running a cheap gate before an agent may stop. Writing down what a reviewer looks for. The match engine is deterministic: the same seed plays the same match every time. That makes the first two cheap to build here.</p>
+      </div>
+      <div class="part-block">
+        <p class="label">What was added</p>
+        <ul>
+          <li><strong>A before-and-after comparison.</strong> <code>tools/check.sh diff</code> plays the same 100 matches on <code>main</code> and on the changed code, and fails on any difference. A tidy-up, a new look or a docs change must show none. A gameplay change shows which matches it moved.</li>
+          <li><strong>Rules that always hold, checked every tick.</strong> The clock moves one tick. A score never falls and never jumps by two. The half never goes back. At most one player has the ball. No speed or position becomes a broken number. A new scenario breaks each rule on purpose to prove it is caught.</li>
+          <li><strong>A pretend person mashing the controls.</strong> Ten of the hundred matches are replayed with Home's stick and button worked at random. Once, all hundred were played that way: every match reached full time with no rule broken.</li>
+          <li><strong>A gate before an agent stops.</strong> When the code has changed, an agent working in this repository runs the fast checks before it ends its turn. If they fail, it is sent back to fix them. A version that already passed is not checked twice.</li>
+          <li><strong>A review checklist</strong>, <code>REVIEW.md</code>, grouped by which part of the code a change touches.</li>
+        </ul>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>Every new check was shown to fail as well as pass.</strong> A check that only ever passes may not be checking anything. Changing one goalkeeper number failed the comparison and blocked the stop gate. Each always-hold rule was broken by hand.</li>
+          <li><strong>A failing scenario is fixed, never retried or skipped.</strong> Nothing here is random, so a result that changes means the code changed. After three failed attempts at the same failure, the agent stops and reports what it tried.</li>
+          <li><strong>Merged on local evidence.</strong> The build machines are still stopped by billing. The full local gate passed, and the comparison showed all 100 matches identical to <code>main</code>: the new checks did not change the game.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised</p>
+        <ul>
+          <li>How the game feels. Random input finds crashes and broken rules, not dull or unfair play.</li>
+          <li>The stop gate inside a real agent session. It was fed sample input by hand; it loads only in a new session.</li>
+          <li>The new checks on Linux and Windows, and the Android build, because CI cannot run.</li>
+        </ul>
+      </div>
+    </article>
+    <article class="entry">
+      <header>
         <div class="meta"><span class="label">16 Nov 2026</span><span class="tag">Handover to graphics</span><span class="label">pull request 39</span></div>
         <h3>Everything the game draws, written down before anyone redraws it</h3>
       </header>

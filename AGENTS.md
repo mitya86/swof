@@ -129,7 +129,7 @@ bd prime                # Refresh Beads context
 
 ## SWOF Knowledge Routing
 
-C# standards live in `Swof.Engine.Tests/AGENTS.md` and apply to the whole repository. Run `tools/check.sh` (any OS) to validate changes.
+C# standards live in `Swof.Engine.Tests/AGENTS.md` and apply to the whole repository. Run `tools/check.sh` (any OS) to validate changes. Review against `REVIEW.md`. A failing scenario is fixed or explained, never skipped, retried or given a wider tolerance; after three rounds of failed fixes on the same failure, stop and report what was tried.
 
 Use the repo-local skills before changing their owning surfaces:
 
