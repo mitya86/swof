@@ -2,7 +2,7 @@ namespace Swof.Engine;
 
 public sealed record PhysicsTuning
 {
-    public const int CurrentProfileVersion = 4;
+    public const int CurrentProfileVersion = 5;
 
     public static PhysicsTuning Default { get; } = new();
 
@@ -26,7 +26,7 @@ public sealed record PhysicsTuning
     /// How far past the two bodies touching a player's feet reach the ball. Collecting, dribbling, the standing
     /// contest and the slide all add it, so a smaller number makes every one of them need a closer approach.
     /// </summary>
-    public float FootReach { get; init; } = 0.73f;
+    public float FootReach { get; init; } = 0.5f;
     /// <summary>Maximum goalkeeper travel speed while the AI guards its goal.</summary>
     public float GoalkeeperMaxSpeedPerTick { get; init; } = 12f / 60f;
     /// <summary>Maximum goalkeeper velocity change per simulation tick.</summary>
