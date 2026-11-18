@@ -105,6 +105,8 @@ var tests = new (string Name, Action Test)[]
     ("stopped play resumes on its own with the clock held", StoppedPlayResumesOnItsOwnWithClockHeld),
     ("opponents are moved back from a kick-in", OpponentsAreMovedBackFromKickIn),
     ("opponents stay five metres from a kick-in until it is played", OpponentsStayAwayFromKickInUntilPlayed),
+    ("a kick-in is kicked, not run in", KickInTakerStandsUntilTheBallIsKicked),
+    ("control follows the ball while the other team carries it", ControlFollowsTheBallWhenDefending),
     ("a restart not played in four seconds goes to the other team", RestartNotPlayedInFourSecondsGoesToOtherTeam),
     ("button held through a stoppage does not kick on resume", ButtonHeldThroughStoppageDoesNotKickOnResume),
     ("unattended match keeps resuming after forced outs", UnattendedMatchKeepsResumingAfterForcedOuts),
@@ -2958,6 +2960,56 @@ static void OpponentsAreMovedBackFromKickIn()
     Assert(taker.HasPossession, "A crowding opponent should not win the ball as play resumes.");
 }
 
+static void KickInTakerStandsUntilTheBallIsKicked()
+{
+    var engine = PutBallOut(TeamSide.Away, new Vector2(3f, FieldDimensions.Default.Top - 1f));
+    var state = engine.State;
+    var taker = state.Players.Single(player => player.HasPossession);
+    var inward = Vector2.Normalize(new Vector2(0f, -taker.Position.Y));
+    // One tick of play first: it stands the taker's body inside the line.
+    StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + 1);
+    var spot = taker.Position;
+    foreach (var stick in new[] { Vector2.UnitX, inward, -inward })
+    {
+        StepMany(engine, new PlayerInput(stick, ActionDown: false), 20);
+        Assert(taker.HasPossession && taker.Position == spot, $"The kick-in taker should stand with the stick at {stick}.");
+        Assert(!state.IsBallOutOfPlay, $"Aiming with the stick at {stick} should not put the ball out.");
+    }
+
+    StepMany(engine, new PlayerInput(inward, ActionDown: true), 3);
+    StepMany(engine, new PlayerInput(inward, ActionDown: false), 3);
+    Assert(!taker.HasPossession, "A tap should kick the ball in.");
+    StepMany(engine, new PlayerInput(inward, ActionDown: false), 20);
+    Assert(taker.Position != spot, "Once the ball is kicked the taker is free to move.");
+}
+
+static void ControlFollowsTheBallWhenDefending()
+{
+    var setup = MatchEngine.CreateDefault();
+    ClearPossession(setup);
+    var home = setup.State.Players.Where(player => player.Team == TeamSide.Home && !player.IsGoalkeeper).ToArray();
+    var carrier = setup.State.Players.First(player => player.Team == TeamSide.Away && !player.IsGoalkeeper);
+    home[0].Position = new Vector2(-12f, -8f);
+    home[1].Position = new Vector2(-12f, 8f);
+    home[2].Position = new Vector2(-17f, -3f);
+    home[3].Position = new Vector2(-17f, 3f);
+    carrier.Position = new Vector2(-8f, -8f);
+    setup.State.Ball.Position = carrier.Position;
+    var engine = new MatchEngine(setup.State, setup.Tuning, opponentMovementEnabled: false);
+    engine.StepTick(PlayerInput.Empty);
+    Assert(carrier.HasPossession, "The opponent should collect the ball at its feet.");
+    Assert(engine.State.ActivePlayerId == home[0].Id, "Control should start on the defender nearest the carrier.");
+
+    // The carrier takes the ball across the court, as a dribble does over a few seconds.
+    carrier.Position = new Vector2(-8f, 8f);
+    engine.State.Ball.Position = carrier.Position + carrier.Facing.ToUnitVector() * engine.Tuning.DribbleLeadDistance;
+    engine.StepTick(new PlayerInput(Vector2.Zero, ActionDown: true));
+    Assert(engine.State.ActivePlayerId == home[0].Id, "Control should not move while the button is held for a tackle.");
+    engine.StepTick(PlayerInput.Empty);
+    Assert(carrier.HasPossession, "The carrier should still have the ball.");
+    Assert(engine.State.ActivePlayerId == home[1].Id, "Control should follow the ball to the defender now nearest it.");
+}
+
 static void OpponentsStayAwayFromKickInUntilPlayed()
 {
     // A person who waits on a kick-in keeps the ball for the whole count, then is open to a challenge.
@@ -3265,16 +3317,17 @@ static void OtherTeamWaitsOutsideCentreCircleAtKickoff()
 
 static void TapAtKickoffReachesTeamMate()
 {
-    // The stick pushed forward carries the ball; it is not left behind or knocked to the other team.
-    var carried = MatchEngine.CreateDefault(startWithKickoff: true);
-    var carrier = carried.State.Players.Single(player => player.HasPossession);
+    // The stick pushed forward does not run the ball out of the circle: a kickoff is kicked.
+    var held = MatchEngine.CreateDefault(startWithKickoff: true);
+    var holder = held.State.Players.Single(player => player.HasPossession);
+    var stood = holder.Position;
     for (var tick = 0; tick < 20; tick++)
     {
-        carried.StepTick(new PlayerInput(Vector2.UnitX, ActionDown: false));
-        Assert(carrier.HasPossession, $"The kickoff taker should keep the ball when the stick is pushed forward (tick {tick}).");
+        held.StepTick(new PlayerInput(Vector2.UnitX, ActionDown: false));
+        Assert(holder.HasPossession, $"The kickoff taker should keep the ball when the stick is pushed forward (tick {tick}).");
     }
 
-    Assert(carried.State.Ball.Position.X > 1f, "The stick pushed forward at the kickoff should carry the ball forward.");
+    Assert(holder.Position == stood, "The kickoff taker should stand until the ball is kicked.");
 
     // Every team-mate is behind the taker, whatever the stick says.
     foreach (var stick in new[] { Vector2.Zero, Vector2.UnitX, -Vector2.UnitX, Vector2.UnitY })
