@@ -368,7 +368,31 @@ public sealed class MatchEngine
         foreach (var playerId in frame.PlayerIds)
         {
             var controlledPlayer = State.Players.Single(player => player.Id == playerId);
+            // A restart is kicked, not run in: until the ball is played the person's taker stands and the stick only aims.
+            // ponytail: a computer's taker still runs the ball in. Held the same way, with nothing else changed, its
+            // teams took 19 shots a match instead of 33: there are about 80 restarts a match and the computer has no
+            // restart play. Hold it too once it has one.
+            var takesRestart = _restartWallTicks > 0
+                && _spotKickTakerId is null
+                && controlledPlayer.HasPossession
+                && controlledPlayer.Team == _restartWallTeam
+                && controlledPlayer.Team == UserControlledTeam
+                && controlledPlayer.Id == State.ActivePlayerId;
+            var standing = controlledPlayer.Position;
+            var aimed = controlledPlayer.Facing;
             MoveControlledPlayer(controlledPlayer, frame.GetInputOrEmpty(playerId).NormalizedMove);
+            if (takesRestart)
+            {
+                controlledPlayer.Position = standing;
+                controlledPlayer.Velocity = Vector2.Zero;
+                if (_restartWallKind != RestartKind.Kickoff
+                    && Vector2.Dot(controlledPlayer.Facing.ToUnitVector(), _restartWallInward) < -0.01f)
+                {
+                    // Aiming off the court would put the ball straight back out.
+                    controlledPlayer.Facing = aimed;
+                }
+            }
+
             if (_restartWallTicks > 0 && _spotKickTakerId == controlledPlayer.Id)
             {
                 // The stick only aims a penalty or 10 m kick.
@@ -394,6 +418,7 @@ public sealed class MatchEngine
         }
 
         var possessor = State.Players.FirstOrDefault(player => player.HasPossession);
+        FollowTheBallWhenDefending(possessor);
         if (possessor is not null)
         {
             ControlBall(possessor);
@@ -1828,6 +1853,25 @@ public sealed class MatchEngine
             forceSwitch: possessionTeamChanged);
     }
 
+    /// <summary>
+    /// While the other team has the ball, or it runs loose after they had it, the person's player follows it:
+    /// control moves to the outfielder best placed to defend once that one is clearly better placed.
+    /// </summary>
+    private void FollowTheBallWhenDefending(PlayerState? possessor)
+    {
+        if (UserControlledTeam is null
+            || State.IsBallOutOfPlay
+            || _lastPossessionTeam == UserControlledTeam
+            || possessor?.Team == UserControlledTeam
+            || (_playerActionStates.TryGetValue(State.ActivePlayerId, out var action) && action.PreviousActionDown))
+        {
+            // Not while the button is down: a tackle being wound up stays with the player winding it.
+            return;
+        }
+
+        SelectUserDefenderForOpponentPossession(State.Ball.Position, forceSwitch: false);
+    }
+
     private void SelectUserDefenderForOpponentPossession(Vector2 threatPosition, bool forceSwitch)
     {
         var allOutfielders = State.Players
@@ -2047,8 +2091,7 @@ public sealed class MatchEngine
     /// Sets up a kick-in or corner: the awarded team's nearest outfielder gets the ball at the spot,
     /// facing into the court, and opponents are moved back to the required distance.
     /// </summary>
-    // ponytail: the taker is teleported, players stand still during the stoppage, and the taker may
-    // dribble the ball in rather than having to kick it. Near a corner the court edge can leave a
+    // ponytail: the taker is teleported and players stand still during the stoppage. Near a corner the court edge can leave a
     // moved opponent closer than the required distance. Walk-to-ball and repositioning runs are
     // the upgrade path once restarts have been playtested.
     private void PlaceRestartTaker(TeamSide team, Vector2 spot, Vector2 inward)
