@@ -22,7 +22,7 @@ Passing a lower layer does not establish a higher-layer claim. Keep subjective w
 - `PitchSurface` shares a sprite batch. Call `Prepare` before the gameplay batch begins; otherwise MonoGame throws “Begin cannot be called again until End has been successfully called.”
 - Keep pixel-ish original sprites crisp with point sampling, but draw them at floating-point positions. Pixel art is an aesthetic, not permission for quantized motion.
 - Keep the active player marker prominent and frame the ball plus active defender on opponent possession. Invisible ownership feels like inactive AI.
-- Current readable-tempo defaults include outfield `14f / 60f`, goalkeeper `12f / 60f`, ground pass `20f / 60f`, and normal AI circulation delay 48 ticks. These are current tuning, not sacred constants.
+- Current readable-tempo defaults include outfield `11f / 60f`, goalkeeper `12f / 60f`, ground pass `20f / 60f`, and normal AI circulation delay 48 ticks. These are current tuning, not sacred constants.
 - `SWOF/physics-tuning.json` under the OS local application-data folder (`%LOCALAPPDATA%` on Windows) can override code defaults. `CurrentProfileVersion` rejects stale profiles; inspect the loaded profile whenever a tuning change seems absent.
 
 ## Player Connection Priorities

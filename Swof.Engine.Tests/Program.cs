@@ -36,6 +36,7 @@ var tests = new (string Name, Action Test)[]
     ("neutral input keeps facing for dribble", NeutralInputKeepsFacingForDribble),
     ("player acceleration is quick but progressive", PlayerAccelerationIsQuickButProgressive),
     ("player stops promptly after input release", PlayerStopsPromptlyAfterInputRelease),
+    ("a loose ball slows fast at first, then rolls on", LooseBallSlowsFastAtFirstThenRollsOn),
     ("player turns across momentum responsively", PlayerTurnsAcrossMomentumResponsively),
     ("player reversal takes effect promptly", PlayerReversalTakesEffectPromptly),
     ("diagonal movement preserves the speed cap", DiagonalMovementPreservesSpeedCap),
@@ -305,8 +306,11 @@ static void DefaultTuningUsesReadableFutsalTempo()
         / (tuning.PlayerMaxSpeedPerTick * tuning.TickRate);
 
     Assert(
-        Near(tuning.PlayerMaxSpeedPerTick, 14f / 60f),
+        Near(tuning.PlayerMaxSpeedPerTick, 11f / 60f),
         "Default outfield pace should use the slower readable futsal baseline.");
+    Assert(
+        tuning.SlideSpeedPerTick / tuning.PlayerMaxSpeedPerTick is > 1.5f and < 1.7f,
+        "A slide should outrun a carrier by the margin it was tuned with, whatever the pace.");
     Assert(
         Near(tuning.PassSpeedPerTick, 20f / 60f),
         "Default ground passes should remain quicker than players without flashing through combinations.");
@@ -887,12 +891,36 @@ static void PlayerStopsPromptlyAfterInputRelease()
     StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: false), 20);
     var runningSpeed = player.Velocity.Length();
 
+    // The weight: a runner takes this many ticks to stop, no fewer and no more.
+    var stopTicks = (int)MathF.Ceiling(runningSpeed / engine.Tuning.PlayerDecelerationPerTick);
     engine.StepTick(PlayerInput.Empty);
     var brakingSpeed = player.Velocity.Length();
-    StepMany(engine, PlayerInput.Empty, 3);
+    StepMany(engine, PlayerInput.Empty, 2);
+    var stillMoving = player.Velocity.Length();
+    StepMany(engine, PlayerInput.Empty, stopTicks - 3);
 
     Assert(brakingSpeed < runningSpeed, "Releasing input should brake on the next tick.");
-    Assert(player.Velocity.Length() < 0.0001f, "A player should stop within four neutral ticks.");
+    Assert(stillMoving > 0.0001f, "A runner should carry momentum for more than three ticks after release.");
+    Assert(stopTicks <= 6, "A runner should stop within a tenth of a second.");
+    Assert(player.Velocity.Length() < 0.0001f, "A player should stop after the ticks its braking allows.");
+}
+
+static void LooseBallSlowsFastAtFirstThenRollsOn()
+{
+    var engine = CreateMovementEngine();
+    var tuning = engine.Tuning;
+    engine.State.Ball.Position = new Vector2(-10f, 5f);
+    engine.State.Ball.Velocity = new Vector2(tuning.PassSpeedPerTick, 0f);
+
+    engine.StepTick(PlayerInput.Empty);
+    var lostWhenFast = tuning.PassSpeedPerTick - engine.State.Ball.Velocity.Length();
+    StepMany(engine, PlayerInput.Empty, 60);
+    var slow = engine.State.Ball.Velocity.Length();
+    engine.StepTick(PlayerInput.Empty);
+    var lostWhenSlow = slow - engine.State.Ball.Velocity.Length();
+
+    Assert(slow > 0f, "A pass should still be rolling a second after it is struck.");
+    Assert(lostWhenFast > lostWhenSlow * 1.5f, "A ball should lose speed faster while it is moving fast.");
 }
 
 static void PlayerTurnsAcrossMomentumResponsively()

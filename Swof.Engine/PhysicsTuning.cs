@@ -2,7 +2,7 @@ namespace Swof.Engine;
 
 public sealed record PhysicsTuning
 {
-    public const int CurrentProfileVersion = 5;
+    public const int CurrentProfileVersion = 6;
 
     public static PhysicsTuning Default { get; } = new();
 
@@ -10,16 +10,16 @@ public sealed record PhysicsTuning
     public int ProfileVersion { get; init; } = CurrentProfileVersion;
     public int TickRate { get; init; } = 60;
     /// <summary>Readable arcade-futsal running pace in metres per simulation tick.</summary>
-    public float PlayerMaxSpeedPerTick { get; init; } = 14f / 60f;
+    public float PlayerMaxSpeedPerTick { get; init; } = 11f / 60f;
     public float PlayerAccelerationPerTick { get; init; } = 70f / (60f * 60f);
     public float PlayerFrictionPerTick { get; init; } = 9f / (60f * 60f);
-    public float PlayerBurstAccelerationPerTick { get; init; } = 0.055f;
-    public float PlayerSustainAccelerationPerTick { get; init; } = 0.014f;
+    public float PlayerBurstAccelerationPerTick { get; init; } = 0.032f;
+    public float PlayerSustainAccelerationPerTick { get; init; } = 0.009f;
     /// <summary>Maximum velocity change while steering across the current run direction.</summary>
-    public float PlayerTurnAccelerationPerTick { get; init; } = 0.07f;
+    public float PlayerTurnAccelerationPerTick { get; init; } = 0.04f;
     /// <summary>Maximum velocity change when reversing against the current run direction.</summary>
-    public float PlayerReverseAccelerationPerTick { get; init; } = 0.085f;
-    public float PlayerDecelerationPerTick { get; init; } = 0.09f;
+    public float PlayerReverseAccelerationPerTick { get; init; } = 0.05f;
+    public float PlayerDecelerationPerTick { get; init; } = 0.045f;
     /// <summary>Half the width of a player's body. It is what is drawn and what stops at the boards; reaching the ball adds FootReach.</summary>
     public float PlayerRadius { get; init; } = 0.53f;
     /// <summary>
@@ -83,7 +83,12 @@ public sealed record PhysicsTuning
     /// </summary>
     public float RestartPlayedDistance { get; init; } = 3.5f;
     public float BallRadius { get; init; } = 0.21f;
-    public float BallFrictionPerTick { get; init; } = 5.2f / (60f * 60f);
+    /// <summary>
+    /// Share of its speed a moving ball loses each tick, on top of the constant friction: a pass slows quickly at
+    /// first and then rolls on, instead of losing speed evenly and stopping dead.
+    /// </summary>
+    public float BallDragPerTick { get; init; } = 0.4f / 60f;
+    public float BallFrictionPerTick { get; init; } = 2.5f / (60f * 60f);
     public float MinBallSpeedPerTick { get; init; } = 0.03f / 60f;
     public float BallGravityPerTick { get; init; } = 46f / (60f * 60f);
     public float BallBounceEnergyRetention { get; init; } = 0.42f;
@@ -135,9 +140,9 @@ public sealed record PhysicsTuning
     /// <summary>
     /// Ticks after a player gains the ball during which standing next to them cannot take it.
     /// Without it two adjacent players take the ball from each other on alternate ticks.
-    /// A slide tackle still wins the ball during this time.
+    /// A slide tackle still wins the ball during this time. Timed for the players' pace: lengthen it if they slow.
     /// </summary>
-    public int NewPossessionProtectionTicks { get; init; } = 30;
+    public int NewPossessionProtectionTicks { get; init; } = 38;
     /// <summary>
     /// Ticks a player who has just had the ball knocked away must wait before collecting it again.
     /// Without it the loser of a tackle picks the ball straight back up from beside their feet.
@@ -147,7 +152,8 @@ public sealed record PhysicsTuning
     public int SlideTravelTicks { get; init; } = 9;
     /// <summary>Short recovery window before the tackler can move again.</summary>
     public int SlideRecoveryTicks { get; init; } = 15;
-    public float SlideSpeedPerTick { get; init; } = 22f / 60f;
+    /// <summary>About 1.6 times a player's top speed; keep that ratio when the pace changes.</summary>
+    public float SlideSpeedPerTick { get; init; } = 17.5f / 60f;
     public float SlideTackleHitDistance { get; init; } = 0.6f;
     /// <summary>
     /// A slide that reaches the carrier while following the way the carrier faces more closely than this
@@ -167,8 +173,8 @@ public sealed record PhysicsTuning
     public int MaxKickHoldTicks { get; init; } = 45;
     public int KickAnimationTicks { get; init; } = 8;
     public float ImmediateKickPower01 { get; init; } = 0.7f;
-    public float MinKickSpeedPerTick { get; init; } = 18f / 60f;
-    public float MaxKickSpeedPerTick { get; init; } = 42f / 60f;
+    public float MinKickSpeedPerTick { get; init; } = 21f / 60f;
+    public float MaxKickSpeedPerTick { get; init; } = 48f / 60f;
     public float MinKickLiftPerTick { get; init; } = 0.03f;
     public float MaxKickLiftPerTick { get; init; } = 0.32f;
     public float KickLiftStartsAtPower { get; init; } = 0.35f;

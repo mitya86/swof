@@ -1406,6 +1406,7 @@ public sealed class MatchEngine
         }
 
         State.Ball.Position += State.Ball.Velocity;
+        State.Ball.Velocity *= 1f - Tuning.BallDragPerTick;
         State.Ball.Velocity = Approach(State.Ball.Velocity, Vector2.Zero, Tuning.BallFrictionPerTick);
         State.Ball.Height += State.Ball.VerticalVelocity;
         State.Ball.VerticalVelocity -= Tuning.BallGravityPerTick;
