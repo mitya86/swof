@@ -55,11 +55,8 @@ internal static class MatchRunner
         public override int GetHashCode() => Players.Count;
     }
 
-    /// <summary>
-    /// How one outfielder's spells on the ball ended: kept when his own team had it next or he scored, lost when
-    /// the other team had it next. This is the kind of count a player's habits will later learn from.
-    /// </summary>
-    internal sealed record PlayerOutcome(PlayerAttributes Attributes, int Kept, int Lost, float ForwardMetres);
+    /// <summary>How one outfielder's spells on the ball ended, beside his attributes.</summary>
+    internal sealed record PlayerOutcome(TeamSide Team, PlayerAttributes Attributes, PlayerSpells Spells);
 
     /// <summary>
     /// The seed chooses the eight outfielders' attributes (unless the squads are equal) and the
@@ -82,14 +79,12 @@ internal static class MatchRunner
         Difficulty? awayDifficulty = null,
         int? randomPersonSeed = null,
         PlayerHabits? homeHabits = null,
-        PlayerHabits? awayHabits = null)
+        PlayerHabits? awayHabits = null,
+        IReadOnlyList<PlayerAttributes>? fixedSquad = null,
+        IReadOnlyList<PlayerHabits>? playerHabits = null)
     {
-        var random = new Random(seed);
-        // 4 to 15 is the range the default squads already use.
-        byte Roll() => (byte)random.Next(4, 16);
-        var squad = Enumerable.Range(0, 8)
-            .Select(_ => new PlayerAttributes(Roll(), Roll(), Roll(), Roll(), Roll(), Roll(), Roll()))
-            .ToArray();
+        var squad = fixedSquad is null ? Squad(seed) : [.. fixedSquad];
+
         var tuning = halfLengthSeconds > 0f
             ? PhysicsTuning.Default with { HalfLengthSeconds = halfLengthSeconds }
             : PhysicsTuning.Default;
@@ -123,10 +118,13 @@ internal static class MatchRunner
             computers.SetTactic(TeamSide.Away, awayTactic);
         }
 
-        // Every outfielder of a side gets the same habits, so the side's results show what the habit does.
-        foreach (var player in engine.CurrentSnapshot.Players.Where(player => player.Role == PlayerRole.Outfield))
+        // Every outfielder of a side gets the same habits, so the side's results show what the habit does,
+        // unless each player was given his own, in the order the outcomes list outfielders.
+        var outfielders = engine.CurrentSnapshot.Players.Where(player => player.Role == PlayerRole.Outfield).ToArray();
+        for (var index = 0; index < outfielders.Length; index++)
         {
-            if ((player.Team == TeamSide.Home ? homeHabits : awayHabits) is { } habits)
+            var player = outfielders[index];
+            if ((playerHabits?[index] ?? (player.Team == TeamSide.Home ? homeHabits : awayHabits)) is { } habits)
             {
                 computers.SetHabits(player.Id, habits);
             }
@@ -167,13 +165,7 @@ internal static class MatchRunner
         int shots = 0, passes = 0, awayPasses = 0, windUps = 0, slides = 0, fouls = 0, stoppages = 0, lastScore = 0;
         long lastFeedback = 0, keeperTicks = 0, sameFor = 0, longestSame = 0;
         int? lastPossessor = null;
-        // The outfielder whose spell on the ball is still open; it survives the ball being loose or in flight.
-        PlayerState? holder = null;
-        var kept = new Dictionary<int, int>();
-        var lost = new Dictionary<int, int>();
-        // How far toward the opposing goal each player took the ball while it was his, summed over his spells.
-        var carried = new Dictionary<int, float>();
-        float holderStartX = 0f, holderLastX = 0f;
+        var ledger = new SpellLedger();
         var shooting = new HashSet<int>();
         var sliding = new HashSet<int>();
         var wasOut = false;
@@ -219,6 +211,7 @@ internal static class MatchRunner
             }
 
             engine.StepTick(computers.CreateControlFrame(engine.CurrentSnapshot, inputs));
+            ledger.Watch(engine.CurrentSnapshot);
 
             // Feedback events are the engine's own record of a struck ball.
             foreach (var feedback in state.FeedbackEvents.Where(e => e.Sequence > lastFeedback))
@@ -315,33 +308,6 @@ internal static class MatchRunner
                 lastHeldX = state.Ball.Position.X;
             }
 
-            if (state.HomeScore + state.AwayScore != lastScore && holder is not null)
-            {
-                // The kickoff that follows a goal goes to the other team; the spell still ended well.
-                var scored = (holder.Team == TeamSide.Home ? state.HomeScore : state.AwayScore)
-                    > (holder.Team == TeamSide.Home ? before.HomeScore : before.AwayScore);
-                (scored ? kept : lost)[holder.Id] = (scored ? kept : lost).GetValueOrDefault(holder.Id) + 1;
-                Carried(holder);
-                holder = null;
-            }
-            else if (possessor is not null && possessor.Id != holder?.Id)
-            {
-                if (holder is not null)
-                {
-                    var ends = possessor.Team == holder.Team ? kept : lost;
-                    ends[holder.Id] = ends.GetValueOrDefault(holder.Id) + 1;
-                    Carried(holder);
-                }
-
-                holder = possessor.IsGoalkeeper ? null : possessor;
-                holderStartX = state.Ball.Position.X;
-            }
-
-            if (possessor is not null && possessor.Id == holder?.Id)
-            {
-                holderLastX = state.Ball.Position.X;
-            }
-
             sameFor = possessor?.Id == lastPossessor ? sameFor + 1 : 0;
             lastPossessor = possessor?.Id;
             longestSame = Math.Max(longestSame, sameFor);
@@ -407,14 +373,58 @@ internal static class MatchRunner
             computers.CoachChanges,
             awayPasses,
             new PlayerOutcomes(state.Players.Where(player => !player.IsGoalkeeper)
-                .Select(player => new PlayerOutcome(player.Attributes, kept.GetValueOrDefault(player.Id), lost.GetValueOrDefault(player.Id), carried.GetValueOrDefault(player.Id)))
+                .Select(player => new PlayerOutcome(player.Team, player.Attributes, ledger.Of(player.Id)))
                 .ToArray()));
+    }
 
-        void Carried(PlayerState spellHolder)
+    /// <summary>
+    /// Keeps the squad of <paramref name="firstSeed"/> together for <paramref name="count"/> matches in which every
+    /// outfielder's habits learn from his own spells, then prints where each player's habits ended up and plays
+    /// 100 matches with Home's learned habits and Away's neutral, against the same squad all neutral.
+    /// Returns how many matches broke.
+    /// </summary>
+    internal static int Learn(int count, int firstSeed)
+    {
+        var squad = Squad(firstSeed);
+        var habits = Enumerable.Repeat(PlayerHabits.Neutral, 8).ToArray();
+        IReadOnlyList<PlayerOutcome> players = [];
+        var broken = 0;
+        for (var match = 0; match < count; match++)
         {
-            var attack = spellHolder.Team == TeamSide.Home ? 1f : -1f;
-            carried[spellHolder.Id] = carried.GetValueOrDefault(spellHolder.Id) + (holderLastX - holderStartX) * attack;
+            var result = Play(firstSeed + match, fixedSquad: squad, playerHabits: habits);
+            broken += result.Fault is null ? 0 : 1;
+            players = result.Outcomes!.Players;
+            var court = players.Aggregate(default(PlayerSpells), (sum, player) => sum + player.Spells);
+            habits = [.. habits.Select((own, index) => own.After(players[index].Spells, court))];
         }
+
+        for (var index = 0; index < players.Count; index++)
+        {
+            var a = players[index].Attributes;
+            Console.WriteLine($"{players[index].Team,-4}  speed {a.Speed,2}  ball control {a.BallControl,2}  tackling {a.Tackling,2}  ->  patience {habits[index].CarryPatience:F2}  forward risk {habits[index].ForwardRisk:F2}");
+        }
+
+        var learned = habits.Select((own, index) => players[index].Team == TeamSide.Home ? own : PlayerHabits.Neutral).ToArray();
+        float HomeLead(IReadOnlyList<PlayerHabits> given)
+        {
+            var results = Enumerable.Range(firstSeed + count, 100).Select(seed => Play(seed, fixedSquad: squad, playerHabits: given)).ToArray();
+            broken += results.Count(r => r.Fault is not null);
+            return (float)results.Average(r => r.HomeScore - r.AwayScore);
+        }
+
+        var neutral = HomeLead(Enumerable.Repeat(PlayerHabits.Neutral, 8).ToArray());
+        var withLearned = HomeLead(learned);
+        Console.WriteLine($"home goal difference per match over 100 more matches: all neutral {neutral:+0.00;-0.00}, home learned {withLearned:+0.00;-0.00}");
+        return broken;
+    }
+
+    /// <summary>The eight outfielders a seed rolls.</summary>
+    private static PlayerAttributes[] Squad(int seed)
+    {
+        var random = new Random(seed);
+        // 4 to 15 is the range the default squads already use.
+        byte Roll() => (byte)random.Next(4, 16);
+        return [.. Enumerable.Range(0, 8).Select(_ => new PlayerAttributes(Roll(), Roll(), Roll(), Roll(), Roll(), Roll(), Roll()))];
     }
 
     /// <summary>Plays <paramref name="count"/> matches and returns how many broke.</summary>
@@ -483,8 +493,8 @@ internal static class MatchRunner
                 var line = string.Join("  ", new[] { (4, 7), (8, 11), (12, 15) }.Select(range =>
                 {
                     var group = players.Where(p => pick(p.Attributes) >= range.Item1 && pick(p.Attributes) <= range.Item2).ToArray();
-                    var spells = group.Sum(p => p.Kept + p.Lost);
-                    return $"{range.Item1}-{range.Item2}: kept {group.Sum(p => p.Kept) * 100f / Math.Max(1, spells):F1}% of {spells / (float)Math.Max(1, group.Length):F1} spells, {group.Sum(p => p.ForwardMetres) / Math.Max(1, spells):F2} m forward each";
+                    var spells = group.Sum(p => p.Spells.Spells);
+                    return $"{range.Item1}-{range.Item2}: kept {group.Sum(p => p.Spells.All.Kept) * 100f / Math.Max(1, spells):F1}% of {spells / (float)Math.Max(1, group.Length):F1} spells, {group.Sum(p => p.Spells.ForwardMetres) / Math.Max(1, spells):F2} m forward each";
                 }));
                 Console.WriteLine($"{name,-13} {line}");
             }
