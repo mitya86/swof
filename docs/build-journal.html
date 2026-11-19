@@ -91,6 +91,49 @@ td.num, th.num { text-align: right; }
     <!-- NEW-ENTRIES-HERE -->
     <article class="entry">
       <header>
+        <div class="meta"><span class="label">19 Nov 2026</span><span class="tag">Look 2 of 5</span><span class="label">pull request 45</span></div>
+        <h3>Players with weight, and a ball that slows and rolls on</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">What you chose</p>
+        <ul>
+          <li>Of the three weights in the throwaway build, the middle one. This entry is that weight made real.</li>
+        </ul>
+      </div>
+      <div class="part-block decision">
+        <p class="label">This is not quite the build you played</p>
+        <ul>
+          <li><strong>Eight directions, not any direction.</strong> The throwaway let a player run at any angle. The computer scored 0.9 goals a match that way, because its shooting depends on the eight. I kept the eight and put free direction aside; it will matter for a gamepad stick and for touch.</li>
+          <li><strong>Harder kicks.</strong> 21 to 48 m/s where the throwaway had 18 to 42, so a shot still arrives at pace through the new drag.</li>
+          <li><strong>Slower slide tackles, and a longer moment of safety after winning the ball.</strong> Explained below. Standing next to a player who has just won the ball, you now wait 38 ticks instead of 30 before you can take it.</li>
+        </ul>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>Top speed 11 m/s, was 14.</strong> A runner reaches it in 9 ticks instead of 7 and stops in 5 instead of 3. Small numbers, but they are the difference between a figure that snaps and one that leans.</li>
+          <li><strong>The ball loses a share of its speed every moment, plus a little constant friction.</strong> Before, it lost the same amount each moment and stopped dead. Now a pass drops speed quickly and then keeps rolling.</li>
+          <li><strong>Two numbers were still timed for the old pace.</strong> After the change, the team kicking off after a goal took 99 shots in the next ten seconds across 300 matches, and the team that had just scored took 264. The slide tackle was still 22 m/s against slower runners, and the safety after winning the ball was still 30 ticks. Scaled to the new pace (17.5 m/s, 38 ticks) it is 154 to 259, the ratio the game had before. I measured that these two fix it; I did not trace why.</li>
+          <li><strong>The goals mark moves from 3 to 2, and part of the reason is not known.</strong> Slower players alone would take 3.3 goals to about 2.6, and equal squads score 2.5. But the mix changed underneath: shots from inside 6 m roughly halved, and possessions fell from 128 to 87. Squads of unequal players fell further, 3.8 to 2.2: their shots from 6 to 10 m used to score about 12% of the time and now score about 8%, for slow and fast shooters alike. I ruled out the goalkeeper's speed and how far out the computer starts a shot, and on equal squads the ball change. The cause is still open.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">What the lesson is</p>
+        <ul>
+          <li>Changing one speed quietly changes every number that was tuned beside it. The marks caught it: a mark that moves when you did not mean to move it is the game telling you which other number to look at.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised</p>
+        <ul>
+          <li>Nobody has played this exact build. You said "feels better" about the throwaway; please play this one and say whether it still does.</li>
+          <li>No Windows or Android build has run; GitHub is still not starting jobs.</li>
+          <li>The camera you found dizzying is untouched. It is next.</li>
+        </ul>
+      </div>
+    </article>
+    <article class="entry">
+      <header>
         <div class="meta"><span class="label">18 Nov 2026</span><span class="tag">From play</span><span class="label">pull request 43</span></div>
         <h3>Two things you found by playing: restarts and who you control</h3>
       </header>

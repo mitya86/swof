@@ -140,7 +140,7 @@ public sealed record PhysicsTuning
     /// <summary>
     /// Ticks after a player gains the ball during which standing next to them cannot take it.
     /// Without it two adjacent players take the ball from each other on alternate ticks.
-    /// A slide tackle still wins the ball during this time.
+    /// A slide tackle still wins the ball during this time. Timed for the players' pace: lengthen it if they slow.
     /// </summary>
     public int NewPossessionProtectionTicks { get; init; } = 38;
     /// <summary>
