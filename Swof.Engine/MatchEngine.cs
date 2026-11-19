@@ -19,7 +19,6 @@ public sealed class MatchEngine
     private int _newPossessionProtectionTicks;
     // While these ticks last, the other team is held away from the spot a restart is taken from.
     private int _restartWallTicks;
-    private int _kickoffTapTicks;
     private TeamSide _restartWallTeam;
     private Vector2 _restartWallSpot;
     private float _restartWallRadius;
@@ -351,7 +350,6 @@ public sealed class MatchEngine
             _releasedByPlayerId = null;
         }
 
-        _kickoffTapTicks = Math.Max(0, _kickoffTapTicks - 1);
         if (_restartWallTicks > 0)
         {
             var takerStillOnTheSpot = State.Players.Any(player => player.HasPossession && player.Team == _restartWallTeam)
@@ -380,7 +378,19 @@ public sealed class MatchEngine
                 && controlledPlayer.Id == State.ActivePlayerId;
             var standing = controlledPlayer.Position;
             var aimed = controlledPlayer.Facing;
-            MoveControlledPlayer(controlledPlayer, frame.GetInputOrEmpty(playerId).NormalizedMove);
+            var move = frame.GetInputOrEmpty(playerId).NormalizedMove;
+            if (controlledPlayer.Id == _passReceiverId
+                && controlledPlayer.Team == UserControlledTeam
+                && controlledPlayer.Id == State.ActivePlayerId)
+            {
+                // Control moves to the receiver at the kick, while the person still holds the stick where the
+                // passer was going. Steered by it, the receiver ran off the ball's line and the pass rolled out
+                // of play. Until the pass ends he comes to meet the ball, and the stick is his from his first touch.
+                var toBall = State.Ball.Position - controlledPlayer.Position;
+                move = toBall.LengthSquared() > 0.0001f ? Vector2.Normalize(toBall) : Vector2.Zero;
+            }
+
+            MoveControlledPlayer(controlledPlayer, move);
             if (takesRestart)
             {
                 controlledPlayer.Position = standing;
@@ -1205,16 +1215,6 @@ public sealed class MatchEngine
     {
         var facing = player.Facing.ToUnitVector();
         var target = FindPassTarget(player, facing);
-        if (target is null && _kickoffTapTicks > 0 && player.Team == _restartWallTeam)
-        {
-            // Every team-mate is behind the kickoff taker, so a tap with the stick forward found nobody
-            // and rolled the ball to the other team. The first tap after a kickoff finds the nearest team-mate.
-            target = State.Players
-                .Where(mate => mate.Id != player.Id && mate.Team == player.Team && mate.Role == PlayerRole.Outfield)
-                .MinBy(mate => Vector2.DistanceSquared(mate.Position, player.Position));
-        }
-
-        _kickoffTapTicks = 0;
         var direction = target is null
             ? facing
             : Vector2.Normalize(target.Position - player.Position);
@@ -1336,9 +1336,12 @@ public sealed class MatchEngine
                 var alignment = Vector2.Dot(Vector2.Normalize(offset), facing);
                 return new { Player = player, DistanceSquared = distanceSquared, Alignment = alignment };
             })
-            .Where(candidate => candidate.Alignment >= Tuning.PassTargetConeCosine
-                && candidate.DistanceSquared <= maxTargetDistanceSquared)
-            .OrderBy(candidate => candidate.DistanceSquared)
+            .Where(candidate => candidate.DistanceSquared <= maxTargetDistanceSquared)
+            // A tap is a pass, so it always goes to a team-mate: the nearest one the passer is facing,
+            // or with nobody there the one closest to where he faces. Kicked straight along one of the
+            // eight facings instead, the ball ran off the court or to the other team.
+            .OrderByDescending(candidate => candidate.Alignment >= Tuning.PassTargetConeCosine)
+            .ThenBy(candidate => candidate.Alignment >= Tuning.PassTargetConeCosine ? candidate.DistanceSquared : -candidate.Alignment)
             .FirstOrDefault()
             ?.Player;
     }
@@ -2187,7 +2190,6 @@ public sealed class MatchEngine
         _shotActionPlayerId = null;
 
         _restartWallTicks = 0;
-        _kickoffTapTicks = 0;
         _spotKickTakerId = null;
         State.IsBallOutOfPlay = true;
         State.RestartTicksRemaining = Tuning.RestartDelayTicks;
@@ -2281,7 +2283,6 @@ public sealed class MatchEngine
         _restartWallKind = RestartKind.Kickoff;
         _restartPlayedDistance = State.Field.CenterCircleRadius;
         _restartWallTicks = Tuning.KickoffProtectionTicks;
-        _kickoffTapTicks = Tuning.KickoffProtectionTicks;
         if (_restartWallTicks > 0)
         {
             foreach (var opponent in State.Players.Where(candidate => candidate.Team != kickoffTeam))

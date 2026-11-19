@@ -52,9 +52,9 @@ var tests = new (string Name, Action Test)[]
     ("low control player can lose ball on abrupt turn", LowControlPlayerCanLoseBallOnAbruptTurn),
     ("kick uses stored facing azimuth", KickUsesStoredFacingAzimuth),
     ("quick tap performs pass", QuickTapPerformsPass),
-    ("pass outside the intended direction stays untargeted", PassOutsideIntendedDirectionStaysUntargeted),
+    ("a tap with nobody ahead goes to the team-mate nearest the facing", TapWithNobodyAheadFindsNearestToFacing),
     ("pass inside the intended direction targets teammate", PassInsideIntendedDirectionTargetsTeammate),
-    ("pass beyond assistance range stays untargeted", PassBeyondAssistanceRangeStaysUntargeted),
+    ("a tap with every team-mate beyond pass range goes along the facing", PassBeyondAssistanceRangeStaysUntargeted),
     ("diagonal goal shot selects the intended side", DiagonalGoalShotSelectsIntendedSide),
     ("away diagonal goal shot mirrors home aiming", AwayDiagonalGoalShotMirrorsHomeAiming),
     ("shot aimed away from goal stays unassisted", ShotAimedAwayFromGoalStaysUnassisted),
@@ -66,6 +66,7 @@ var tests = new (string Name, Action Test)[]
     ("pass stops passer immediately", PassStopsPasserImmediately),
     ("targeted pass switches active player", TargetedPassSwitchesActivePlayer),
     ("untargeted pass keeps active player", UntargetedPassKeepsActivePlayer),
+    ("a held stick does not run the receiver off the pass", HeldStickDoesNotRunReceiverOffThePass),
     ("opponent can intercept loose pass", OpponentCanInterceptLoosePass),
     ("non active possessor controls ball", NonActivePossessorControlsBall),
     ("home AI collector becomes the human-controlled player", HomeAiCollectorBecomesHumanControlledPlayer),
@@ -1301,8 +1302,12 @@ static void PassGoesPastOpponentBesideItsLine()
         StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), engine.Tuning.TapPassMaxTicks);
         engine.StepTick(PlayerInput.Empty);
         teammate.Position += receiverStep;
+        var stands = teammate.Position;
         for (var tick = 0; tick < 120 && engine.State.Ball.PossessorId is null && !engine.State.IsBallOutOfPlay; tick++)
         {
+            // The person's receiver comes to meet a pass; held here so this measures reach alone.
+            teammate.Position = stands;
+            teammate.Velocity = Vector2.Zero;
             engine.StepTick(PlayerInput.Empty);
         }
 
@@ -1310,7 +1315,7 @@ static void PassGoesPastOpponentBesideItsLine()
     }
 }
 
-static void PassOutsideIntendedDirectionStaysUntargeted()
+static void TapWithNobodyAheadFindsNearestToFacing()
 {
     var engine = MatchEngine.CreateDefault();
     var passer = engine.State.ActivePlayer;
@@ -1323,8 +1328,9 @@ static void PassOutsideIntendedDirectionStaysUntargeted()
     StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), engine.Tuning.TapPassMaxTicks);
     engine.StepTick(PlayerInput.Empty);
 
-    Assert(engine.State.ActivePlayerId == passer.Id, "An east pass should not snap to a teammate in the southeast sector.");
-    Assert(MathF.Abs(engine.State.Ball.Velocity.Y) < 0.0001f, "An untargeted pass should retain the passer's east facing.");
+    // Kicked straight east with nobody there, the ball ran off the court or to the other team.
+    Assert(engine.State.ActivePlayerId == nearSoutheastTeammate.Id, "With nobody to the east, a tap should go to the team-mate nearest that way.");
+    Assert(engine.State.Ball.Velocity.Y > 0.01f && engine.State.Ball.Velocity.X > 0.01f, "The pass should be played at that team-mate, not along the facing.");
 }
 
 static void PassInsideIntendedDirectionTargetsTeammate()
@@ -1349,10 +1355,11 @@ static void PassBeyondAssistanceRangeStaysUntargeted()
     var engine = MatchEngine.CreateDefault();
     var passer = engine.State.ActivePlayer;
     var distantTeammate = engine.State.Players.Single(player => player.Id == 2);
-    var otherTeammate = engine.State.Players.Single(player => player.Id == 3);
     distantTeammate.Position = passer.Position + new Vector2(40f, 0f);
-    otherTeammate.Position = passer.Position - new Vector2(18f, 0f);
-    MoveOtherHomeOutfieldersBehindPasser(engine, distantTeammate.Id);
+    foreach (var teammate in engine.State.Players.Where(player => player.Team == passer.Team && player.Id != passer.Id && player.Id != distantTeammate.Id))
+    {
+        teammate.Position = passer.Position - new Vector2(40f, teammate.Id);
+    }
 
     StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), engine.Tuning.TapPassMaxTicks);
     engine.StepTick(PlayerInput.Empty);
@@ -1577,6 +1584,39 @@ static void TargetedPassSwitchesActivePlayer()
     Assert(engine.State.Ball.PossessorId is null, "Ball should travel loose after a pass.");
 }
 
+static void HeldStickDoesNotRunReceiverOffThePass()
+{
+    // Control moves to the receiver at the kick while the person still holds the stick where the passer was going.
+    foreach (var stick in new[] { Vector2.UnitX, Vector2.UnitY, -Vector2.UnitY, -Vector2.UnitX })
+    {
+        var engine = MatchEngine.CreateDefault();
+        var state = engine.State;
+        var passer = state.ActivePlayer;
+        var receiver = state.Players.Single(player => player.Id == 2);
+        foreach (var other in state.Players.Where(player => player.Role == PlayerRole.Outfield))
+        {
+            // Out of pass range, so the receiver is the only team-mate a tap can find.
+            other.Position = new Vector2(-60f, -8f);
+        }
+
+        passer.Position = new Vector2(-8f, 0f);
+        receiver.Position = passer.Position + new Vector2(12f, 0f);
+        state.Ball.Position = passer.Position + passer.Facing.ToUnitVector() * engine.Tuning.DribbleLeadDistance;
+
+        StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), 3);
+        engine.StepTick(new PlayerInput(stick, ActionDown: false));
+        for (var tick = 0; tick < 180 && state.Ball.PossessorId is null && !state.IsBallOutOfPlay; tick++)
+        {
+            engine.StepTick(new PlayerInput(stick, ActionDown: false));
+        }
+
+        Assert(state.Ball.PossessorId == receiver.Id, $"The receiver should collect the pass with the stick held at {stick}.");
+        var collectedAt = receiver.Position;
+        StepMany(engine, new PlayerInput(stick, ActionDown: false), 20);
+        Assert(Vector2.Dot(receiver.Position - collectedAt, stick) > 0.5f, $"From his first touch the stick at {stick} should move the receiver.");
+    }
+}
+
 static void UntargetedPassKeepsActivePlayer()
 {
     var engine = MatchEngine.CreateDefault();
@@ -1584,7 +1624,8 @@ static void UntargetedPassKeepsActivePlayer()
 
     foreach (var teammate in engine.State.Players.Where(player => player.Team == TeamSide.Home && player.Id != passerId))
     {
-        teammate.Position = engine.State.ActivePlayer.Position + new Vector2(-20f, 0f);
+        // Beyond pass range: nearer than that, a tap always finds one of them.
+        teammate.Position = engine.State.ActivePlayer.Position + new Vector2(-40f, 0f);
     }
 
     StepMany(engine, new PlayerInput(Vector2.Zero, ActionDown: true), engine.Tuning.TapPassMaxTicks);
@@ -3018,11 +3059,30 @@ static void KickInTakerStandsUntilTheBallIsKicked()
         Assert(!state.IsBallOutOfPlay, $"Aiming with the stick at {stick} should not put the ball out.");
     }
 
-    StepMany(engine, new PlayerInput(inward, ActionDown: true), 3);
-    StepMany(engine, new PlayerInput(inward, ActionDown: false), 3);
+    // Aimed along the line and held there, as a person holds it: the tap still finds a team-mate.
+    StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: true), 3);
+    StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: false), 3);
     Assert(!taker.HasPossession, "A tap should kick the ball in.");
-    StepMany(engine, new PlayerInput(inward, ActionDown: false), 20);
-    Assert(taker.Position != spot, "Once the ball is kicked the taker is free to move.");
+    Assert(state.ActivePlayerId != taker.Id, "The tap should be played to a team-mate, who becomes the person's player.");
+    for (var tick = 0; tick < 240 && state.Ball.PossessorId is null && !state.IsBallOutOfPlay; tick++)
+    {
+        engine.StepTick(new PlayerInput(Vector2.UnitX, ActionDown: false));
+    }
+
+    Assert(state.Ball.PossessorId == state.ActivePlayerId, "The team-mate should collect the kick-in with the stick still held along the line.");
+    var collectedAt = state.ActivePlayer.Position;
+    StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: false), 20);
+    Assert(state.ActivePlayer.Position.X > collectedAt.X + 0.5f, "Once he has the ball the stick is his.");
+
+    // A held kick finds nobody, so control stays on the taker, and once the ball is kicked he is free to move.
+    var shot = PutBallOut(TeamSide.Away, new Vector2(3f, FieldDimensions.Default.Top - 1f));
+    var shooter = shot.State.Players.Single(player => player.HasPossession);
+    StepMany(shot, PlayerInput.Empty, shot.Tuning.RestartDelayTicks + 1);
+    var shotSpot = shooter.Position;
+    StepMany(shot, new PlayerInput(inward, ActionDown: true), shot.Tuning.TapPassMaxTicks + 1);
+    Assert(!shooter.HasPossession && shooter.Position == shotSpot, "A held kick should be struck from the spot.");
+    StepMany(shot, new PlayerInput(inward, ActionDown: false), 20);
+    Assert(shooter.Position != shotSpot, "Once the ball is kicked the taker is free to move.");
 }
 
 static void ControlFollowsTheBallWhenDefending()
@@ -3371,24 +3431,26 @@ static void TapAtKickoffReachesTeamMate()
 
     Assert(holder.Position == stood, "The kickoff taker should stand until the ball is kicked.");
 
-    // Every team-mate is behind the taker, whatever the stick says.
-    foreach (var stick in new[] { Vector2.Zero, Vector2.UnitX, -Vector2.UnitX, Vector2.UnitY })
-    {
-        var engine = MatchEngine.CreateDefault(startWithKickoff: true);
-        var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
-        var state = engine.State;
-        var taker = state.Players.Single(player => player.HasPossession);
-        PlayerState? receiver = null;
-        for (var tick = 0; tick < 120 && receiver is null; tick++)
+    // Every team-mate is behind the taker, whatever the stick says. The stick stays held, as a person holds it,
+    // and the press lasts as long as a person's does.
+    foreach (var (pressTicks, pressAt) in new[] { (3, 20), (10, 20) })
+        foreach (var stick in new[] { Vector2.Zero, Vector2.UnitX, -Vector2.UnitX, Vector2.UnitY, -Vector2.UnitY, new Vector2(1f, 1f), new Vector2(1f, -1f), new Vector2(-1f, 1f), new Vector2(-1f, -1f) })
         {
-            engine.StepTick(new PlayerInput(tick < 23 ? stick : Vector2.Zero, ActionDown: tick is >= 20 and < 23), computers);
-            receiver = state.Players.SingleOrDefault(player => player.HasPossession && player.Id != taker.Id);
-        }
+            var engine = MatchEngine.CreateDefault(startWithKickoff: true);
+            var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+            var state = engine.State;
+            var taker = state.Players.Single(player => player.HasPossession);
+            PlayerState? receiver = null;
+            for (var tick = 0; tick < pressAt + 120 && receiver is null && !state.IsBallOutOfPlay; tick++)
+            {
+                engine.StepTick(new PlayerInput(stick, ActionDown: tick >= pressAt && tick < pressAt + pressTicks), computers);
+                receiver = state.Players.SingleOrDefault(player => player.HasPossession && player.Id != taker.Id);
+            }
 
-        Assert(
-            receiver is { Team: TeamSide.Home },
-            $"A tap at the kickoff with the stick at {stick} should reach a team-mate, not {receiver?.Team.ToString() ?? "nobody"}.");
-    }
+            Assert(
+                receiver is { Team: TeamSide.Home },
+                $"A {pressTicks}-tick tap at tick {pressAt} of the kickoff with the stick at {stick} should reach a team-mate, not {receiver?.Team.ToString() ?? "nobody"}.");
+        }
 }
 
 static void KickoffTakerStandsOverTheBallAndKeepsIt()
