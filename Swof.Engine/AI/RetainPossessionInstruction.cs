@@ -91,6 +91,7 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
         var field = context.Match.Field;
         var bestDirection = directions[0];
         var bestScore = float.NegativeInfinity;
+        var bestChoice = float.NegativeInfinity;
 
         for (var index = 0; index < directions.Length; index++)
         {
@@ -135,10 +136,14 @@ public sealed class SafePossessionPattern : IPlayerPattern<PossessionOpportunity
                 + (DecisionNoise.Roll(context.Match, context.Player.Id, purpose: 100 + index, holdTicks: 30) - 0.5f)
                     * CarryIndecision;
 
-            if (score > bestScore)
+            // Forward risk only chooses where to carry. Added to the score itself, it made carrying
+            // outrank every shot, because the carry score is what a shot is weighed against.
+            var choice = score + (forwardProgress + 1f) * context.Habits.ForwardRisk;
+            if (choice > bestChoice)
             {
                 bestDirection = direction;
                 bestScore = score;
+                bestChoice = choice;
             }
         }
 
@@ -330,9 +335,10 @@ public sealed class RetainPossessionInstruction : IPlayerInstruction
         _possessionTicks++;
         var attackDirection = context.Player.Team == TeamSide.Home ? 1f : -1f;
         var isInOwnThird = context.Player.Position.X * attackDirection < -context.Match.Field.Length / 6f;
+        var patience = context.Habits.CarryPatience;
         var mayPass = match.PassTargetId is not null
-            && (_possessionTicks >= NormalPassDelayTicks
-                || _possessionTicks >= (isInOwnThird ? OwnThirdPassDelayTicks : MinimumPassDelayTicks)
+            && (_possessionTicks >= Patient(NormalPassDelayTicks, patience)
+                || _possessionTicks >= (isInOwnThird ? OwnThirdPassDelayTicks : Patient(MinimumPassDelayTicks, patience))
                     && match.NearestOpponentDistance <= PressureDistance);
         if (mayPass)
         {
@@ -350,6 +356,9 @@ public sealed class RetainPossessionInstruction : IPlayerInstruction
         _carryTicksRemaining--;
         return CreateCandidate(match.CarryScore, _committedCarryDirection, actionDown: false);
     }
+
+    // At a patience of 1 this is the delay itself, so neutral habits replay matches exactly.
+    private static int Patient(int ticks, float patience) => (int)MathF.Round(ticks * patience);
 
     private static PlayerInstructionCandidate CreateCandidate(
         float score,

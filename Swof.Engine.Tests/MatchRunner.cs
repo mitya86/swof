@@ -43,7 +43,8 @@ internal static class MatchRunner
         int LostInOwnThird,
         int FourSecondCalls,
         int SpotKicks,
-        int CoachChanges = 0);
+        int CoachChanges = 0,
+        int AwayPasses = 0);
 
     /// <summary>
     /// The seed chooses the eight outfielders' attributes (unless the squads are equal) and the
@@ -64,7 +65,9 @@ internal static class MatchRunner
         byte awaySpeed = 0,
         byte awayTechnique = 0,
         Difficulty? awayDifficulty = null,
-        int? randomPersonSeed = null)
+        int? randomPersonSeed = null,
+        PlayerHabits? homeHabits = null,
+        PlayerHabits? awayHabits = null)
     {
         var random = new Random(seed);
         // 4 to 15 is the range the default squads already use.
@@ -105,6 +108,15 @@ internal static class MatchRunner
             computers.SetTactic(TeamSide.Away, awayTactic);
         }
 
+        // Every outfielder of a side gets the same habits, so the side's results show what the habit does.
+        foreach (var player in engine.CurrentSnapshot.Players.Where(player => player.Role == PlayerRole.Outfield))
+        {
+            if ((player.Team == TeamSide.Home ? homeHabits : awayHabits) is { } habits)
+            {
+                computers.SetHabits(player.Id, habits);
+            }
+        }
+
         if (homeRule is not null)
         {
             computers.SetTacticByScore(TeamSide.Home, homeRule(tuning.HalfLengthSeconds * 2f));
@@ -137,7 +149,7 @@ internal static class MatchRunner
         // Stoppages add to the clock; three times the playing time is far beyond any real match.
         var tickCap = (long)(tuning.HalfLengthSeconds * 2f * 3f / tuning.TickSeconds);
 
-        int shots = 0, passes = 0, windUps = 0, slides = 0, fouls = 0, stoppages = 0, lastScore = 0;
+        int shots = 0, passes = 0, awayPasses = 0, windUps = 0, slides = 0, fouls = 0, stoppages = 0, lastScore = 0;
         long lastFeedback = 0, keeperTicks = 0, sameFor = 0, longestSame = 0;
         int? lastPossessor = null;
         var shooting = new HashSet<int>();
@@ -203,6 +215,7 @@ internal static class MatchRunner
                 }
 
                 passes += feedback.Type == GameplayFeedbackType.PassContact ? 1 : 0;
+                awayPasses += feedback.Type == GameplayFeedbackType.PassContact && feedback.Team == TeamSide.Away ? 1 : 0;
             }
 
             // A computer player that starts winding up a shot; far more of these than
@@ -342,7 +355,8 @@ internal static class MatchRunner
             lostInOwnThird,
             fourSecondCalls,
             spotKicks,
-            computers.CoachChanges);
+            computers.CoachChanges,
+            awayPasses);
     }
 
     /// <summary>Plays <paramref name="count"/> matches and returns how many broke.</summary>
@@ -358,10 +372,12 @@ internal static class MatchRunner
         bool awayCoach = false,
         byte awaySpeed = 0,
         byte awayTechnique = 0,
-        Difficulty? awayDifficulty = null)
+        Difficulty? awayDifficulty = null,
+        PlayerHabits? homeHabits = null,
+        PlayerHabits? awayHabits = null)
     {
         var results = Enumerable.Range(firstSeed, count)
-            .Select(seed => Play(seed, equalSquads: equalSquads, homeTactic: homeTactic, awayTactic: awayTactic, homeRule: homeRule, awayRule: awayRule, homeCoach: homeCoach, awayCoach: awayCoach, awaySpeed: awaySpeed, awayTechnique: awayTechnique, awayDifficulty: awayDifficulty))
+            .Select(seed => Play(seed, equalSquads: equalSquads, homeTactic: homeTactic, awayTactic: awayTactic, homeRule: homeRule, awayRule: awayRule, homeCoach: homeCoach, awayCoach: awayCoach, awaySpeed: awaySpeed, awayTechnique: awayTechnique, awayDifficulty: awayDifficulty, homeHabits: homeHabits, awayHabits: awayHabits))
             .ToArray();
         foreach (var r in results)
         {
@@ -386,6 +402,14 @@ internal static class MatchRunner
         if (homeCoach || awayCoach)
         {
             Spread("coach tactic changes", r => r.CoachChanges);
+        }
+
+        if (homeHabits is not null || awayHabits is not null)
+        {
+            Spread("home passes", r => r.Passes - r.AwayPasses);
+            Spread("away passes", r => r.AwayPasses);
+            Spread("home goals", r => r.HomeScore);
+            Spread("away goals", r => r.AwayScore);
         }
 
         Spread("stoppages", r => r.Stoppages);
