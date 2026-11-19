@@ -31,6 +31,9 @@ public sealed class MatchState
     /// <summary>The foul rule for slides, kept here so computer players read the same rule the engine applies.</summary>
     public SlideFoulRule SlideFoul { get; set; } = SlideFoulRule.Off;
 
+    /// <summary>The player standing over a kickoff, kick-in, corner or free kick that has not been kicked yet.</summary>
+    public int? RestartTakerId { get; set; }
+
     public FieldDimensions Field { get; }
     public IReadOnlyList<PlayerState> Players { get; }
     public IReadOnlyList<OfficialState> Officials { get; }

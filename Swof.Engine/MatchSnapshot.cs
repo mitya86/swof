@@ -26,6 +26,9 @@ public sealed record MatchSnapshot(
     /// <summary>The foul rule for slides that the engine applies.</summary>
     public SlideFoulRule SlideFoul { get; init; } = SlideFoulRule.Off;
 
+    /// <summary>The player standing over a kickoff, kick-in, corner or free kick that has not been kicked yet.</summary>
+    public int? RestartTakerId { get; init; }
+
     /// <summary>Teams change ends at half-time, so the second half is seen from the other side.</summary>
     public bool EndsChanged => Period % 2 == 0;
 
@@ -64,7 +67,8 @@ public sealed record MatchSnapshot(
             Seed = state.Seed,
             HomeFouls = state.HomeFouls,
             AwayFouls = state.AwayFouls,
-            SlideFoul = state.SlideFoul
+            SlideFoul = state.SlideFoul,
+            RestartTakerId = state.RestartTakerId
         };
     }
 

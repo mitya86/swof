@@ -27,7 +27,10 @@ public sealed class ShootingChancePattern : IPlayerPattern<ShootingChance>
         var player = context.Player;
         if (context.Match.IsBallOutOfPlay
             || player.Role != PlayerRole.Outfield
-            || !player.HasPossession)
+            || !player.HasPossession
+            // A kickoff or kick-in is passed to a team-mate.
+            || context.Match.RestartTakerId == player.Id
+                && context.Match.LastEvent.Restart is RestartKind.Kickoff or RestartKind.KickIn)
         {
             return false;
         }

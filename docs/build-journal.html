@@ -91,6 +91,41 @@ td.num, th.num { text-align: right; }
     <!-- NEW-ENTRIES-HERE -->
     <article class="entry">
       <header>
+        <div class="meta"><span class="label">19 Nov 2026</span><span class="tag">Play</span><span class="label">pull request 49</span></div>
+        <h3>The computer kicks its restarts instead of running them in</h3>
+      </header>
+      <div class="part-block">
+        <p class="label">What you saw</p>
+        <ul>
+          <li>"When cpu kicks in, they don't pass, just start running with a ball, that's against the rules."</li>
+        </ul>
+      </div>
+      <div class="part-block decision">
+        <p class="label">Decisions</p>
+        <ul>
+          <li><strong>One rule for both sides.</strong> Your taker already had to stand and kick. The computer's was let off, because the last time I held it its teams stopped shooting. Now every taker stands until the ball is kicked.</li>
+          <li><strong>The computer passes at once.</strong> If a team-mate is free it passes to him straight away. If nobody is free after a quarter of a second it taps anyway: since the last change a tap always finds a team-mate, and that beats losing the ball to the four-second count. It does not shoot from a kickoff or a kick-in.</li>
+          <li><strong>I moved a pass mark, and here is why.</strong> Computer teams now take about 16 shots a match, not 26. I counted before changing anything: over 100 matches, half of all shots were taken by a player who had run a restart in and shot without anyone else touching the ball. Those shots came from breaking the rule. The floor for shots is now 10, not 15. Goals did not fall: 2.6 with equal teams, 2.1 with mixed ones.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">What the lesson is</p>
+        <ul>
+          <li>A number can look healthy because of a bug. "26 shots a match" was a mark I defended for weeks, and half of it was the thing you called against the rules.</li>
+          <li>A side effect: after a goal, the two teams now shoot about equally (71 to 68 in the ten seconds after). That mark had been close to failing for a long time.</li>
+        </ul>
+      </div>
+      <div class="part-block">
+        <p class="label">Not exercised</p>
+        <ul>
+          <li>Nobody has watched a computer kick-in in the running game. Passing after a thirtieth of a second may look abrupt.</li>
+          <li>There is still no real restart play: team-mates do not make runs for a kick-in or corner, and there are about 55 stoppages in a six-minute match, which is a lot.</li>
+          <li>CI is still blocked, so no Windows or Android build.</li>
+        </ul>
+      </div>
+    </article>
+    <article class="entry">
+      <header>
         <div class="meta"><span class="label">19 Nov 2026</span><span class="tag">Play</span><span class="label">pull request 48</span></div>
         <h3>A tap is a pass, and a pass goes to a team-mate</h3>
       </header>

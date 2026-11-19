@@ -363,19 +363,14 @@ public sealed class MatchEngine
             }
         }
 
+        State.RestartTakerId = _restartWallTicks > 0 && _spotKickTakerId is null
+            ? State.Players.FirstOrDefault(player => player.HasPossession && player.Team == _restartWallTeam)?.Id
+            : null;
         foreach (var playerId in frame.PlayerIds)
         {
             var controlledPlayer = State.Players.Single(player => player.Id == playerId);
-            // A restart is kicked, not run in: until the ball is played the person's taker stands and the stick only aims.
-            // ponytail: a computer's taker still runs the ball in. Held the same way, with nothing else changed, its
-            // teams took 19 shots a match instead of 33: there are about 80 restarts a match and the computer has no
-            // restart play. Hold it too once it has one.
-            var takesRestart = _restartWallTicks > 0
-                && _spotKickTakerId is null
-                && controlledPlayer.HasPossession
-                && controlledPlayer.Team == _restartWallTeam
-                && controlledPlayer.Team == UserControlledTeam
-                && controlledPlayer.Id == State.ActivePlayerId;
+            // A restart is kicked, not run in: until the ball is played the taker stands and the stick only aims.
+            var takesRestart = State.RestartTakerId == controlledPlayer.Id;
             var standing = controlledPlayer.Position;
             var aimed = controlledPlayer.Facing;
             var move = frame.GetInputOrEmpty(playerId).NormalizedMove;

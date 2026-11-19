@@ -108,6 +108,7 @@ var tests = new (string Name, Action Test)[]
     ("opponents are moved back from a kick-in", OpponentsAreMovedBackFromKickIn),
     ("opponents stay five metres from a kick-in until it is played", OpponentsStayAwayFromKickInUntilPlayed),
     ("a kick-in is kicked, not run in", KickInTakerStandsUntilTheBallIsKicked),
+    ("a computer's kick-in taker stands and passes to a team-mate", ComputerKickInTakerStandsAndPasses),
     ("control follows the ball while the other team carries it", ControlFollowsTheBallWhenDefending),
     ("a restart not played in four seconds goes to the other team", RestartNotPlayedInFourSecondsGoesToOtherTeam),
     ("button held through a stoppage does not kick on resume", ButtonHeldThroughStoppageDoesNotKickOnResume),
@@ -3041,6 +3042,37 @@ static void OpponentsAreMovedBackFromKickIn()
 
     StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + 1);
     Assert(taker.HasPossession, "A crowding opponent should not win the ball as play resumes.");
+}
+
+static void ComputerKickInTakerStandsAndPasses()
+{
+    var engine = PutBallOut(TeamSide.Home, new Vector2(3f, FieldDimensions.Default.Top - 1f));
+    var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    var state = engine.State;
+    while (state.IsBallOutOfPlay)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+    }
+
+    var taker = state.Players.Single(player => player.HasPossession);
+    Assert(taker.Team == TeamSide.Away, "The computer's team should have the kick-in.");
+    // One tick of play first: it stands the taker's body inside the line.
+    engine.StepTick(PlayerInput.Empty, computers);
+    var spot = taker.Position;
+    for (var tick = 0; tick < 120 && taker.HasPossession; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        Assert(!taker.HasPossession || taker.Position == spot, $"The computer's kick-in taker should stand until it kicks (tick {tick}).");
+    }
+
+    Assert(!taker.HasPossession, "The computer's kick-in taker should kick within two seconds.");
+    for (var tick = 0; tick < 240 && state.Ball.PossessorId is null && !state.IsBallOutOfPlay; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+    }
+
+    var receiver = state.Players.SingleOrDefault(player => player.HasPossession);
+    Assert(receiver is { Team: TeamSide.Away } && receiver.Id != taker.Id, "The kick-in should be passed to a team-mate.");
 }
 
 static void KickInTakerStandsUntilTheBallIsKicked()
