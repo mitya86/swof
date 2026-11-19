@@ -73,6 +73,9 @@ public sealed class CoachModel
         _results[tactic] = (matches + 1, difference + goalDifference);
     }
 
+    /// <summary>Sets what he remembers of a tactic, as a saved career had it.</summary>
+    internal void Restore(TeamTactic tactic, int matches, int goalDifference) => _results[tactic] = (matches, goalDifference);
+
     /// <summary>
     /// Where he puts four outfielders: for each slot (fixo, left ala, right ala, pivo) the index of the player he
     /// puts there. He weighs how well each player's attributes suit a slot against leaving players where they are,

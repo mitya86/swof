@@ -20,6 +20,9 @@ internal sealed record SwofGameLaunchOptions(
     /// <summary>Shows the start screen even with <see cref="CapturePath"/>, which otherwise opens in a match.</summary>
     public bool StartScreen { get; init; }
 
+    /// <summary>A career file: Home plays as its squad, set out by its coach, and the career develops and is saved at each full time.</summary>
+    public string? CareerPath { get; init; }
+
     public static SwofGameLaunchOptions Default { get; } = new(
         MatchFeedbackMode.Connected,
         MatchDemoAction.None,
@@ -34,6 +37,7 @@ internal sealed record SwofGameLaunchOptions(
         TeamTactic? opponentTactic = null;
         var startScreen = false;
         var teamTactic = TeamTactic.HighPress;
+        string? careerPath = null;
         var opponentCoach = false;
         var startPaused = false;
         string? capturePath = null;
@@ -88,6 +92,10 @@ internal sealed record SwofGameLaunchOptions(
             {
                 startPaused = true;
             }
+            else if (argument.StartsWith("--career=", StringComparison.OrdinalIgnoreCase))
+            {
+                careerPath = argument["--career=".Length..];
+            }
             else if (argument.StartsWith("--team-tactic=", StringComparison.OrdinalIgnoreCase))
             {
                 teamTactic = ParseTactic(argument["--team-tactic=".Length..]);
@@ -98,7 +106,8 @@ internal sealed record SwofGameLaunchOptions(
         {
             CaptureAfterSeconds = captureAfterSeconds,
             Script = script,
-            StartScreen = startScreen
+            StartScreen = startScreen,
+            CareerPath = careerPath
         };
     }
 
