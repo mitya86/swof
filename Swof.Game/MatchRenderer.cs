@@ -24,6 +24,8 @@ internal sealed class MatchRenderer : IDisposable
     private static readonly Color ShadowColor = new(0, 0, 0, 105);
     private static readonly Color TouchColor = new(255, 255, 255, 110);
     private static readonly Color PlayerShadowColor = new(0, 0, 0, 82);
+    private static readonly Color HomeDiscColor = new(226, 48, 48);
+    private static readonly Color AwayDiscColor = new(250, 250, 250);
     private static readonly Color HomeGoalkeeperTint = new(145, 255, 175);
     private static readonly Color AwayGoalkeeperTint = new(255, 220, 130);
 
@@ -357,6 +359,12 @@ internal sealed class MatchRenderer : IDisposable
                 radius * 0.92f * shadowStretch,
                 radius * 0.42f,
                 PlayerShadowColor);
+
+            // The two kits are both striped with white and the figures are small, so the team is told by a solid
+            // disc under each player. Away's is white, not blue: blue is lost on the blue court.
+            // ponytail: a stopgap until the players are redrawn; then the kits themselves should tell the teams apart.
+            _primitives.FillEllipse(center, radius * 1.18f, radius * 1.18f, Color.Black);
+            _primitives.FillEllipse(center, radius * 1.05f, radius * 1.05f, player.Team == TeamSide.Home ? HomeDiscColor : AwayDiscColor);
 
             var spriteAtlas = isMoving ? _playerRunAtlas : _playerAtlas;
             var spriteEffects = SpriteEffects.None;

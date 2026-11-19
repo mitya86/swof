@@ -8,7 +8,7 @@ Scope: `Swof.Game` (`MatchRenderer.cs`, `PitchSurface.cs`, `RenderPrimitives.cs`
 
 - **Three image files are all the art there is**: one font (Arial 16) and two tiny player sheets (24 x 32 pixel frames, one standing frame and four running frames per team). Everything else — the court, the ball, shadows, rings, effects, the HUD, the menus — is drawn in code from a white pixel, a disc and a ring.
 - **Players are one top-down figure rotated to face their direction.** There are two states, standing and running. A kick, a tackle, a slide, a save and a celebration have no frames; a kick is a squash and a nudge of the same sprite.
-- **Team colours are painted into the sheets** (Home red, Away blue). Goalkeepers are the same sprite tinted. No player looks different from a team-mate: no number, hair or build.
+- **Team colours are painted into the sheets** (Home red, Away blue), and both kits are striped with white, so at the current size the team is told by a solid disc drawn under each player: red for Home, white for Away. Goalkeepers are the same sprite tinted. No player looks different from a team-mate: no number, hair or build.
 - **One font at one size** does the score, the banners, the menus and the name tag.
 - **No shaders, no depth, no lighting.** Four sprite batches, drawn in call order.
 
@@ -20,7 +20,7 @@ Scope: `Swof.Game` (`MatchRenderer.cs`, `PitchSurface.cs`, `RenderPrimitives.cs`
 |---|---|---|---|
 | 0 | Clear | colour (11,12,15) | Shows as the border round the game view |
 | 1 | Pitch | one cached texture | Painted once in code, see section 4 |
-| 2 | Players | per player, sorted by Y: possession ring, active ring and chevron, shadow, body sprite | The only layer that uses the image sheets. Point-sampled |
+| 2 | Players | per player, sorted by Y: possession ring, active ring and chevron, shadow, team disc (Home red, Away white, black edge), body sprite | The only layer that uses the image sheets. Point-sampled |
 | 3 | Ball | shadow, black outline disc, near-white disc, dark spot | Always above every player. Height lifts it up the screen and grows it up to 50% |
 | 4 | Feedback effects | lines, rings, small squares, discs | Section 6 |
 | 5 | Active player's name tag | dark box and text at 0.62 scale | 17 px below the player |
