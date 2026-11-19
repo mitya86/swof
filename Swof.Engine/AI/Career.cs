@@ -44,12 +44,14 @@ public sealed class Career
     /// <summary>Rolls a new career: four outfielders' attributes and traits, and a coach. A seed always rolls the same one.</summary>
     public static Career New(int seed)
     {
+        // A seeded Random is enough here: a career is rolled once and saved, so nothing replays the roll later.
         var random = new Random(seed);
+        var names = Names.OrderBy(_ => random.Next()).Take(4).ToArray();
         // 4 to 15 is the range the match runner's squads use.
         byte Attribute() => (byte)random.Next(4, 16);
-        var squad = Enumerable.Range(0, 4)
-            .Select(_ => new SquadPlayer(
-                Names[random.Next(Names.Length)],
+        var squad = names
+            .Select(name => new SquadPlayer(
+                name,
                 new PlayerAttributes(Attribute(), Attribute(), Attribute(), Attribute(), Attribute(), Attribute(), Attribute()),
                 PlayerHabits.Neutral,
                 new PlayerTraits(random.NextSingle(), random.NextSingle(), random.NextSingle(), random.NextSingle())))
@@ -122,7 +124,9 @@ public sealed class Career
             throw new InvalidDataException("This is not a career file.", exception);
         }
 
-        if (file?.Version != FileVersion || file.Squad is not { Length: 4 } || file.Coach?.Results is null)
+        if (file?.Version != FileVersion || file.Squad is not { Length: 4 } || file.Coach?.Results is null || file.Coach.Asks is null
+            || file.Squad.Any(player => player?.Name is null || player.Attributes is null || player.Habits is null || player.Traits is null)
+            || file.Coach.Results.Any(result => result?.Tactic is null))
         {
             throw new InvalidDataException($"A career file must be version {FileVersion} with four players and a coach.");
         }
