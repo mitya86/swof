@@ -8,11 +8,11 @@ internal readonly record struct WorldCamera(float Left, float Right, float Top, 
 {
     public const float BoundaryMargin = 3f;
 
-    private const float VisibleCourtLengthRatio = 0.5f;
-    private const float BallWeight = 0.72f;
+    // Three quarters of the court, centred halfway between the ball and the active player and never thrown
+    // ahead of a kick: a view that follows the ball closely lurches with every pass.
+    private const float VisibleCourtLengthRatio = 0.75f;
+    private const float BallWeight = 0.5f;
     private const float FocusPadding = 2.25f;
-    private const float LookaheadTicks = 14f;
-    private const float MaxLookaheadRatio = 0.24f;
 
     public float Width => Right - Left;
     public float Height => Bottom - Top;
@@ -59,11 +59,6 @@ internal readonly record struct WorldCamera(float Left, float Right, float Top, 
         }
 
         var center = snapshot.Ball.Position * BallWeight + active.Position * (1f - BallWeight);
-        var lookahead = snapshot.Ball.Velocity * LookaheadTicks;
-        lookahead = new NumericsVector2(
-            Math.Clamp(lookahead.X, -spanX * MaxLookaheadRatio, spanX * MaxLookaheadRatio),
-            Math.Clamp(lookahead.Y, -spanY * MaxLookaheadRatio, spanY * MaxLookaheadRatio));
-        center += lookahead;
 
         var halfX = spanX * 0.5f;
         var halfY = spanY * 0.5f;
