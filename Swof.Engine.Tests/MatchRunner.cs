@@ -81,7 +81,10 @@ internal static class MatchRunner
         PlayerHabits? homeHabits = null,
         PlayerHabits? awayHabits = null,
         IReadOnlyList<PlayerAttributes>? fixedSquad = null,
-        IReadOnlyList<PlayerHabits>? playerHabits = null)
+        IReadOnlyList<PlayerHabits>? playerHabits = null,
+        PlayerTraits? homeTraits = null,
+        PlayerTraits? awayTraits = null,
+        IReadOnlyList<PlayerTraits>? playerTraits = null)
     {
         var squad = fixedSquad is null ? Squad(seed) : [.. fixedSquad];
 
@@ -127,6 +130,11 @@ internal static class MatchRunner
             if ((playerHabits?[index] ?? (player.Team == TeamSide.Home ? homeHabits : awayHabits)) is { } habits)
             {
                 computers.SetHabits(player.Id, habits);
+            }
+
+            if ((playerTraits?[index] ?? (player.Team == TeamSide.Home ? homeTraits : awayTraits)) is { } traits)
+            {
+                computers.SetTraits(player.Id, traits);
             }
         }
 
@@ -383,31 +391,43 @@ internal static class MatchRunner
     /// 100 matches with Home's learned habits and Away's neutral, against the same squad all neutral.
     /// Returns how many matches broke.
     /// </summary>
-    internal static int Learn(int count, int firstSeed)
+    internal static int Learn(int count, int firstSeed, bool withTraits = false)
     {
         var squad = Squad(firstSeed);
         var habits = Enumerable.Repeat(PlayerHabits.Neutral, 8).ToArray();
+        // With traits each player also gets a learning, a discipline, a composure and a temperament from the seed,
+        // and learns at the pace his learning and his fit with his team-mates allow.
+        var traitRoll = new Random(firstSeed + 7919);
+        var traits = Enumerable.Range(0, 8)
+            .Select(_ => withTraits ? new PlayerTraits(traitRoll.NextSingle(), traitRoll.NextSingle(), traitRoll.NextSingle(), traitRoll.NextSingle()) : PlayerTraits.Neutral)
+            .ToArray();
+        var fits = new float[8];
         IReadOnlyList<PlayerOutcome> players = [];
         var broken = 0;
         for (var match = 0; match < count; match++)
         {
-            var result = Play(firstSeed + match, fixedSquad: squad, playerHabits: habits);
+            var result = Play(firstSeed + match, fixedSquad: squad, playerHabits: habits, playerTraits: traits);
             broken += result.Fault is null ? 0 : 1;
             players = result.Outcomes!.Players;
             var court = players.Aggregate(default(PlayerSpells), (sum, player) => sum + player.Spells);
-            habits = [.. habits.Select((own, index) => own.After(players[index].Spells, court))];
+            var played = players;
+            fits = [.. traits.Select((own, index) => PlayerTraits.Fit(
+                own.Temperament,
+                traits.Where((_, other) => other != index && played[other].Team == played[index].Team).Select(mate => mate.Temperament)))];
+            habits = [.. habits.Select((own, index) => traits[index].Develop(own, played[index].Spells, court, fits[index]))];
         }
 
         for (var index = 0; index < players.Count; index++)
         {
             var a = players[index].Attributes;
-            Console.WriteLine($"{players[index].Team,-4}  speed {a.Speed,2}  ball control {a.BallControl,2}  tackling {a.Tackling,2}  ->  patience {habits[index].CarryPatience:F2}  forward risk {habits[index].ForwardRisk:F2}");
+            Console.WriteLine($"{players[index].Team,-4}  speed {a.Speed,2}  ball control {a.BallControl,2}  tackling {a.Tackling,2}  ->  patience {habits[index].CarryPatience:F2}  forward risk {habits[index].ForwardRisk:F2}" +
+                (withTraits ? $"  (learning {traits[index].Learning:F2}, temperament {traits[index].Temperament:F2}, fit {fits[index]:F2})" : ""));
         }
 
         var learned = habits.Select((own, index) => players[index].Team == TeamSide.Home ? own : PlayerHabits.Neutral).ToArray();
         float HomeLead(IReadOnlyList<PlayerHabits> given)
         {
-            var results = Enumerable.Range(firstSeed + count, 100).Select(seed => Play(seed, fixedSquad: squad, playerHabits: given)).ToArray();
+            var results = Enumerable.Range(firstSeed + count, 100).Select(seed => Play(seed, fixedSquad: squad, playerHabits: given, playerTraits: traits)).ToArray();
             broken += results.Count(r => r.Fault is not null);
             return (float)results.Average(r => r.HomeScore - r.AwayScore);
         }
@@ -443,10 +463,12 @@ internal static class MatchRunner
         Difficulty? awayDifficulty = null,
         PlayerHabits? homeHabits = null,
         PlayerHabits? awayHabits = null,
-        bool outcomes = false)
+        bool outcomes = false,
+        PlayerTraits? homeTraits = null,
+        PlayerTraits? awayTraits = null)
     {
         var results = Enumerable.Range(firstSeed, count)
-            .Select(seed => Play(seed, equalSquads: equalSquads, homeTactic: homeTactic, awayTactic: awayTactic, homeRule: homeRule, awayRule: awayRule, homeCoach: homeCoach, awayCoach: awayCoach, awaySpeed: awaySpeed, awayTechnique: awayTechnique, awayDifficulty: awayDifficulty, homeHabits: homeHabits, awayHabits: awayHabits))
+            .Select(seed => Play(seed, equalSquads: equalSquads, homeTactic: homeTactic, awayTactic: awayTactic, homeRule: homeRule, awayRule: awayRule, homeCoach: homeCoach, awayCoach: awayCoach, awaySpeed: awaySpeed, awayTechnique: awayTechnique, awayDifficulty: awayDifficulty, homeHabits: homeHabits, awayHabits: awayHabits, homeTraits: homeTraits, awayTraits: awayTraits))
             .ToArray();
         foreach (var r in results)
         {
@@ -473,7 +495,7 @@ internal static class MatchRunner
             Spread("coach tactic changes", r => r.CoachChanges);
         }
 
-        if (homeHabits is not null || awayHabits is not null)
+        if (homeHabits is not null || awayHabits is not null || homeTraits is not null || awayTraits is not null)
         {
             Spread("home passes", r => r.Passes - r.AwayPasses);
             Spread("away passes", r => r.AwayPasses);

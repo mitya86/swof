@@ -100,6 +100,19 @@ public sealed record PlayerHabits
         return counted ? own.KeptShare - ownRest.KeptShare - (court.KeptShare - courtRest.KeptShare) : 0f;
     }
 
+    /// <summary>Habits moved the given share of the way toward others.</summary>
+    /// <param name="target">The habits to move toward.</param>
+    /// <param name="share">How far, from 0 (not at all) to 1 (all the way).</param>
+    public PlayerHabits Toward(PlayerHabits target, float share)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return share <= 0f
+            ? this
+            : new PlayerHabits(
+                CarryPatience + (target.CarryPatience - CarryPatience) * share,
+                ForwardRisk + (target.ForwardRisk - ForwardRisk) * share);
+    }
+
     private static float InRange(float value, float minimum, float maximum, string name)
     {
         if (!float.IsFinite(value) || value < minimum || value > maximum)

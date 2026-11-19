@@ -12,14 +12,16 @@ public sealed class PlayerDecisionContext
     /// <param name="playerId">The player whose independent instructions will be evaluated.</param>
     /// <param name="tactic">The tactic the player's team has been given; the high press when omitted.</param>
     /// <param name="habits">How this player tends to play; neutral when omitted.</param>
+    /// <param name="traits">What kind of person this player is; neutral when omitted.</param>
     /// <exception cref="InvalidOperationException">The player is not present in the snapshot.</exception>
-    public PlayerDecisionContext(MatchSnapshot match, int playerId, TeamTactic? tactic = null, PlayerHabits? habits = null)
+    public PlayerDecisionContext(MatchSnapshot match, int playerId, TeamTactic? tactic = null, PlayerHabits? habits = null, PlayerTraits? traits = null)
     {
         ArgumentNullException.ThrowIfNull(match);
 
         Match = match;
         Tactic = tactic ?? TeamTactic.HighPress;
         Habits = habits ?? PlayerHabits.Neutral;
+        Traits = traits ?? PlayerTraits.Neutral;
         Player = match.Players.FirstOrDefault(player => player.Id == playerId)
             ?? throw new InvalidOperationException($"Player {playerId} is not present in the match snapshot.");
     }
@@ -35,4 +37,7 @@ public sealed class PlayerDecisionContext
 
     /// <summary>Gets how this player tends to play.</summary>
     public PlayerHabits Habits { get; }
+
+    /// <summary>Gets what kind of person this player is.</summary>
+    public PlayerTraits Traits { get; }
 }
