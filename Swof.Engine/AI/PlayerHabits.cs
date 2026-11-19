@@ -52,6 +52,54 @@ public sealed record PlayerHabits
         ["passer"] = Passer
     };
 
+    /// <summary>Fewer spells than this on either side of a comparison teach nothing: the share kept would be mostly chance.</summary>
+    public const int MinimumSpellsToCompare = 5;
+
+    /// <summary>Patience gained for each unit by which long holds beat short ones for this player, more than for the court.</summary>
+    public const float PatiencePerKeptShare = 0.1f;
+
+    /// <summary>The share of a habit's distance from neutral it gives up each match, so habits settle rather than run to a bound.</summary>
+    public const float Settling = 0.05f;
+
+    /// <summary>
+    /// The habits a player comes out of a match with. He compares his own spells with each other: if his long holds
+    /// kept the ball better than his quick releases, by more than they did for everyone on the court, he becomes more
+    /// patient. Comparing a player with himself cancels his position on the court, and comparing that with the court
+    /// cancels what is true of every player (a long hold is always riskier), leaving what his attributes make of it.
+    /// Each match also gives up a little of every habit's distance from neutral, so habits settle where the evidence
+    /// and that pull balance.
+    /// </summary>
+    /// <param name="own">The player's own spells in the match.</param>
+    /// <param name="court">Every outfielder's spells in the match added together, his own included.</param>
+    /// <param name="rate">How fast he learns: 1 is the usual pace, 0 changes nothing.</param>
+    /// <returns>The new habits, kept within their bounds.</returns>
+    /// <remarks>
+    /// Nothing here is random, so a career replays from its seeds.
+    /// ponytail: forward risk only settles and does not learn. Judged by the share kept alone, a forward carry always
+    /// looks worse than a safe pass, and teams that learned it that way lost goals; it learns once a spell's worth
+    /// counts the ground gained.
+    /// </remarks>
+    public PlayerHabits After(PlayerSpells own, PlayerSpells court, float rate = 1f)
+    {
+        if (!float.IsFinite(rate) || rate < 0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rate), rate, "The learning rate must be finite and not negative.");
+        }
+
+        var patience = CarryPatience + rate * (PatiencePerKeptShare * Edge(own.Long, own.Short, court.Long, court.Short) - Settling * (CarryPatience - 1f));
+        var risk = ForwardRisk - rate * Settling * ForwardRisk;
+        return new PlayerHabits(
+            Math.Clamp(patience, MinimumCarryPatience, MaximumCarryPatience),
+            Math.Clamp(risk, MinimumForwardRisk, MaximumForwardRisk));
+    }
+
+    /// <summary>How much better spells of one kind kept the ball than the rest for the player, beyond the same for the court.</summary>
+    private static float Edge(SpellEnds own, SpellEnds ownRest, SpellEnds court, SpellEnds courtRest)
+    {
+        var counted = own.Spells >= MinimumSpellsToCompare && ownRest.Spells >= MinimumSpellsToCompare;
+        return counted ? own.KeptShare - ownRest.KeptShare - (court.KeptShare - courtRest.KeptShare) : 0f;
+    }
+
     private static float InRange(float value, float minimum, float maximum, string name)
     {
         if (!float.IsFinite(value) || value < minimum || value > maximum)

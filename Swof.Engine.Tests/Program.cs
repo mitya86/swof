@@ -143,6 +143,8 @@ var tests = new (string Name, Action Test)[]
     ("a carrier who takes risks carries further toward goal", RiskyCarrierCarriesTowardGoal),
     ("a carrier who takes risks still shoots when open", RiskyCarrierStillShoots),
     ("habits outside their bounds are refused", HabitsOutsideBoundsAreRefused),
+    ("the spell ledger counts how each spell ended", SpellLedgerCountsHowSpellsEnded),
+    ("patience leans toward what kept the ball for the player and settles", HabitsLearnFromOwnSpells),
     ("a short touch passes and a held touch shoots", ShortTouchPassesAndHeldTouchShoots),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
@@ -168,7 +170,12 @@ var tests = new (string Name, Action Test)[]
 
 // "matches [count] [firstSeed] [equal] [home=half|up] [away=half|up] [home-up=metres] [away-up=metres] [home-behind=up] [home-ahead=half] [home-coach] ..." plays unattended matches instead of the scenarios.
 
-if (args.FirstOrDefault() == "matches")
+if (args.FirstOrDefault() == "matches" && args.Contains("learn"))
+{
+    // "matches 50 7 learn" keeps seed 7's squad together for 50 matches in which habits learn, then measures them.
+    Environment.ExitCode = MatchRunner.Learn(args.Length > 1 ? int.Parse(args[1]) : 50, args.Length > 2 ? int.Parse(args[2]) : 1) == 0 ? 0 : 1;
+}
+else if (args.FirstOrDefault() == "matches")
 {
     var count = args.Length > 1 ? int.Parse(args[1]) : 100;
     var firstSeed = args.Length > 2 ? int.Parse(args[2]) : 1;
@@ -4569,6 +4576,66 @@ static void HabitsOutsideBoundsAreRefused()
     }
 
     Assert(new PlayerHabits() == PlayerHabits.Neutral, "Default habits should be the neutral ones.");
+}
+
+static void SpellLedgerCountsHowSpellsEnded()
+{
+    var engine = MatchEngine.CreateDefault(PhysicsTuning.Default);
+    var state = engine.State;
+    var ledger = new SpellLedger();
+    var first = state.Players.Single(player => player.Id == 1);
+    var second = state.Players.Single(player => player.Id == 2);
+    var opponent = state.Players.First(player => player.Team == TeamSide.Away && !player.IsGoalkeeper);
+    void Watch(long tick) => ledger.Watch(MatchSnapshot.FromState(state) with { Tick = tick });
+
+    // Home attacks toward +X: the first player holds the ball a second and takes it 3 m forward, then a team-mate has it.
+    GivePossession(engine, first);
+    var start = state.Ball.Position;
+    Watch(0);
+    state.Ball.Position = start + new System.Numerics.Vector2(3f, 0f);
+    Watch(SpellLedger.LongSpellTicks + 10);
+    GivePossession(engine, second);
+    Watch(SpellLedger.LongSpellTicks + 11);
+    // The team-mate holds it briefly and the other team has it next.
+    Watch(SpellLedger.LongSpellTicks + 20);
+    GivePossession(engine, opponent);
+    Watch(SpellLedger.LongSpellTicks + 21);
+
+    var held = ledger.Of(first.Id);
+    Assert(held.Long == new SpellEnds(1, 0) && held.Forward == new SpellEnds(1, 0) && held.Spells == 1, $"A long forward spell that a team-mate took on should be kept, long and forward, got {held}.");
+    Assert(MathF.Abs(held.ForwardMetres - 3f) < 0.01f, $"The spell should count the 3 m carried, got {held.ForwardMetres}.");
+    var lost = ledger.Of(second.Id);
+    Assert(lost.Short == new SpellEnds(0, 1) && lost.Other == new SpellEnds(0, 1), $"A short spell the other team ended should be lost, short and not forward, got {lost}.");
+    Assert(ledger.Of(opponent.Id).Spells == 0, "A spell still running should not be counted yet.");
+}
+
+static void HabitsLearnFromOwnSpells()
+{
+    var even = new SpellEnds(50, 50);
+    var court = new PlayerSpells(even, even, even, even, 0f);
+    // Long holds and forward carries kept the ball for this player far more often than his other spells.
+    var worked = new PlayerSpells(new SpellEnds(9, 1), new SpellEnds(5, 5), new SpellEnds(9, 1), new SpellEnds(5, 5), 0f);
+    var failed = new PlayerSpells(new SpellEnds(1, 9), new SpellEnds(5, 5), new SpellEnds(1, 9), new SpellEnds(5, 5), 0f);
+    var after = PlayerHabits.Neutral.After(worked, court);
+    Assert(after.CarryPatience > 1f, $"Holding on, when it kept the ball, should be done more, got {after.CarryPatience}.");
+    after = PlayerHabits.Neutral.After(failed, court);
+    Assert(after.CarryPatience < 1f, $"Holding on, when it lost the ball, should be done less, got {after.CarryPatience}.");
+    Assert(PlayerHabits.Neutral.After(worked, court, rate: 0f) == PlayerHabits.Neutral, "A player who does not learn should not change.");
+
+    // A few spells teach nothing; the habit only settles toward neutral.
+    var few = new PlayerSpells(new SpellEnds(2, 0), new SpellEnds(1, 1), new SpellEnds(2, 0), new SpellEnds(1, 1), 0f);
+    var runner = PlayerHabits.Runner;
+    after = runner.After(few, court);
+    Assert(after.CarryPatience < runner.CarryPatience && after.CarryPatience > 1f && after.ForwardRisk < runner.ForwardRisk, "Without evidence habits should only settle toward neutral.");
+
+    // The same evidence match after match brings a habit to rest inside its bounds, not against one.
+    var habits = PlayerHabits.Neutral;
+    for (var match = 0; match < 200; match++)
+    {
+        habits = habits.After(worked, court);
+    }
+
+    Assert(habits.CarryPatience < PlayerHabits.MaximumCarryPatience, $"Habits should settle inside their bounds, got {habits.CarryPatience}.");
 }
 
 static void TeamFollowsScore()
