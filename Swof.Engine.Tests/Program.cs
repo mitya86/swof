@@ -148,6 +148,9 @@ var tests = new (string Name, Action Test)[]
     ("a player who fits his group develops and one who does not fades", PlayerDevelopsByFit),
     ("a nervous carrier passes sooner when a close match is in its second half", NervousCarrierRushesWhenItMatters),
     ("an undisciplined presser slides through the carrier's back", RecklessPresserSlidesThroughBack),
+    ("a coach who reads his players puts them where their attributes suit", CoachPlacesPlayersByAttributes),
+    ("a coach tries each tactic, then starts with the one that has worked", CoachLearnsTacticFromResults),
+    ("a disciplined player who fits takes up his coach's style", DisciplinedPlayerTakesUpCoachStyle),
     ("a short touch passes and a held touch shoots", ShortTouchPassesAndHeldTouchShoots),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
@@ -178,6 +181,16 @@ if (args.FirstOrDefault() == "matches" && args.Contains("learn"))
     // "matches 50 7 learn" keeps seed 7's squad together for 50 matches in which habits learn, then measures them;
     // "learn traits" also gives every player traits from the seed.
     Environment.ExitCode = MatchRunner.Learn(args.Length > 1 ? int.Parse(args[1]) : 50, args.Length > 2 ? int.Parse(args[2]) : 1, withTraits: args.Contains("traits")) == 0 ? 0 : 1;
+}
+else if (args.FirstOrDefault() == "matches" && args.Contains("coach-learns"))
+{
+    // "matches 40 1 coach-learns" keeps seed 1's squad together under a coach who picks his tactic from his results.
+    Environment.ExitCode = MatchRunner.CoachLearns(args.Length > 1 ? int.Parse(args[1]) : 40, args.Length > 2 ? int.Parse(args[2]) : 1) == 0 ? 0 : 1;
+}
+else if (args.FirstOrDefault() == "matches" && args.Contains("arrange"))
+{
+    // "matches 100 1 arrange" plays each seed with Home as rolled and as a coach who reads his players places them.
+    Environment.ExitCode = MatchRunner.Arrange(args.Length > 1 ? int.Parse(args[1]) : 100, args.Length > 2 ? int.Parse(args[2]) : 1) == 0 ? 0 : 1;
 }
 else if (args.FirstOrDefault() == "matches")
 {
@@ -4726,6 +4739,54 @@ static void RecklessPresserSlidesThroughBack()
     }
 
     Assert(slid, "A presser with no discipline should sometimes slide in behind a carrier who shields the ball.");
+}
+
+static void CoachPlacesPlayersByAttributes()
+{
+    // Rolled into the wrong slots: the fastest is at fixo, the best tackler at pivo.
+    PlayerAttributes[] players =
+    [
+        PlayerAttributes.DefaultOutfield with { Speed = 15, BallControl = 8, Tackling = 4 },
+        PlayerAttributes.DefaultOutfield with { Speed = 9, BallControl = 9, Tackling = 8 },
+        PlayerAttributes.DefaultOutfield with { Speed = 10, BallControl = 9, Tackling = 7 },
+        PlayerAttributes.DefaultOutfield with { Speed = 5, BallControl = 12, Tackling = 15 }
+    ];
+    var placed = new CoachModel(insight: 1f).Arrange(players);
+    Assert(placed[0] == 3 && placed[3] == 0, $"The tackler should play fixo and the fastest pivo, got {string.Join(",", placed)}.");
+    Assert(new CoachModel().Arrange(players).SequenceEqual([0, 1, 2, 3]), "A coach of usual insight should leave players where they are.");
+}
+
+static void CoachLearnsTacticFromResults()
+{
+    var coach = new CoachModel();
+    var tried = new List<TeamTactic>();
+    var pays = new Dictionary<TeamTactic, int> { [TeamTactic.HighPress] = -1, [TeamTactic.HalfCourt] = 2, [TeamTactic.PushUp] = 0 };
+    for (var match = 0; match < CoachModel.Tactics.Count * CoachModel.TrialsPerTactic + 5; match++)
+    {
+        var tactic = coach.UsualTactic;
+        tried.Add(tactic);
+        coach.Record(tactic, pays[tactic]);
+    }
+
+    Assert(CoachModel.Tactics.All(tactic => tried.Count(t => t == tactic) >= CoachModel.TrialsPerTactic), "A coach should give every tactic its trials.");
+    Assert(tried.TakeLast(5).All(tactic => tactic == TeamTactic.HalfCourt), "After the trials a coach should start with the tactic that has worked best.");
+}
+
+static void DisciplinedPlayerTakesUpCoachStyle()
+{
+    var spells = new PlayerSpells(new SpellEnds(5, 5), new SpellEnds(5, 5), new SpellEnds(5, 5), new SpellEnds(5, 5), 0f);
+    var coach = new CoachModel(asks: PlayerHabits.Runner);
+    var keen = PlayerHabits.Neutral;
+    var wilful = PlayerHabits.Neutral;
+    for (var match = 0; match < 10; match++)
+    {
+        keen = new PlayerTraits(discipline: 1f).Develop(keen, spells, spells, fit: 1f, asked: coach.Asks);
+        wilful = new PlayerTraits(discipline: 0f).Develop(wilful, spells, spells, fit: 1f, asked: coach.Asks);
+    }
+
+    Assert(keen.CarryPatience > 1.2f && keen.ForwardRisk > 0.05f, $"A disciplined player should move toward what his coach asks, got {keen.CarryPatience} and {keen.ForwardRisk}.");
+    Assert(wilful == PlayerHabits.Neutral, $"A player with no discipline should not, got {wilful.CarryPatience}.");
+    Assert(PlayerTraits.Fit(0.2f, [0.2f, 0.2f, 0.9f]) < PlayerTraits.Fit(0.2f, [0.2f, 0.2f, 0.2f]), "A coach of another temperament should lower a player's fit like a team-mate would.");
 }
 
 static void TeamFollowsScore()

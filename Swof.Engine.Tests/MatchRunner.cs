@@ -438,6 +438,62 @@ internal static class MatchRunner
         return broken;
     }
 
+    /// <summary>
+    /// Plays every seed twice, once with Home's outfielders as rolled and once placed by a coach who reads them
+    /// fully, and prints Home's goal difference both ways. Returns how many matches broke.
+    /// </summary>
+    internal static int Arrange(int count, int firstSeed)
+    {
+        var coach = new CoachModel(insight: 1f);
+        var broken = 0;
+        var moved = 0;
+        double rolled = 0, placed = 0;
+        foreach (var seed in Enumerable.Range(firstSeed, count))
+        {
+            var squad = Squad(seed);
+            var order = coach.Arrange(squad[..4]);
+            moved += order.Where((player, slot) => player != slot).Count();
+            var asRolled = Play(seed, fixedSquad: squad);
+            var asPlaced = Play(seed, fixedSquad: [.. order.Select(index => squad[index]), .. squad[4..]]);
+            broken += (asRolled.Fault is null ? 0 : 1) + (asPlaced.Fault is null ? 0 : 1);
+            rolled += asRolled.HomeScore - asRolled.AwayScore;
+            placed += asPlaced.HomeScore - asPlaced.AwayScore;
+        }
+
+        Console.WriteLine($"home goal difference per match: as rolled {rolled / count:+0.00;-0.00}, placed by the coach {placed / count:+0.00;-0.00} ({moved / (float)count:F1} of 4 players moved)");
+        return broken;
+    }
+
+    /// <summary>
+    /// Keeps the squad of <paramref name="firstSeed"/> together for <paramref name="count"/> matches with a coach for
+    /// Home who starts each match with the tactic his results favour, and prints what he learned.
+    /// Returns how many matches broke.
+    /// </summary>
+    internal static int CoachLearns(int count, int firstSeed)
+    {
+        var squad = Squad(firstSeed);
+        var coach = new CoachModel();
+        var broken = 0;
+        var chosen = new List<string>();
+        for (var match = 0; match < count; match++)
+        {
+            var tactic = coach.UsualTactic;
+            var result = Play(firstSeed + match, fixedSquad: squad, homeTactic: tactic);
+            broken += result.Fault is null ? 0 : 1;
+            coach.Record(tactic, result.HomeScore - result.AwayScore);
+            chosen.Add(tactic.Name);
+        }
+
+        foreach (var tactic in CoachModel.Tactics)
+        {
+            var (matches, difference) = coach.ResultsWith(tactic);
+            Console.WriteLine($"{tactic.Name,-11} {matches,3} matches, goal difference {difference / (float)Math.Max(1, matches):+0.00;-0.00} per match");
+        }
+
+        Console.WriteLine($"he now starts with {coach.UsualTactic.Name}; his last ten matches: {string.Join(", ", chosen.TakeLast(10))}");
+        return broken;
+    }
+
     /// <summary>The eight outfielders a seed rolls.</summary>
     private static PlayerAttributes[] Squad(int seed)
     {
