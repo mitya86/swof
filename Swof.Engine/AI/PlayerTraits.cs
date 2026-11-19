@@ -13,6 +13,9 @@ public sealed record PlayerTraits
     /// </summary>
     public const float FadePerMatch = 0.2f;
 
+    /// <summary>The share of the way to his coach's style a fully disciplined player who fits perfectly goes each match.</summary>
+    public const float AdoptPerMatch = 0.1f;
+
     /// <summary>The share of his usual patience a player with no composure loses when a close match is in its second half.</summary>
     public const float NervousRush = 0.4f;
 
@@ -32,7 +35,10 @@ public sealed record PlayerTraits
     /// <summary>How fast his habits follow what works for him: at 1 twice the usual pace, at 0 not at all.</summary>
     public float Learning { get; }
 
-    /// <summary>How far he keeps to what he is asked. Below 0.5 he sometimes slides in where he would foul.</summary>
+    /// <summary>
+    /// How far he keeps to what he is asked: how readily he takes up his coach's style, and, below 0.5, how often he
+    /// slides in where he would foul.
+    /// </summary>
     public float Discipline { get; }
 
     /// <summary>How he handles pressure. Below 0.5 he gets rid of the ball sooner when a close match is in its second half.</summary>
@@ -79,8 +85,9 @@ public sealed record PlayerTraits
     /// <param name="habits">His habits before the match.</param>
     /// <param name="own">His own spells in the match.</param>
     /// <param name="court">Every outfielder's spells in the match added together.</param>
-    /// <param name="fit">How well he fits his group, from <see cref="Fit"/>.</param>
-    public PlayerHabits Develop(PlayerHabits habits, PlayerSpells own, PlayerSpells court, float fit)
+    /// <param name="fit">How well he fits his group, from <see cref="Fit"/>; the coach's temperament counts in the group.</param>
+    /// <param name="asked">The habits his coach asks for, if he has a coach. He moves toward them by his discipline and fit.</param>
+    public PlayerHabits Develop(PlayerHabits habits, PlayerSpells own, PlayerSpells court, float fit, PlayerHabits? asked = null)
     {
         ArgumentNullException.ThrowIfNull(habits);
         if (!float.IsFinite(fit) || fit < 0f || fit > 1f)
@@ -88,7 +95,8 @@ public sealed record PlayerTraits
             throw new ArgumentOutOfRangeException(nameof(fit), fit, "Fit must be from 0 to 1.");
         }
 
-        return habits.After(own, court, rate: 2f * Learning * fit).Toward(PlayerHabits.Neutral, FadePerMatch * MathF.Max(0f, 1f - 2f * fit));
+        var developed = habits.After(own, court, rate: 2f * Learning * fit).Toward(PlayerHabits.Neutral, FadePerMatch * MathF.Max(0f, 1f - 2f * fit));
+        return asked is null ? developed : developed.Toward(asked, AdoptPerMatch * Discipline * fit);
     }
 
     /// <summary>
