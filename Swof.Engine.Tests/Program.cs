@@ -134,6 +134,10 @@ var tests = new (string Name, Action Test)[]
     ("a team told to push up marks further from its own goal", PushUpTeamMarksFurtherFromOwnGoal),
     ("a tactic reaches the team-mates of a person's player", TacticReachesTeammatesOfPersonsPlayer),
     ("a team told to follow the score pushes up when behind and waits when ahead late", TeamFollowsScore),
+    ("a patient carrier keeps the ball longer before passing", PatientCarrierKeepsBallLonger),
+    ("a carrier who takes risks carries further toward goal", RiskyCarrierCarriesTowardGoal),
+    ("a carrier who takes risks still shoots when open", RiskyCarrierStillShoots),
+    ("habits outside their bounds are refused", HabitsOutsideBoundsAreRefused),
     ("a short touch passes and a held touch shoots", ShortTouchPassesAndHeldTouchShoots),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
@@ -176,7 +180,15 @@ if (args.FirstOrDefault() == "matches")
         awaySpeed: Level("away-speed="),
         awayTechnique: Level("away-technique="),
         // "away-difficulty=easy" plays Away as the opponent of that level.
-        awayDifficulty: Difficulty.All.FirstOrDefault(level => args.Contains($"away-difficulty={level.Name}"))) == 0 ? 0 : 1;
+        awayDifficulty: Difficulty.All.FirstOrDefault(level => args.Contains($"away-difficulty={level.Name}")),
+        homeHabits: HabitsFor("home"),
+        awayHabits: HabitsFor("away")) == 0 ? 0 : 1;
+
+    // "away-habits=runner" gives every Away outfielder those habits (also passer, neutral).
+    PlayerHabits? HabitsFor(string side)
+    {
+        return PlayerHabits.ByName.FirstOrDefault(preset => args.Contains($"{side}-habits={preset.Key}")).Value;
+    }
 
     // "away-speed=6" gives every Away outfielder that speed; "away-technique=6" that ball control and tackling.
     byte Level(string option)
@@ -4277,6 +4289,112 @@ static void TacticReachesTeammatesOfPersonsPlayer()
     Assert(
         Changed(up).Length > 0 && Changed(up).All(id => high[id].Kind == PlayerInstructionKind.MarkOpponent),
         $"Push up should change only the markers on a person's team (changed {string.Join(",", Changed(up))}).");
+}
+
+static void PatientCarrierKeepsBallLonger()
+{
+    var passer = TicksBeforePass(PlayerHabits.Passer);
+    var usual = TicksBeforePass(PlayerHabits.Neutral);
+    var runner = TicksBeforePass(PlayerHabits.Runner);
+    Assert(
+        passer < usual && usual < runner && runner < int.MaxValue,
+        $"Every carrier should pass, later the more patient it is (passer {passer}, usual {usual}, runner {runner}).");
+
+    // An open Home fixo in its own half with a free team-mate ahead; every computer player decides through the controller.
+    static int TicksBeforePass(PlayerHabits habits)
+    {
+        var engine = MatchEngine.CreateDefault(userControlledTeam: null);
+        var state = engine.State;
+        var carrier = state.Players.Single(player => player.Id == 2);
+        carrier.Position = new Vector2(-4f, 0f);
+        carrier.Facing = Azimuth.East;
+        foreach (var other in state.Players.Where(player => player.Id != carrier.Id && player.Role == PlayerRole.Outfield))
+        {
+            other.Position = new Vector2(other.Team == TeamSide.Home ? -12f : 16f, other.Id - 5f);
+        }
+
+        state.Players.Single(player => player.Id == 3).Position = new Vector2(4f, -3f);
+        GivePossession(engine, carrier);
+        var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+        computers.SetHabits(carrier.Id, habits);
+        Assert(computers.HabitsOf(carrier.Id) == habits, "The controller should keep the habits it was given.");
+        var nobody = new Dictionary<int, PlayerInput>();
+        for (var tick = 1; tick <= 180; tick++)
+        {
+            engine.StepTick(computers.CreateControlFrame(engine.CurrentSnapshot, nobody));
+            if (computers.LastDecisions[carrier.Id] is { Kind: PlayerInstructionKind.RetainPossession, Input.ActionDown: true })
+            {
+                return tick;
+            }
+        }
+
+        return int.MaxValue;
+    }
+}
+
+static void RiskyCarrierCarriesTowardGoal()
+{
+    var usual = CarryX(PlayerHabits.Neutral);
+    var risky = CarryX(new PlayerHabits(forwardRisk: PlayerHabits.MaximumForwardRisk));
+    Assert(risky > usual + 0.1f, $"A carrier who takes risks should carry further forward (usual {usual:0.00}, risky {risky:0.00}).");
+
+    // Side on in its own half with a presser straight ahead: safe space is sideways, the goal is through the presser.
+    static float CarryX(PlayerHabits habits)
+    {
+        var engine = MatchEngine.CreateDefault(userControlledTeam: null);
+        var state = engine.State;
+        var carrier = state.Players.Single(player => player.Id == 2);
+        carrier.Position = new Vector2(-6f, 0f);
+        carrier.Facing = Azimuth.South;
+        foreach (var other in state.Players.Where(player => player.Id != carrier.Id))
+        {
+            other.Position = new Vector2(other.Team == TeamSide.Home ? -17f : 17f, other.Id - 5f);
+        }
+
+        state.Players.Single(player => player.Id == 10).Position = carrier.Position + new Vector2(2.5f, 0f);
+        GivePossession(engine, carrier);
+        // The snapshot is taken from the state, which GivePossession has just changed.
+        var snapshot = MatchSnapshot.FromState(state);
+        var computers = ComputerPlayerController.CreateDefault(snapshot);
+        computers.SetHabits(carrier.Id, habits);
+        computers.CreateControlFrame(snapshot, new Dictionary<int, PlayerInput>());
+        var decision = computers.LastDecisions[carrier.Id];
+        Assert(decision.Kind == PlayerInstructionKind.RetainPossession, $"The carrier should be carrying, not {decision.Kind}.");
+        return decision.Input.Move.X;
+    }
+}
+
+static void RiskyCarrierStillShoots()
+{
+    // The shooting chance the plain shooting scenario uses, 8 m out; forward risk must not turn the shot into a carry.
+    var (engine, computers, shooter) = CreateShootingChance(distanceFromGoalLine: 8f);
+    computers.SetHabits(shooter.Id, new PlayerHabits(carryPatience: PlayerHabits.MaximumCarryPatience, forwardRisk: PlayerHabits.MaximumForwardRisk));
+    engine.StepTick(PlayerInput.Empty, computers);
+    var kind = computers.LastDecisions[shooter.Id].Kind;
+    Assert(kind == PlayerInstructionKind.ShootAtGoal, $"A carrier who takes risks should still shoot when open, not {kind}.");
+}
+
+static void HabitsOutsideBoundsAreRefused()
+{
+    foreach (var make in new Func<PlayerHabits>[]
+    {
+        () => new PlayerHabits(carryPatience: PlayerHabits.MaximumCarryPatience + 0.01f),
+        () => new PlayerHabits(carryPatience: PlayerHabits.MinimumCarryPatience - 0.01f),
+        () => new PlayerHabits(forwardRisk: float.NaN),
+        () => new PlayerHabits(forwardRisk: PlayerHabits.MaximumForwardRisk + 0.01f)
+    })
+    {
+        try
+        {
+            make();
+            Assert(false, "Habits outside their bounds should be refused.");
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+        }
+    }
+
+    Assert(new PlayerHabits() == PlayerHabits.Neutral, "Default habits should be the neutral ones.");
 }
 
 static void TeamFollowsScore()

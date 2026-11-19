@@ -12,6 +12,7 @@ public sealed class ComputerPlayerController
     private readonly Dictionary<TeamSide, TeamTactic> _teamTactics = new();
     private readonly Dictionary<TeamSide, TacticByScore> _tacticsByScore = new();
     private readonly Dictionary<TeamSide, Coach> _coaches = new();
+    private readonly Dictionary<int, PlayerHabits> _habits = new();
     private IReadOnlyDictionary<int, PlayerDecision> _lastDecisions =
         new ReadOnlyDictionary<int, PlayerDecision>(new Dictionary<int, PlayerDecision>());
 
@@ -120,6 +121,18 @@ public sealed class ComputerPlayerController
         _coaches[team] = coach;
     }
 
+    /// <summary>Gives one player his own habits, read from his next decision on.</summary>
+    /// <param name="playerId">The player.</param>
+    /// <param name="habits">How he tends to play.</param>
+    public void SetHabits(int playerId, PlayerHabits habits)
+    {
+        ArgumentNullException.ThrowIfNull(habits);
+        _habits[playerId] = habits;
+    }
+
+    /// <summary>The habits one player decides with; neutral unless <see cref="SetHabits"/> gave him others.</summary>
+    public PlayerHabits HabitsOf(int playerId) => _habits.GetValueOrDefault(playerId) ?? PlayerHabits.Neutral;
+
     /// <summary>How many times each coached team has been given a different tactic.</summary>
     public int CoachChanges => _coaches.Values.Sum(coach => coach.Changes);
 
@@ -162,7 +175,7 @@ public sealed class ComputerPlayerController
                 ? configuredPriorities
                 : TacticalPriorities.Neutral;
             var decision = brain.Decide(
-                new PlayerDecisionContext(match, playerId, TacticNow(match, player.Team)),
+                new PlayerDecisionContext(match, playerId, TacticNow(match, player.Team), HabitsOf(playerId)),
                 priorities);
             decisions.Add(playerId, decision);
             inputs.Add(playerId, decision.Input);
