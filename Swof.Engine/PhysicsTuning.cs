@@ -161,7 +161,7 @@ public sealed record PhysicsTuning
     /// </summary>
     public float SlideFoulBehindDot { get; init; } = 0.9f;
     public float SlideLooseBallDeflectSpeedPerTick { get; init; } = 18f / 60f;
-    public int TapPassMaxTicks { get; init; } = 12;
+    public int TapPassMaxTicks { get; init; } = 10;
     /// <summary>Ground-pass pace chosen to keep short futsal combinations readable.</summary>
     public float PassSpeedPerTick { get; init; } = 20f / 60f;
     public float PassLiftPerTick { get; init; } = 0.12f;

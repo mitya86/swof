@@ -3073,6 +3073,16 @@ static void KickInTakerStandsUntilTheBallIsKicked()
     var collectedAt = state.ActivePlayer.Position;
     StepMany(engine, new PlayerInput(Vector2.UnitX, ActionDown: false), 20);
     Assert(state.ActivePlayer.Position.X > collectedAt.X + 0.5f, "Once he has the ball the stick is his.");
+
+    // A held kick finds nobody, so control stays on the taker, and once the ball is kicked he is free to move.
+    var shot = PutBallOut(TeamSide.Away, new Vector2(3f, FieldDimensions.Default.Top - 1f));
+    var shooter = shot.State.Players.Single(player => player.HasPossession);
+    StepMany(shot, PlayerInput.Empty, shot.Tuning.RestartDelayTicks + 1);
+    var shotSpot = shooter.Position;
+    StepMany(shot, new PlayerInput(inward, ActionDown: true), shot.Tuning.TapPassMaxTicks + 1);
+    Assert(!shooter.HasPossession && shooter.Position == shotSpot, "A held kick should be struck from the spot.");
+    StepMany(shot, new PlayerInput(inward, ActionDown: false), 20);
+    Assert(shooter.Position != shotSpot, "Once the ball is kicked the taker is free to move.");
 }
 
 static void ControlFollowsTheBallWhenDefending()
