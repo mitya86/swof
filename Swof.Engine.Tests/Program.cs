@@ -151,6 +151,7 @@ var tests = new (string Name, Action Test)[]
     ("a coach who reads his players puts them where their attributes suit", CoachPlacesPlayersByAttributes),
     ("a coach tries each tactic, then starts with the one that has worked", CoachLearnsTacticFromResults),
     ("a disciplined player who fits takes up his coach's style", DisciplinedPlayerTakesUpCoachStyle),
+    ("a training session develops the squad and replays from its seed", TrainingSessionDevelopsSquad),
     ("a short touch passes and a held touch shoots", ShortTouchPassesAndHeldTouchShoots),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
@@ -181,6 +182,11 @@ if (args.FirstOrDefault() == "matches" && args.Contains("learn"))
     // "matches 50 7 learn" keeps seed 7's squad together for 50 matches in which habits learn, then measures them;
     // "learn traits" also gives every player traits from the seed.
     Environment.ExitCode = MatchRunner.Learn(args.Length > 1 ? int.Parse(args[1]) : 50, args.Length > 2 ? int.Parse(args[2]) : 1, withTraits: args.Contains("traits")) == 0 ? 0 : 1;
+}
+else if (args.FirstOrDefault() == "matches" && args.Contains("train"))
+{
+    // "matches 40 1 train" trains seed 1's Home four for 40 sessions, then measures them against the same Away four.
+    Environment.ExitCode = MatchRunner.Train(args.Length > 1 ? int.Parse(args[1]) : 40, args.Length > 2 ? int.Parse(args[2]) : 1) == 0 ? 0 : 1;
 }
 else if (args.FirstOrDefault() == "matches" && args.Contains("coach-learns"))
 {
@@ -4787,6 +4793,30 @@ static void DisciplinedPlayerTakesUpCoachStyle()
     Assert(keen.CarryPatience > 1.2f && keen.ForwardRisk > 0.05f, $"A disciplined player should move toward what his coach asks, got {keen.CarryPatience} and {keen.ForwardRisk}.");
     Assert(wilful == PlayerHabits.Neutral, $"A player with no discipline should not, got {wilful.CarryPatience}.");
     Assert(PlayerTraits.Fit(0.2f, [0.2f, 0.2f, 0.9f]) < PlayerTraits.Fit(0.2f, [0.2f, 0.2f, 0.2f]), "A coach of another temperament should lower a player's fit like a team-mate would.");
+}
+
+static void TrainingSessionDevelopsSquad()
+{
+    var keen = new PlayerTraits(learning: 1f);
+    IReadOnlyList<SquadPlayer> squad =
+    [
+        new("Ana", PlayerAttributes.DefaultOutfield with { Tackling = 14, BallControl = 12 }, PlayerHabits.Neutral, keen),
+        new("Bo", PlayerAttributes.DefaultOutfield with { Speed = 13 }, PlayerHabits.Neutral, keen),
+        new("Cy", PlayerAttributes.DefaultOutfield, PlayerHabits.Runner, keen),
+        new("Di", PlayerAttributes.DefaultOutfield with { Speed = 14, BallControl = 6 }, PlayerHabits.Neutral, keen)
+    ];
+
+    var (own, court) = Training.Drill(squad, coach: null, seed: 3);
+    Assert(own.All(spells => spells.Spells > 0) && court.Spells >= own.Sum(spells => spells.Spells), "A drill should give every squad player spells on the ball.");
+
+    var once = Training.Session(squad, new CoachModel(), seed: 7);
+    var again = Training.Session(squad, new CoachModel(), seed: 7);
+    Assert(once.SequenceEqual(again), "The same session should replay from its seed.");
+    Assert(
+        once.Select(player => player.Name).SequenceEqual(squad.Select(player => player.Name))
+            && !once.Select(player => player.Habits).SequenceEqual(squad.Select(player => player.Habits)),
+        "A session should keep the squad and change how its players play.");
+    Assert(once[2].Habits.CarryPatience < PlayerHabits.Runner.CarryPatience, "Habits that are not borne out should settle back over a session.");
 }
 
 static void TeamFollowsScore()

@@ -494,6 +494,43 @@ internal static class MatchRunner
         return broken;
     }
 
+    /// <summary>
+    /// Trains Home's four outfielders from the squad of <paramref name="firstSeed"/> for <paramref name="count"/>
+    /// sessions, prints where their habits settled, then plays 100 matches with them trained and 100 untrained
+    /// against the same Away four. Returns how many matches broke.
+    /// </summary>
+    internal static int Train(int count, int firstSeed)
+    {
+        var squad = Squad(firstSeed);
+        IReadOnlyList<SquadPlayer> home = [.. squad[..4].Select((attributes, index) => new SquadPlayer($"player {index + 1}", attributes, PlayerHabits.Neutral, PlayerTraits.Neutral))];
+        var started = Environment.TickCount64;
+        for (var session = 0; session < count; session++)
+        {
+            home = Training.Session(home, coach: null, seed: firstSeed * 1000 + session);
+        }
+
+        Console.WriteLine($"{count} sessions in {(Environment.TickCount64 - started) / 1000f:F1} s");
+        foreach (var player in home)
+        {
+            var a = player.Attributes;
+            Console.WriteLine($"{player.Name}  speed {a.Speed,2}  ball control {a.BallControl,2}  tackling {a.Tackling,2}  ->  patience {player.Habits.CarryPatience:F2}");
+        }
+
+        var broken = 0;
+        float HomeLead(IReadOnlyList<PlayerHabits> given)
+        {
+            var results = Enumerable.Range(firstSeed + 1, 100).Select(seed => Play(seed, fixedSquad: squad, playerHabits: given)).ToArray();
+            broken += results.Count(r => r.Fault is not null);
+            return (float)results.Average(r => r.HomeScore - r.AwayScore);
+        }
+
+        // The outcomes list Home's four first, in squad order, then Away's.
+        var untrained = HomeLead(Enumerable.Repeat(PlayerHabits.Neutral, 8).ToArray());
+        var trained = HomeLead([.. home.Select(player => player.Habits), .. Enumerable.Repeat(PlayerHabits.Neutral, 4)]);
+        Console.WriteLine($"home goal difference per match over 100 matches: untrained {untrained:+0.00;-0.00}, trained {trained:+0.00;-0.00}");
+        return broken;
+    }
+
     /// <summary>The eight outfielders a seed rolls.</summary>
     private static PlayerAttributes[] Squad(int seed)
     {
