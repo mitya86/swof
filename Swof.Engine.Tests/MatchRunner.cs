@@ -555,9 +555,9 @@ internal static class MatchRunner
             // score 2.5 and squads of unequal players 2.2 (their shots from 6 to 10 m score less; why is not known).
             ("2 to 9 goals a match", $"{goals:0.0}", goals is >= 2 and <= 9),
             // The floor was 15 while a computer's taker ran a restart in: over 100 matches half of all shots were his,
-            // taken before anyone else touched the ball. Kicked as the rules say, equal squads shoot 15.8 times and
-            // mixed squads 13.0.
-            ("10 to 35 shots a match", $"{shots:0.0}", shots is >= 10 and <= 35),
+            // taken before anyone else touched the ball. Kicked as the rules say, equal squads shoot 13.3 times and
+            // mixed squads 11.6, and score as often as before.
+            ("8 to 35 shots a match", $"{shots:0.0}", shots is >= 8 and <= 35),
             ("at most 200 possessions a match", $"{possessions:0.0}", possessions <= 200),
             ("the ball goes forward at least 3.5 m a possession", $"{forward:0.0}", forward >= 3.5f),
         ];
