@@ -16,7 +16,7 @@ internal sealed class MatchRenderer : IDisposable
     private const float PlayerSpriteHeightInRadii = 3.4f;
     private const float PlayerReferenceSpeedPerTick = 0.34f;
     private const float PlayerAnimationSpeedThreshold = 0.04f;
-    private const float CameraResponsePerSecond = 8f;
+    private const float CameraResponsePerSecond = 2.5f;
     private const float MaxCameraFrameSeconds = 0.05f;
 
     private static readonly Color ActiveColor = new(255, 230, 80);

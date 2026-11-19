@@ -59,7 +59,7 @@ The pitch is not turned at half-time, so benches and substitution ticks stay on 
 
 ## 5. The camera
 
-A rectangle in metres, no rotation, no tilt. It shows half of the court's length (20 m of 40) and whatever height the window's shape gives; it zooms out when needed to keep both the ball and the active player in view with 2.25 m to spare. Its centre is 72% ball, 28% active player, pushed ahead of the ball by 14 ticks of the ball's velocity (capped at 24% of the view), and held inside the court plus 3 m. It follows its target with a smoothing rate of 8 a second. At the default window that is 63 px per metre: a player's body (0.53 m) is about 33 px in radius and the ball (0.21 m) 13 px. Until 17 Nov 2026 bodies were twice that size and the view 28 m.
+A rectangle in metres, no rotation, no tilt. It shows three quarters of the court's length (30 m of 40) and whatever height the window's shape gives; it zooms out when needed to keep both the ball and the active player in view with 2.25 m to spare. Its centre is halfway between the ball and the active player, held inside the court plus 3 m. It follows its target with a smoothing rate of 2.5 a second and is not pushed ahead of a moving ball. At the default window that is 43 px per metre: a player's body (0.53 m) is about 23 px in radius and the ball (0.21 m) 9 px. Until 19 Nov 2026 the view was 20 m, centred 72% on the ball, thrown up to 4.8 m ahead of it and followed at 8 a second; the owner found that dizzying and chose this from four played side by side. Until 17 Nov 2026 bodies were twice the size and the view 28 m.
 
 One effect exists: a 7 cm push away from a shot or a goalkeeper's catch, fading over 0.18 s. It is off unless F4 turns it on, and no launch option does.
 
