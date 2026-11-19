@@ -27,7 +27,11 @@ public sealed class ShootingChancePattern : IPlayerPattern<ShootingChance>
         var player = context.Player;
         if (context.Match.IsBallOutOfPlay
             || player.Role != PlayerRole.Outfield
-            || !player.HasPossession)
+            || !player.HasPossession
+            // A restart is passed to a team-mate.
+            // ponytail: that includes a free kick, which may be shot. Tell the kinds apart once the computer has
+            // free-kick play; the snapshot does not say which restart this is after play resumes.
+            || context.Match.RestartTakerId == player.Id)
         {
             return false;
         }

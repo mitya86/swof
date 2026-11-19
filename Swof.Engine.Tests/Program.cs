@@ -108,6 +108,9 @@ var tests = new (string Name, Action Test)[]
     ("opponents are moved back from a kick-in", OpponentsAreMovedBackFromKickIn),
     ("opponents stay five metres from a kick-in until it is played", OpponentsStayAwayFromKickInUntilPlayed),
     ("a kick-in is kicked, not run in", KickInTakerStandsUntilTheBallIsKicked),
+    ("a computer's kick-in taker stands and passes to a team-mate", ComputerKickInTakerStandsAndPasses),
+    ("a computer's kick-in taker kicks with nobody free and does not shoot", ComputerKickInTakerKicksWithNobodyFreeAndDoesNotShoot),
+    ("a person's restart is not taken for them", PersonsRestartIsNotTakenForThem),
     ("control follows the ball while the other team carries it", ControlFollowsTheBallWhenDefending),
     ("a restart not played in four seconds goes to the other team", RestartNotPlayedInFourSecondsGoesToOtherTeam),
     ("button held through a stoppage does not kick on resume", ButtonHeldThroughStoppageDoesNotKickOnResume),
@@ -148,7 +151,7 @@ var tests = new (string Name, Action Test)[]
     ("the other team waits outside the centre circle until the kickoff is played", OtherTeamWaitsOutsideCentreCircleAtKickoff),
     ("a tap at the kickoff reaches a team-mate", TapAtKickoffReachesTeamMate),
     ("ball carried over the touchline is out against the carrier", BallCarriedOverTouchlineIsOutAgainstCarrier),
-    ("computer corner taker carries the ball into the court", ComputerCornerTakerCarriesBallIntoCourt),
+    ("computer corner taker weighs the court, not the space beyond the lines", ComputerCornerTakerCarriesBallIntoCourt),
     ("goalkeeper smothers a ball dribbled straight at it", GoalkeeperSmothersBallDribbledStraightAtIt),
     ("adjacent opponents do not swap the ball every tick", AdjacentOpponentsDoNotSwapBallEveryTick),
     ("a pass goes past an opponent standing beside its line", PassGoesPastOpponentBesideItsLine),
@@ -3041,6 +3044,85 @@ static void OpponentsAreMovedBackFromKickIn()
 
     StepMany(engine, PlayerInput.Empty, engine.Tuning.RestartDelayTicks + 1);
     Assert(taker.HasPossession, "A crowding opponent should not win the ball as play resumes.");
+}
+
+static void ComputerKickInTakerStandsAndPasses()
+{
+    var engine = PutBallOut(TeamSide.Home, new Vector2(3f, FieldDimensions.Default.Top - 1f));
+    var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    var state = engine.State;
+    while (state.IsBallOutOfPlay)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+    }
+
+    var taker = state.Players.Single(player => player.HasPossession);
+    Assert(taker.Team == TeamSide.Away, "The computer's team should have the kick-in.");
+    // One tick of play first: it stands the taker's body inside the line.
+    engine.StepTick(PlayerInput.Empty, computers);
+    var spot = taker.Position;
+    for (var tick = 0; tick < 120 && taker.HasPossession; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        Assert(!taker.HasPossession || taker.Position == spot, $"The computer's kick-in taker should stand until it kicks (tick {tick}).");
+    }
+
+    Assert(!taker.HasPossession, "The computer's kick-in taker should kick within two seconds.");
+    for (var tick = 0; tick < 240 && state.Ball.PossessorId is null && !state.IsBallOutOfPlay; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+    }
+
+    var receiver = state.Players.SingleOrDefault(player => player.HasPossession);
+    Assert(receiver is { Team: TeamSide.Away } && receiver.Id != taker.Id, "The kick-in should be passed to a team-mate.");
+}
+
+static void ComputerKickInTakerKicksWithNobodyFreeAndDoesNotShoot()
+{
+    // Within shooting range of Home's goal: it may not shoot, and kicks sooner than a pass in open play is made.
+    var engine = PutBallOut(TeamSide.Home, new Vector2(FieldDimensions.Default.Left + 7f, FieldDimensions.Default.Top - 1f));
+    var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    var state = engine.State;
+    while (state.IsBallOutOfPlay)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+    }
+
+    var taker = state.Players.Single(player => player.HasPossession);
+    Assert(taker.Team == TeamSide.Away, "The computer's team should have the kick-in.");
+    var shots = 0;
+    for (var tick = 0; tick < 30 && taker.HasPossession; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        shots += state.FeedbackEvents.Count(feedback => feedback.Type == GameplayFeedbackType.ShotContact);
+    }
+
+    Assert(!taker.HasPossession, "The computer's kick-in taker should kick within half a second, free team-mate or not.");
+    Assert(shots == 0, "A kick-in is passed, not shot.");
+}
+
+static void PersonsRestartIsNotTakenForThem()
+{
+    // The computer plays everyone the person does not; it must leave the person's taker alone.
+    var kickIn = PutBallOut(TeamSide.Away, new Vector2(3f, FieldDimensions.Default.Top - 1f));
+    var kickoff = MatchEngine.CreateDefault(startWithKickoff: true);
+    foreach (var engine in new[] { kickIn, kickoff })
+    {
+        var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+        while (engine.State.IsBallOutOfPlay)
+        {
+            engine.StepTick(PlayerInput.Empty, computers);
+        }
+
+        var taker = engine.State.Players.Single(player => player.HasPossession);
+        Assert(taker.Team == TeamSide.Home && taker.Id == engine.State.ActivePlayerId, "The person's taker should be the player they control.");
+        for (var tick = 0; tick < 60; tick++)
+        {
+            engine.StepTick(PlayerInput.Empty, computers);
+        }
+
+        Assert(taker.HasPossession, "With no input the person's taker should still be standing over the ball a second later.");
+    }
 }
 
 static void KickInTakerStandsUntilTheBallIsKicked()

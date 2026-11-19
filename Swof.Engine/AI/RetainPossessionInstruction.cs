@@ -297,6 +297,9 @@ public sealed class RetainPossessionInstruction : IPlayerInstruction
     /// </summary>
     public const int OwnThirdPassDelayTicks = 10;
     internal const int NormalPassDelayTicks = 48;
+    /// <summary>Ticks a restart taker looks before passing to a free team-mate, and when he stops waiting for one.</summary>
+    internal const int RestartPassDelayTicks = 2;
+    internal const int RestartLastChanceTicks = 15;
     internal const int CarryCommitmentTicks = 10;
     internal const float PressureDistance = 3.25f;
 
@@ -336,8 +339,20 @@ public sealed class RetainPossessionInstruction : IPlayerInstruction
         var attackDirection = context.Player.Team == TeamSide.Home ? 1f : -1f;
         var isInOwnThird = context.Player.Position.X * attackDirection < -context.Match.Field.Length / 6f;
         var patience = context.Habits.CarryPatience;
+        var takesRestart = context.Match.RestartTakerId == context.Player.Id;
+        if (takesRestart && match.PassTargetId is null)
+        {
+            // He may not run the ball in. He looks for a free team-mate, and when none comes free he taps anyway:
+            // a tap always finds a team-mate, and that beats losing the ball to the count.
+            var kickNow = _possessionTicks >= RestartLastChanceTicks;
+            _releasePending = kickNow;
+            _committedPassDirection = Vector2.Zero;
+            return CreateCandidate(match.CarryScore, Vector2.Zero, actionDown: kickNow);
+        }
+
         var mayPass = match.PassTargetId is not null
-            && (_possessionTicks >= Patient(NormalPassDelayTicks, patience)
+            && (takesRestart && _possessionTicks >= RestartPassDelayTicks
+                || _possessionTicks >= Patient(NormalPassDelayTicks, patience)
                 || _possessionTicks >= (isInOwnThird ? OwnThirdPassDelayTicks : Patient(MinimumPassDelayTicks, patience))
                     && match.NearestOpponentDistance <= PressureDistance);
         if (mayPass)
