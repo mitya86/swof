@@ -338,7 +338,7 @@ public sealed class RetainPossessionInstruction : IPlayerInstruction
         _possessionTicks++;
         var attackDirection = context.Player.Team == TeamSide.Home ? 1f : -1f;
         var isInOwnThird = context.Player.Position.X * attackDirection < -context.Match.Field.Length / 6f;
-        var patience = context.Habits.CarryPatience;
+        var patience = context.Habits.CarryPatience * context.Traits.PatienceNow(context.Match);
         var takesRestart = context.Match.RestartTakerId == context.Player.Id;
         if (takesRestart && match.PassTargetId is null)
         {

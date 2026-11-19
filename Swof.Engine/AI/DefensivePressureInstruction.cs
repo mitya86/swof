@@ -158,7 +158,7 @@ public sealed class PressureBallCarrierInstruction : IPlayerInstruction
             // Turn onto the carrier first, then press once: the engine starts the slide on the press.
             var direction = toCarrier / carrierDistance;
             var isFacingCarrier = Vector2.Dot(context.Player.Facing.ToUnitVector(), direction) >= TackleFacingCosine;
-            if (isFacingCarrier && WouldFoul(context, carrier))
+            if (isFacingCarrier && WouldFoul(context, carrier) && !GoesThroughWithIt(context))
             {
                 // A slide from here would go through the carrier's back: step round to the ball instead.
                 var toBall = context.Match.Ball.Position - context.Player.Position;
@@ -202,6 +202,11 @@ public sealed class PressureBallCarrierInstruction : IPlayerInstruction
             ball.Position,
             ball.Radius);
     }
+
+    // An undisciplined player sometimes slides in anyway; the roll is held a second so he does not change his mind every tick.
+    private static bool GoesThroughWithIt(PlayerDecisionContext context) =>
+        context.Traits.RecklessChance > 0f
+        && DecisionNoise.Roll(context.Match, context.Player.Id, purpose: 200, holdTicks: 60) < context.Traits.RecklessChance;
 
     private static Vector2 DirectionTo(Vector2 position, Vector2 target, float distance)
     {

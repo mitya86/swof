@@ -145,6 +145,9 @@ var tests = new (string Name, Action Test)[]
     ("habits outside their bounds are refused", HabitsOutsideBoundsAreRefused),
     ("the spell ledger counts how each spell ended", SpellLedgerCountsHowSpellsEnded),
     ("patience leans toward what kept the ball for the player and settles", HabitsLearnFromOwnSpells),
+    ("a player who fits his group develops and one who does not fades", PlayerDevelopsByFit),
+    ("a nervous carrier passes sooner when a close match is in its second half", NervousCarrierRushesWhenItMatters),
+    ("an undisciplined presser slides through the carrier's back", RecklessPresserSlidesThroughBack),
     ("a short touch passes and a held touch shoots", ShortTouchPassesAndHeldTouchShoots),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
@@ -172,8 +175,9 @@ var tests = new (string Name, Action Test)[]
 
 if (args.FirstOrDefault() == "matches" && args.Contains("learn"))
 {
-    // "matches 50 7 learn" keeps seed 7's squad together for 50 matches in which habits learn, then measures them.
-    Environment.ExitCode = MatchRunner.Learn(args.Length > 1 ? int.Parse(args[1]) : 50, args.Length > 2 ? int.Parse(args[2]) : 1) == 0 ? 0 : 1;
+    // "matches 50 7 learn" keeps seed 7's squad together for 50 matches in which habits learn, then measures them;
+    // "learn traits" also gives every player traits from the seed.
+    Environment.ExitCode = MatchRunner.Learn(args.Length > 1 ? int.Parse(args[1]) : 50, args.Length > 2 ? int.Parse(args[2]) : 1, withTraits: args.Contains("traits")) == 0 ? 0 : 1;
 }
 else if (args.FirstOrDefault() == "matches")
 {
@@ -196,7 +200,15 @@ else if (args.FirstOrDefault() == "matches")
         homeHabits: HabitsFor("home"),
         awayHabits: HabitsFor("away"),
         // "outcomes" prints how each player's spells on the ball ended, grouped by his attributes.
-        outcomes: args.Contains("outcomes")) == 0 ? 0 : 1;
+        outcomes: args.Contains("outcomes"),
+        homeTraits: TraitsFor("home"),
+        awayTraits: TraitsFor("away")) == 0 ? 0 : 1;
+
+    // "away-traits=reckless" gives every Away outfielder those traits (also nervous, neutral).
+    PlayerTraits? TraitsFor(string side)
+    {
+        return PlayerTraits.ByName.FirstOrDefault(preset => args.Contains($"{side}-traits={preset.Key}")).Value;
+    }
 
     // "away-habits=runner" gives every Away outfielder those habits (also passer, neutral).
     PlayerHabits? HabitsFor(string side)
@@ -4480,37 +4492,52 @@ static void PatientCarrierKeepsBallLonger()
     Assert(
         passer < usual && usual < runner && runner < int.MaxValue,
         $"Every carrier should pass, later the more patient it is (passer {passer}, usual {usual}, runner {runner}).");
+}
 
-    // An open Home fixo in its own half with a free team-mate ahead; every computer player decides through the controller.
-    static int TicksBeforePass(PlayerHabits habits)
+static void NervousCarrierRushesWhenItMatters()
+{
+    var calm = TicksBeforePass(PlayerHabits.Neutral, PlayerTraits.Neutral, period: 2);
+    var nervous = TicksBeforePass(PlayerHabits.Neutral, PlayerTraits.Nervous, period: 2);
+    var early = TicksBeforePass(PlayerHabits.Neutral, PlayerTraits.Nervous, period: 1);
+    Assert(nervous < calm, $"A nervous carrier should pass sooner late in a level match (calm {calm}, nervous {nervous}).");
+    Assert(early == TicksBeforePass(PlayerHabits.Neutral), $"Composure should not matter in the first half (nervous {early}).");
+}
+
+// An open Home ala in its own half with a free team-mate ahead; every computer player decides through the controller.
+static int TicksBeforePass(PlayerHabits habits, PlayerTraits? traits = null, int period = 1)
+{
+    var engine = MatchEngine.CreateDefault(userControlledTeam: null);
+    var state = engine.State;
+    state.Period = period;
+    var carrier = state.Players.Single(player => player.Id == 2);
+    carrier.Position = new Vector2(-4f, 0f);
+    carrier.Facing = Azimuth.East;
+    foreach (var other in state.Players.Where(player => player.Id != carrier.Id && player.Role == PlayerRole.Outfield))
     {
-        var engine = MatchEngine.CreateDefault(userControlledTeam: null);
-        var state = engine.State;
-        var carrier = state.Players.Single(player => player.Id == 2);
-        carrier.Position = new Vector2(-4f, 0f);
-        carrier.Facing = Azimuth.East;
-        foreach (var other in state.Players.Where(player => player.Id != carrier.Id && player.Role == PlayerRole.Outfield))
-        {
-            other.Position = new Vector2(other.Team == TeamSide.Home ? -12f : 16f, other.Id - 5f);
-        }
-
-        state.Players.Single(player => player.Id == 3).Position = new Vector2(4f, -3f);
-        GivePossession(engine, carrier);
-        var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
-        computers.SetHabits(carrier.Id, habits);
-        Assert(computers.HabitsOf(carrier.Id) == habits, "The controller should keep the habits it was given.");
-        var nobody = new Dictionary<int, PlayerInput>();
-        for (var tick = 1; tick <= 180; tick++)
-        {
-            engine.StepTick(computers.CreateControlFrame(engine.CurrentSnapshot, nobody));
-            if (computers.LastDecisions[carrier.Id] is { Kind: PlayerInstructionKind.RetainPossession, Input.ActionDown: true })
-            {
-                return tick;
-            }
-        }
-
-        return int.MaxValue;
+        other.Position = new Vector2(other.Team == TeamSide.Home ? -12f : 16f, other.Id - 5f);
     }
+
+    state.Players.Single(player => player.Id == 3).Position = new Vector2(4f, -3f);
+    GivePossession(engine, carrier);
+    var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    computers.SetHabits(carrier.Id, habits);
+    Assert(computers.HabitsOf(carrier.Id) == habits, "The controller should keep the habits it was given.");
+    if (traits is not null)
+    {
+        computers.SetTraits(carrier.Id, traits);
+    }
+
+    var nobody = new Dictionary<int, PlayerInput>();
+    for (var tick = 1; tick <= 180; tick++)
+    {
+        engine.StepTick(computers.CreateControlFrame(engine.CurrentSnapshot, nobody));
+        if (computers.LastDecisions[carrier.Id] is { Kind: PlayerInstructionKind.RetainPossession, Input.ActionDown: true })
+        {
+            return tick;
+        }
+    }
+
+    return int.MaxValue;
 }
 
 static void RiskyCarrierCarriesTowardGoal()
@@ -4636,6 +4663,69 @@ static void HabitsLearnFromOwnSpells()
     }
 
     Assert(habits.CarryPatience < PlayerHabits.MaximumCarryPatience, $"Habits should settle inside their bounds, got {habits.CarryPatience}.");
+}
+
+static void PlayerDevelopsByFit()
+{
+    Assert(PlayerTraits.Fit(0.5f, [0.5f, 0.5f]) == 1f && PlayerTraits.Fit(0.9f, [0.2f, 0.4f]) == 0f && PlayerTraits.Fit(0.3f, []) == 1f, "Fit should be 1 at the group's temperament and 0 half the scale away.");
+    Assert(MathF.Abs(PlayerTraits.Fit(0.6f, [0.4f]) - 0.6f) < 0.0001f, "Fit should fall with the distance from the group's temperament.");
+
+    var even = new SpellEnds(50, 50);
+    var court = new PlayerSpells(even, even, even, even, 0f);
+    var worked = new PlayerSpells(new SpellEnds(9, 1), new SpellEnds(5, 5), new SpellEnds(9, 1), new SpellEnds(5, 5), 0f);
+    Assert(PlayerTraits.Neutral.Develop(PlayerHabits.Neutral, worked, court, fit: 1f) == PlayerHabits.Neutral.After(worked, court), "Neutral traits in a group he fits should learn exactly as habits do.");
+
+    // The same player, with the same evidence every match, in a group he fits and in one he does not.
+    var fitting = PlayerHabits.Neutral;
+    var misfit = PlayerHabits.Neutral;
+    var quick = PlayerHabits.Neutral;
+    var keen = new PlayerTraits(learning: 1f);
+    for (var match = 0; match < 10; match++)
+    {
+        fitting = PlayerTraits.Neutral.Develop(fitting, worked, court, fit: 1f);
+        misfit = PlayerTraits.Neutral.Develop(misfit, worked, court, fit: 0.2f);
+        quick = keen.Develop(quick, worked, court, fit: 1f);
+    }
+
+    Assert(fitting.CarryPatience > misfit.CarryPatience + 0.05f, $"A player should develop further where he fits (fits {fitting.CarryPatience}, does not {misfit.CarryPatience}).");
+    Assert(quick.CarryPatience > fitting.CarryPatience, $"A keen learner should develop faster (keen {quick.CarryPatience}, usual {fitting.CarryPatience}).");
+
+    // Moved to a group he does not fit at all, what he had learned fades.
+    var moved = fitting;
+    for (var match = 0; match < 10; match++)
+    {
+        moved = PlayerTraits.Neutral.Develop(moved, worked, court, fit: 0f);
+    }
+
+    Assert(moved.CarryPatience < 1f + (fitting.CarryPatience - 1f) * 0.2f, $"What he learned should fade in a group he does not fit (was {fitting.CarryPatience}, now {moved.CarryPatience}).");
+
+    foreach (var make in new Func<PlayerTraits>[] { () => new PlayerTraits(learning: 1.01f), () => new PlayerTraits(temperament: -0.01f), () => new PlayerTraits(composure: float.NaN) })
+    {
+        try
+        {
+            make();
+            Assert(false, "Traits outside 0 to 1 should be refused.");
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+        }
+    }
+}
+
+static void RecklessPresserSlidesThroughBack()
+{
+    var (engine, computers, presser) = CreatePressingDuel(
+        presserDistance: PressureBallCarrierInstruction.TackleRange - 0.2f,
+        carrierShieldsBall: true);
+    computers.SetTraits(presser.Id, PlayerTraits.Reckless);
+    var slid = false;
+    for (var tick = 0; tick < 240 && !slid; tick++)
+    {
+        engine.StepTick(PlayerInput.Empty, computers);
+        slid = presser.IsSliding || engine.State.LastEvent.Type == MatchEventType.Foul;
+    }
+
+    Assert(slid, "A presser with no discipline should sometimes slide in behind a carrier who shields the ball.");
 }
 
 static void TeamFollowsScore()

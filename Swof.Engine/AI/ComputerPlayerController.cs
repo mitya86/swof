@@ -13,6 +13,7 @@ public sealed class ComputerPlayerController
     private readonly Dictionary<TeamSide, TacticByScore> _tacticsByScore = new();
     private readonly Dictionary<TeamSide, Coach> _coaches = new();
     private readonly Dictionary<int, PlayerHabits> _habits = new();
+    private readonly Dictionary<int, PlayerTraits> _traits = new();
     private IReadOnlyDictionary<int, PlayerDecision> _lastDecisions =
         new ReadOnlyDictionary<int, PlayerDecision>(new Dictionary<int, PlayerDecision>());
 
@@ -133,6 +134,18 @@ public sealed class ComputerPlayerController
     /// <summary>The habits one player decides with; neutral unless <see cref="SetHabits"/> gave him others.</summary>
     public PlayerHabits HabitsOf(int playerId) => _habits.GetValueOrDefault(playerId) ?? PlayerHabits.Neutral;
 
+    /// <summary>Gives one player his traits, read from his next decision on.</summary>
+    /// <param name="playerId">The player.</param>
+    /// <param name="traits">What kind of person he is.</param>
+    public void SetTraits(int playerId, PlayerTraits traits)
+    {
+        ArgumentNullException.ThrowIfNull(traits);
+        _traits[playerId] = traits;
+    }
+
+    /// <summary>The traits one player decides with; neutral unless <see cref="SetTraits"/> gave him others.</summary>
+    public PlayerTraits TraitsOf(int playerId) => _traits.GetValueOrDefault(playerId) ?? PlayerTraits.Neutral;
+
     /// <summary>How many times each coached team has been given a different tactic.</summary>
     public int CoachChanges => _coaches.Values.Sum(coach => coach.Changes);
 
@@ -175,7 +188,7 @@ public sealed class ComputerPlayerController
                 ? configuredPriorities
                 : TacticalPriorities.Neutral;
             var decision = brain.Decide(
-                new PlayerDecisionContext(match, playerId, TacticNow(match, player.Team), HabitsOf(playerId)),
+                new PlayerDecisionContext(match, playerId, TacticNow(match, player.Team), HabitsOf(playerId), TraitsOf(playerId)),
                 priorities);
             decisions.Add(playerId, decision);
             inputs.Add(playerId, decision.Input);
