@@ -204,11 +204,13 @@ public sealed class MatchEngine
     /// <param name="deltaSeconds">Elapsed presentation time to add to the fixed-tick accumulator.</param>
     /// <param name="inputBuffer">The active user's buffered input.</param>
     /// <param name="computerPlayers">The controller that supplies unassigned outfield inputs.</param>
+    /// <param name="afterTick">Called with the snapshot after each tick, for anything that must see every tick.</param>
     /// <returns>The number of fixed simulation ticks processed.</returns>
     public int Step(
         float deltaSeconds,
         PlayerInputBuffer inputBuffer,
-        ComputerPlayerController computerPlayers)
+        ComputerPlayerController computerPlayers,
+        Action<MatchSnapshot>? afterTick = null)
     {
         ArgumentNullException.ThrowIfNull(inputBuffer);
         ArgumentNullException.ThrowIfNull(computerPlayers);
@@ -227,6 +229,7 @@ public sealed class MatchEngine
             };
             var frame = computerPlayers.CreateControlFrame(CurrentSnapshot, assignedInputs);
             AdvanceOneTick(frame);
+            afterTick?.Invoke(CurrentSnapshot);
             _accumulatedSeconds -= Tuning.TickSeconds;
             ticks++;
         }

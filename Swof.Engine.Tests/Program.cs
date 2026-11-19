@@ -81,6 +81,7 @@ var tests = new (string Name, Action Test)[]
     ("gravity returns loose ball to ground", GravityReturnsLooseBallToGround),
     ("render snapshot interpolates between ticks", RenderSnapshotInterpolatesBetweenTicks),
     ("input buffer preserves a quick tap until fixed ticks consume it", InputBufferPreservesQuickTap),
+    ("a frame of several ticks shows each tick to whoever watches", FrameShowsEachTickToWatcher),
     ("action feedback events are ordered and emitted exactly once", ActionFeedbackEventsAreExactlyOnce),
     ("feedback routes only to the local team", FeedbackRoutesOnlyToLocalTeam),
     ("feedback stereo pan follows event direction", FeedbackStereoPanFollowsEventDirection),
@@ -152,6 +153,7 @@ var tests = new (string Name, Action Test)[]
     ("a coach tries each tactic, then starts with the one that has worked", CoachLearnsTacticFromResults),
     ("a disciplined player who fits takes up his coach's style", DisciplinedPlayerTakesUpCoachStyle),
     ("a training session develops the squad and replays from its seed", TrainingSessionDevelopsSquad),
+    ("a career develops after a match and is saved and loaded whole", CareerDevelopsAndIsSavedWhole),
     ("a short touch passes and a held touch shoots", ShortTouchPassesAndHeldTouchShoots),
     ("goalkeeper guards from inside its own area", GoalkeeperGuardsFromInsideOwnArea),
     ("set goalkeeper is beaten from range but not from distance", SetGoalkeeperIsBeatenFromRangeButNotFromDistance),
@@ -2105,6 +2107,18 @@ static void InputBufferPreservesQuickTap()
     Assert(ticks == 2, "The accumulated time should consume the buffered press and release on separate ticks.");
     Assert(engine.State.Ball.PossessorId is null, "The preserved quick tap should execute a pass.");
     Assert(inputBuffer.PendingActionTransitions == 0, "Both buffered transitions should be consumed.");
+}
+
+static void FrameShowsEachTickToWatcher()
+{
+    var engine = MatchEngine.CreateDefault();
+    var computers = ComputerPlayerController.CreateDefault(engine.CurrentSnapshot);
+    var seen = new List<long>();
+    var first = engine.State.Tick;
+    var ticks = engine.Step(engine.Tuning.TickSeconds * 3.5f, new PlayerInputBuffer(), computers, match => seen.Add(match.Tick));
+    Assert(
+        ticks == 3 && seen.SequenceEqual([first + 1, first + 2, first + 3]),
+        $"Each tick of the frame should be shown once, in order (saw {string.Join(", ", seen)} for {ticks} ticks).");
 }
 
 static void ActionFeedbackEventsAreExactlyOnce()
@@ -4817,6 +4831,47 @@ static void TrainingSessionDevelopsSquad()
             && !once.Select(player => player.Habits).SequenceEqual(squad.Select(player => player.Habits)),
         "A session should keep the squad and change how its players play.");
     Assert(once[2].Habits.CarryPatience < PlayerHabits.Runner.CarryPatience, "Habits that are not borne out should settle back over a session.");
+}
+
+static void CareerDevelopsAndIsSavedWhole()
+{
+    Assert(Career.New(5).ToJson() == Career.New(5).ToJson() && Career.New(5).ToJson() != Career.New(6).ToJson(), "A seed should always roll the same career.");
+
+    var career = Career.New(5);
+    var lineup = career.Lineup();
+    var (own, court) = Training.Drill(lineup, career.Coach, seed: 1);
+    var tactic = career.Coach.UsualTactic;
+    career.AfterMatch(own, court, tactic, goalDifference: 2);
+    Assert(career.MatchesPlayed == 1 && career.Coach.ResultsWith(tactic) == (1, 2), "A finished match should be counted and its result remembered.");
+    Assert(
+        career.Squad.Select(player => player.Name).Order().SequenceEqual(lineup.Select(player => player.Name).Order())
+            && !career.Squad.Select(player => player.Habits).SequenceEqual(lineup.Select(player => player.Habits)),
+        "A match and its training should keep the squad and change how its players play.");
+
+    var path = Path.Combine(Path.GetTempPath(), $"swof-career-{Environment.ProcessId}.json");
+    try
+    {
+        career.Save(path);
+        var loaded = Career.LoadOrNew(path, seed: 99);
+        Assert(loaded.ToJson() == career.ToJson() && loaded.Coach.UsualTactic == career.Coach.UsualTactic, "A saved career should load as it was.");
+    }
+    finally
+    {
+        File.Delete(path);
+    }
+
+    Assert(Career.LoadOrNew(path, seed: 5).ToJson() == Career.New(5).ToJson(), "With no file a new career should be rolled.");
+    foreach (var broken in new[] { "not json", Career.New(5).ToJson().Replace("\"Version\": 1", "\"Version\": 2"), Career.New(5).ToJson().Replace("\"CarryPatience\": 1", "\"CarryPatience\": 9"), Career.New(5).ToJson().Replace("\"Habits\"", "\"Habit\"") })
+    {
+        try
+        {
+            Career.FromJson(broken);
+            Assert(false, "A file that is not a career of this version should be refused.");
+        }
+        catch (InvalidDataException)
+        {
+        }
+    }
 }
 
 static void TeamFollowsScore()

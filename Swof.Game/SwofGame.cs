@@ -29,6 +29,10 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
     private IReadOnlyList<TouchPoint> _remainingTouches = [];
     private readonly string? _capturePath;
     private readonly bool _opponentCoach;
+    private readonly string? _careerPath;
+    private readonly Career? _career;
+    private SpellLedger? _careerLedger;
+    private TeamTactic? _careerTactic;
     private MatchRenderer? _renderer;
     private MatchFeedbackPlayer? _feedbackPlayer;
     private SpriteFont? _font;
@@ -61,9 +65,16 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         // A different seed each match, so the computer players do not replay the same one.
         var tuning = PhysicsTuningStore.LoadOrDefault();
         var level = _flow.Difficulty;
+        var outfield = level.Squad(MatchEngine.DefaultSquad, TeamSide.Away).ToArray();
+        var lineup = _career?.Lineup();
+        for (var slot = 0; slot < (lineup?.Count ?? 0); slot++)
+        {
+            outfield[slot] = lineup![slot].Attributes;
+        }
+
         _engine = MatchEngine.CreateDefault(
             tuning,
-            outfieldAttributes: level.Squad(MatchEngine.DefaultSquad, TeamSide.Away),
+            outfieldAttributes: outfield,
             seed: Environment.TickCount,
             startWithKickoff: true);
         _computerPlayers = ComputerPlayerController.CreateDefault(_engine.CurrentSnapshot);
@@ -81,7 +92,40 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
             _computerPlayers.SetCoach(TeamSide.Away, new Coach(TeamSide.Away, TacticByScore.ChaseAndHold(matchSeconds)));
         }
 
+        if (_career is not null && lineup is not null)
+        {
+            // The coach sets out his squad and picks the tactic; the person can still change it during the match.
+            foreach (var (id, player) in HomeOutfielders().Zip(lineup))
+            {
+                _computerPlayers.SetHabits(id, player.Habits);
+                _computerPlayers.SetTraits(id, player.Traits);
+            }
+
+            _flow.SetTactic(_career.Coach.UsualTactic);
+            _careerTactic = _flow.Tactic;
+            _careerLedger = new SpellLedger();
+        }
+
         _computerPlayers.SetTactic(TeamSide.Home, _flow.Tactic);
+    }
+
+    private int[] HomeOutfielders() =>
+        [.. _engine.State.Players.Where(player => player.Team == TeamSide.Home && !player.IsGoalkeeper).Select(player => player.Id)];
+
+    /// <summary>At full time the career develops from the match, trains and is saved, once per match.</summary>
+    private void FinishCareerMatch()
+    {
+        if (_career is null || _careerLedger is null || _careerTactic is null || !_engine.CurrentSnapshot.IsMatchOver)
+        {
+            return;
+        }
+
+        var match = _engine.CurrentSnapshot;
+        var court = _careerLedger.Counts.Values.Aggregate(default(PlayerSpells), (sum, spells) => sum + spells);
+        // ponytail: the training session runs here on the game thread, a short hitch at full time; move it off the thread if it shows.
+        _career.AfterMatch([.. HomeOutfielders().Select(_careerLedger.Of)], court, _careerTactic, match.HomeScore - match.AwayScore);
+        _career.Save(_careerPath!);
+        _careerLedger = null;
     }
 
     public SwofGame(SwofGameLaunchOptions? launchOptions = null)
@@ -90,6 +134,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         _opponentTactic = launchOptions.OpponentTactic;
         _opponentCoach = launchOptions.OpponentCoach;
         _demoAction = launchOptions.DemoAction;
+        _careerPath = launchOptions.CareerPath;
+        _career = _careerPath is null ? null : Career.LoadOrNew(_careerPath, Environment.TickCount);
         // Demos, captured frames and --start-paused open in a match, as they did before there was a start screen.
         var startScreen = _demoAction == MatchDemoAction.None
             && (launchOptions.StartScreen || (launchOptions.CapturePath is null && !launchOptions.StartPaused));
@@ -274,7 +320,8 @@ internal sealed class SwofGame : Microsoft.Xna.Framework.Game
         if (!_flow.IsMenuOpen)
         {
             _inputBuffer.Capture(input);
-            _engine.Step(deltaSeconds, _inputBuffer, _computerPlayers);
+            _engine.Step(deltaSeconds, _inputBuffer, _computerPlayers, _careerLedger is null ? null : _careerLedger.Watch);
+            FinishCareerMatch();
         }
 
         _feedbackPlayer?.Update(
