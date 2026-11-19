@@ -182,7 +182,9 @@ if (args.FirstOrDefault() == "matches")
         // "away-difficulty=easy" plays Away as the opponent of that level.
         awayDifficulty: Difficulty.All.FirstOrDefault(level => args.Contains($"away-difficulty={level.Name}")),
         homeHabits: HabitsFor("home"),
-        awayHabits: HabitsFor("away")) == 0 ? 0 : 1;
+        awayHabits: HabitsFor("away"),
+        // "outcomes" prints how each player's spells on the ball ended, grouped by his attributes.
+        outcomes: args.Contains("outcomes")) == 0 ? 0 : 1;
 
     // "away-habits=runner" gives every Away outfielder those habits (also passer, neutral).
     PlayerHabits? HabitsFor(string side)
