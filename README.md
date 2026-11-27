@@ -8,24 +8,28 @@ This repository starts a clean .NET 5v5 futsal engine inspired by one-button arc
 - `Swof.Game`: primary MonoGame 3.8.5 desktop host with fixed-step simulation, interpolated presentation, and batched rendering.
 - `Swof.Windows`: retained WPF tuning and reference host during the MonoGame transition.
 - `Swof.Engine.Tests`: small dependency-free behavior test runner.
+- `Swof.Droid`: optional Android host that compiles the same game sources against MonoGame 3.8.5 for Android. It is not in `Swof.sln`; it needs the `android` workload and an Android SDK.
 
 ## Current Controls
 
-- Arrow keys, WASD, D-pad, or left stick: move the active outfield player. When the goalkeeper holds the ball, aim distribution without moving the keeper.
-- Space or gamepad A: tap for a targeted pass, hold beyond the tap window to shoot, or tackle when out of possession.
+- Arrow keys, WASD, D-pad, left stick, or drag on the left half of the screen: move the active outfield player. When the goalkeeper holds the ball, aim distribution without moving the keeper.
+- Space, gamepad A, or tap the right half of the screen: tap for a targeted pass, hold beyond the tap window to shoot, or tackle when out of possession.
 - Direction immediately after shot contact: bend sideways, drive forward, or loft backward relative to the shot.
+- P, or the pause button in the top-right corner: open the pause menu to resume, change tactic, or leave the match. T or gamepad Y also cycles the team's tactic (High Press, Half Court, Push Up).
 - R or gamepad Start: skip the short pause before a restart. Play resumes on its own after about a second.
-- A match is two three-minute halves on a stopped clock (`HalfLengthSeconds` in the tuning). After full time, R or gamepad Start begins a new match; there is no menu yet.
+- A match is two three-minute halves on a stopped clock (`HalfLengthSeconds` in the tuning). The host opens on a start screen (Play / Difficulty). After full time, a result screen offers a new match or a return to the start screen.
 - F1: reload the persisted physics-tuning profile.
 - F2: cycle between dry, connected, and arcade action feedback for direct comparison.
 - F3: toggle the compact match HUD and full diagnostic HUD.
 - F4: toggle the optional camera contact response (disabled by default).
 - F11: toggle fullscreen.
+- Escape or gamepad Back: quit.
 
 For repeatable presentation captures, the MonoGame host also accepts
 `--feedback=dry|connected|arcade` and `--demo-action=pass|shot`. These launch-only
 options play one deterministic input sequence and do not alter normal controls.
-- Escape or gamepad Back: quit.
+
+A career run is started with `--career=<path>`. The host loads or creates a squad and coach at that file, and it develops and saves them at each full time.
 
 ## MVP Behaviors
 
@@ -40,6 +44,7 @@ options play one deterministic input sequence and do not alter normal controls.
 - Possession, dribbling, loose ball movement, kicking, and simple tackling.
 - Goal detection.
 - Kick-ins, corners and goal clearances awarded against the team that last touched the ball, resuming automatically. The taker is placed on the spot and opponents are moved back 5 m; the match clock stops while the ball is out.
+- Start, pause, and full-time menus, plus an optional career mode that keeps a squad and coach between launches.
 
 ## Simulation And Rendering
 
@@ -65,7 +70,7 @@ This keeps match logic replayable while allowing smooth modern rendering over pi
 ## Useful Commands
 
 ```powershell
-dotnet tool restore --tool-manifest Swof.Game\.config\dotnet-tools.json
+dotnet tool restore --tool-manifest .config\dotnet-tools.json
 dotnet run --project Swof.Game\Swof.Game.csproj
 dotnet run --project Swof.Windows\Swof.Windows.csproj
 dotnet run --project Swof.Engine.Tests\Swof.Engine.Tests.csproj
@@ -75,7 +80,9 @@ dotnet build Swof.sln
 .\.agents\skills\swof-validation\scripts\Invoke-SwofChecks.ps1 -Mode Smoke
 ```
 
-The repository uses the .NET 10 SDK. MonoGame content tools are pinned by the game project's local tool manifest and restored automatically during builds; the explicit restore command above is safe to run after cloning.
+On macOS or Linux, `tools/check.sh fast` (or `full`) is the same quality gate used in CI.
+
+The repository uses the .NET 10 SDK. MonoGame content tools are pinned in the repository-root tool manifest (`.config/dotnet-tools.json`) and restored automatically during builds; the explicit restore command above is safe to run after cloning.
 
 The three `Invoke-SwofChecks` modes run the executable behavior scenarios plus progressively broader quality gates. `Smoke` launches the MonoGame host for a bounded interval and captures startup errors; it does not replace hands-on evaluation of motion, pacing, controls, or touch.
 
